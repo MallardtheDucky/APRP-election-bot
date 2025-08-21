@@ -1,4 +1,3 @@
-
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -24,7 +23,6 @@ class Setup(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="add_region",
         description="Add a US state (by abbreviation) to this guild's election regions"
@@ -47,7 +45,6 @@ class Setup(commands.Cog):
         )
         await interaction.response.send_message(f"✅ Added region `{state}`.", ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="remove_region",
         description="Remove a US state from this guild's regions"
@@ -70,7 +67,6 @@ class Setup(commands.Cog):
         )
         await interaction.response.send_message(f"✅ Removed region `{state}`.", ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="show_config",
         description="Show current election configuration"
@@ -92,7 +88,6 @@ class Setup(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="list_regions",
         description="List all the US states you've added as regions"
@@ -109,7 +104,6 @@ class Setup(commands.Cog):
                 ephemeral=True
             )
 
-    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="set_start",
         description="Set the start date & time for your election (format: YYYY-MM-DD HH:MM)"

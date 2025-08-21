@@ -143,30 +143,36 @@ REGIONS = {
 }
 
 def calculate_region_medians(custom_regions=None) -> Dict[str, Dict[str, float]]:
-    """Calculate median percentages for each region"""
+    """Calculate summed percentages for each region, normalized to 100%"""
     region_medians = {}
 
     # Use custom regions if provided, otherwise use default REGIONS
     regions_to_use = custom_regions if custom_regions else REGIONS
 
     for region, states in regions_to_use.items():
-        republican_values = []
-        democrat_values = []
-        other_values = []
+        total_republican = 0
+        total_democrat = 0
+        total_other = 0
+        valid_states = 0
 
         for state in states:
             # Convert to uppercase to match STATE_DATA keys
             state_key = state.upper()
             if state_key in STATE_DATA:
-                republican_values.append(STATE_DATA[state_key]["republican"])
-                democrat_values.append(STATE_DATA[state_key]["democrat"])
-                other_values.append(STATE_DATA[state_key]["other"])
+                total_republican += STATE_DATA[state_key]["republican"]
+                total_democrat += STATE_DATA[state_key]["democrat"]
+                total_other += STATE_DATA[state_key]["other"]
+                valid_states += 1
 
-        if republican_values:  # Only calculate if we have data
+        if valid_states > 0:  # Only calculate if we have data
+            # Calculate the total sum
+            regional_total = total_republican + total_democrat + total_other
+            
+            # Normalize to percentages that add up to exactly 100%
             region_medians[region] = {
-                "republican": statistics.median(republican_values),
-                "democrat": statistics.median(democrat_values),
-                "other": statistics.median(other_values)
+                "republican": (total_republican / regional_total) * 100,
+                "democrat": (total_democrat / regional_total) * 100,
+                "other": (total_other / regional_total) * 100
             }
 
     return region_medians
@@ -204,20 +210,24 @@ def calculate_seat_medians() -> Dict[str, Dict[str, float]]:
                 "other": STATE_DATA[state]["other"]
             })
 
-    # Calculate median for each seat based on its region
+    # Calculate summed percentages for each seat based on its region, normalized to 100%
     for region, seats in region_seats.items():
         if seats:
-            republican_values = [seat["republican"] for seat in seats]
-            democrat_values = [seat["democrat"] for seat in seats]
-            other_values = [seat["other"] for seat in seats]
-
+            total_republican = sum(seat["republican"] for seat in seats)
+            total_democrat = sum(seat["democrat"] for seat in seats)
+            total_other = sum(seat["other"] for seat in seats)
+            
+            # Calculate the total sum
+            regional_total = total_republican + total_democrat + total_other
+            
+            # Normalize to percentages that add up to exactly 100%
             region_median = {
-                "republican": statistics.median(republican_values),
-                "democrat": statistics.median(democrat_values),
-                "other": statistics.median(other_values)
+                "republican": (total_republican / regional_total) * 100,
+                "democrat": (total_democrat / regional_total) * 100,
+                "other": (total_other / regional_total) * 100
             }
 
-            # Assign the region median to each seat
+            # Assign the region percentage to each seat
             for seat in seats:
                 seat_medians[seat["seat_id"]] = {
                     "state": seat["state"],
@@ -253,9 +263,9 @@ def get_all_medians(client=None, guild_id=None) -> Dict[str, Dict]:
     }
 
 def print_region_medians():
-    """Print formatted region medians"""
+    """Print formatted region percentages"""
     medians = calculate_region_medians()
-    print("\n=== REGION MEDIANS ===")
+    print("\n=== REGION PERCENTAGES (Summed & Normalized) ===")
     for region, values in medians.items():
         print(f"\n{region}:")
         print(f"  Republican: {values['republican']:.1f}%")
@@ -263,9 +273,9 @@ def print_region_medians():
         print(f"  Other: {values['other']:.1f}%")
 
 def print_seat_medians():
-    """Print formatted seat medians"""
+    """Print formatted seat percentages"""
     medians = calculate_seat_medians()
-    print("\n=== SEAT MEDIANS (By Region) ===")
+    print("\n=== SEAT PERCENTAGES (By Region, Summed & Normalized) ===")
 
     # Group by region for better display
     by_region = {}
@@ -284,7 +294,7 @@ def print_seat_medians():
             print(f"    Other: {data['other']:.1f}%")
 
 def print_all_medians():
-    """Print all medians in a formatted way"""
+    """Print all percentages in a formatted way"""
     print_region_medians()
     print_seat_medians()
 

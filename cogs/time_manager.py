@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -42,7 +41,7 @@ class TimeManager(commands.Cog):
                 ]
             }
             col.insert_one(config)
-        return col, config
+        return config
 
     def _calculate_current_rp_time(self, config):
         """Calculate current RP time based on real time elapsed"""
@@ -65,17 +64,17 @@ class TimeManager(commands.Cog):
         month = rp_date.month
         year = rp_date.year
 
+        # Determine if this is a primary year (odd) or general year (even)
+        is_primary_year = year % 2 == 1  # Odd years are primary years
+        is_general_year = year % 2 == 0  # Even years are general years
+
         for phase in config["phases"]:
-            if phase["name"] == "Primary Election" and year > config["cycle_year"]:
-                # Primary election is in the year after cycle starts
+            if phase["name"] in ["Signups", "Primary Campaign", "Primary Election"] and is_primary_year:
+                # Primary phases occur in odd years
                 if month >= phase["start_month"] and month <= phase["end_month"]:
                     return phase["name"]
-            elif phase["name"] in ["General Campaign", "General Election"] and year > config["cycle_year"]:
-                # General phases are also in the year after cycle starts
-                if month >= phase["start_month"] and month <= phase["end_month"]:
-                    return phase["name"]
-            elif year == config["cycle_year"]:
-                # Signups and Primary Campaign are in the cycle year
+            elif phase["name"] in ["General Campaign", "General Election"] and is_general_year:
+                # General phases occur in even years  
                 if month >= phase["start_month"] and month <= phase["end_month"]:
                     return phase["name"]
 
@@ -121,7 +120,7 @@ class TimeManager(commands.Cog):
                         )
                         embed.add_field(
                             name="Current RP Date", 
-                            value=current_rp_date.strftime("%B %Y"), 
+                            value=current_rp_date.strftime("%B %d, %Y"), 
                             inline=True
                         )
                         try:
@@ -144,9 +143,9 @@ class TimeManager(commands.Cog):
                 # Check if we need to auto-reset cycle (after General Election ends)
                 if (current_phase == "General Election" and 
                     current_rp_date.month == 12 and current_rp_date.day >= 31):
-                    # Auto-reset to next cycle
-                    new_cycle_year = config["cycle_year"] + 4
-                    new_rp_date = datetime(new_cycle_year, 2, 1)
+                    # Auto-reset to next cycle (next odd year for signups)
+                    next_year = current_rp_date.year + 1
+                    new_rp_date = datetime(next_year, 2, 1)
 
                     col.update_one(
                         {"guild_id": config["guild_id"]},
@@ -154,7 +153,6 @@ class TimeManager(commands.Cog):
                             "$set": {
                                 "current_rp_date": new_rp_date,
                                 "current_phase": "Signups",
-                                "cycle_year": new_cycle_year,
                                 "last_real_update": datetime.utcnow()
                             }
                         }
@@ -167,7 +165,7 @@ class TimeManager(commands.Cog):
                             config["guild_id"], 
                             "General Election", 
                             "Signups", 
-                            new_cycle_year
+                            next_year
                         )
 
                     # Announce new cycle
@@ -175,13 +173,13 @@ class TimeManager(commands.Cog):
                     if channel:
                         embed = discord.Embed(
                             title="🔄 New Election Cycle Started!",
-                            description=f"The {new_cycle_year} election cycle has begun! We are now in the **Signups** phase.",
+                            description=f"The {next_year} election cycle has begun! We are now in the **Signups** phase.",
                             color=discord.Color.gold(),
                             timestamp=datetime.utcnow()
                         )
                         embed.add_field(
                             name="New RP Date", 
-                            value=new_rp_date.strftime("%B %Y"), 
+                            value=new_rp_date.strftime("%B %d, %Y"), 
                             inline=True
                         )
                         try:
@@ -192,7 +190,7 @@ class TimeManager(commands.Cog):
                 # Update voice channel if enabled and configured
                 if (config.get("update_voice_channels", False) and 
                     config.get("voice_channel_id")):
-                    date_string = current_rp_date.strftime("%B %Y")
+                    date_string = current_rp_date.strftime("%B %d, %Y")
                     channel = guild.get_channel(config["voice_channel_id"])
                     if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
                         try:
@@ -214,7 +212,7 @@ class TimeManager(commands.Cog):
         description="Show the current RP date and election phase"
     )
     async def current_time(self, interaction: discord.Interaction):
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
         current_rp_date, current_phase = self._calculate_current_rp_time(config)
 
         embed = discord.Embed(
@@ -278,7 +276,8 @@ class TimeManager(commands.Cog):
             )
             return
 
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
 
         # Determine the new phase
         new_phase = self._get_current_phase(new_date, config)
@@ -326,7 +325,8 @@ class TimeManager(commands.Cog):
             )
             return
 
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
 
         # Update current time before changing scale
         current_rp_date, current_phase = self._calculate_current_rp_time(config)
@@ -354,24 +354,27 @@ class TimeManager(commands.Cog):
         description="Reset the election cycle to the beginning (Signups phase)"
     )
     async def reset_cycle(self, interaction: discord.Interaction):
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
 
-        new_cycle_year = config["cycle_year"] + 4  # Next election cycle
+        current_year = config["current_rp_date"].year
+        # Find next odd year for signups
+        next_signup_year = current_year + 1 if current_year % 2 == 0 else current_year + 2
 
         col.update_one(
             {"guild_id": interaction.guild.id},
             {
                 "$set": {
-                    "current_rp_date": datetime(new_cycle_year, 2, 1),
+                    "current_rp_date": datetime(next_signup_year, 2, 1),
                     "current_phase": "Signups",
-                    "cycle_year": new_cycle_year,
+                    "cycle_year": next_signup_year,
                     "last_real_update": datetime.utcnow()
                 }
             }
         )
 
         await interaction.response.send_message(
-            f"✅ Election cycle reset! Now in Signups phase for {new_cycle_year} cycle.",
+            f"✅ Election cycle reset! Now in Signups phase for {next_signup_year} cycle.",
             ephemeral=True
         )
 
@@ -424,7 +427,8 @@ class TimeManager(commands.Cog):
         description="Show all election phases and their timing"
     )
     async def show_phases(self, interaction: discord.Interaction):
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
         current_rp_date, current_phase = self._calculate_current_rp_time(config)
 
         embed = discord.Embed(
@@ -447,29 +451,36 @@ class TimeManager(commands.Cog):
         embed.add_field(name="\u200b", value="\u200b", inline=True)  # Empty field for spacing
 
         # Add cycle schedule
-        cycle_year = config["cycle_year"]
-        schedule_text = "📋 **2-Year Cycle Schedule**\n\n"
+        current_year = current_rp_date.year
+        schedule_text = "📋 **Annual Election Cycle**\n\n"
 
-        for phase in config["phases"]:
-            if phase["name"] in ["Primary Election", "General Campaign", "General Election"]:
-                year = cycle_year + 1
+        # Show current and next year phases
+        for year_offset in [0, 1]:
+            year = current_year + year_offset
+            is_primary_year = year % 2 == 1
+            is_general_year = year % 2 == 0
+
+            if is_primary_year:
+                year_phases = [p for p in config["phases"] if p["name"] in ["Signups", "Primary Campaign", "Primary Election"]]
+                schedule_text += f"**{year} (Primary Year)**\n"
             else:
-                year = cycle_year
+                year_phases = [p for p in config["phases"] if p["name"] in ["General Campaign", "General Election"]]
+                schedule_text += f"**{year} (General Year)**\n"
 
-            # Add current phase indicator
-            if phase["name"] == current_phase:
-                phase_line = f"📍 **{phase['name']}** ⬅️ Current\n"
-            else:
-                phase_line = f"**{phase['name']}**\n"
-
-            phase_line += f"{year}, Months {phase['start_month']}-{phase['end_month']}\n\n"
-            schedule_text += phase_line
+            for phase in year_phases:
+                if phase["name"] == current_phase and year == current_year:
+                    phase_line = f"📍 {phase['name']} ⬅️ Current\n"
+                else:
+                    phase_line = f"{phase['name']}\n"
+                phase_line += f"Months {phase['start_month']}-{phase['end_month']}\n"
+                schedule_text += phase_line
+            schedule_text += "\n"
 
         embed.add_field(name="\u200b", value=schedule_text, inline=False)
 
         # Add cycle info
         cycle_info = f"ℹ️ **Cycle Info**\n"
-        cycle_info += f"Cycle Start Year: {cycle_year}\n"
+        cycle_info += f"Cycle Start Year: {config['cycle_year']}\n"
         cycle_info += f"Status: ▶️ Running"
 
         embed.add_field(name="\u200b", value=cycle_info, inline=False)
@@ -486,7 +497,8 @@ class TimeManager(commands.Cog):
         interaction: discord.Interaction, 
         channel: discord.VoiceChannel
     ):
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
 
         col.update_one(
             {"guild_id": interaction.guild.id},
@@ -504,7 +516,8 @@ class TimeManager(commands.Cog):
         description="Toggle automatic voice channel name updates with current RP date"
     )
     async def toggle_voice_updates(self, interaction: discord.Interaction):
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
 
         current_setting = config.get("update_voice_channels", True)
         new_setting = not current_setting
@@ -526,7 +539,8 @@ class TimeManager(commands.Cog):
         description="Manually update the configured voice channel with current RP date"
     )
     async def update_voice_channel(self, interaction: discord.Interaction):
-        col, config = self._get_time_config(interaction.guild.id)
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
 
         if not config.get("voice_channel_id"):
             await interaction.response.send_message(
@@ -536,7 +550,7 @@ class TimeManager(commands.Cog):
             return
 
         current_rp_date, current_phase = self._calculate_current_rp_time(config)
-        date_string = current_rp_date.strftime("%B %Y")
+        date_string = current_rp_date.strftime("%B %d, %Y")
 
         channel = interaction.guild.get_channel(config["voice_channel_id"])
         if not channel:

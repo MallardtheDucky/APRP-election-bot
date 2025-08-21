@@ -1,0 +1,668 @@
+
+from discord.ext import commands
+import discord
+from discord import app_commands
+from datetime import datetime
+
+class PartyManagement(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        print("Party Management cog loaded successfully")
+
+    def _get_parties_config(self, guild_id: int):
+        """Get or create parties configuration for a guild"""
+        col = self.bot.db["parties_config"]
+        config = col.find_one({"guild_id": guild_id})
+        if not config:
+            # Initialize with default parties
+            config = {
+                "guild_id": guild_id,
+                "parties": [
+                    {
+                        "name": "Democratic Party",
+                        "abbreviation": "D",
+                        "color": 0x0099FF,  # Blue
+                        "created_at": datetime.utcnow(),
+                        "is_default": True
+                    },
+                    {
+                        "name": "Republican Party",
+                        "abbreviation": "R",
+                        "color": 0xFF0000,  # Red
+                        "created_at": datetime.utcnow(),
+                        "is_default": True
+                    },
+                    {
+                        "name": "Independent",
+                        "abbreviation": "I",
+                        "color": 0x800080,  # Purple
+                        "created_at": datetime.utcnow(),
+                        "is_default": True
+                    }
+                ]
+            }
+            col.insert_one(config)
+        return col, config
+
+    @app_commands.command(
+        name="create_party",
+        description="Create a new political party (Admin only)"
+    )
+    @app_commands.describe(
+        name="Full name of the party",
+        abbreviation="Party abbreviation (1-3 characters)",
+        color="Hex color code (e.g., #FF0000 for red)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def create_party(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        abbreviation: str,
+        color: str = None
+    ):
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        # Validate inputs
+        if len(name) < 2 or len(name) > 50:
+            await interaction.response.send_message(
+                "❌ Party name must be between 2 and 50 characters.",
+                ephemeral=True
+            )
+            return
+
+        abbreviation = abbreviation.upper()
+        if len(abbreviation) < 1 or len(abbreviation) > 3:
+            await interaction.response.send_message(
+                "❌ Party abbreviation must be between 1 and 3 characters.",
+                ephemeral=True
+            )
+            return
+
+        # Check if party name or abbreviation already exists
+        for party in config["parties"]:
+            if party["name"].lower() == name.lower():
+                await interaction.response.send_message(
+                    f"❌ A party named '{name}' already exists.",
+                    ephemeral=True
+                )
+                return
+            if party["abbreviation"].upper() == abbreviation.upper():
+                await interaction.response.send_message(
+                    f"❌ A party with abbreviation '{abbreviation}' already exists.",
+                    ephemeral=True
+                )
+                return
+
+        # Parse color
+        party_color = 0x808080  # Default gray
+        if color:
+            try:
+                if color.startswith("#"):
+                    color = color[1:]
+                party_color = int(color, 16)
+                if party_color > 0xFFFFFF:
+                    raise ValueError("Color too large")
+            except (ValueError, TypeError):
+                await interaction.response.send_message(
+                    "❌ Invalid color format. Use hex format like #FF0000 or FF0000.",
+                    ephemeral=True
+                )
+                return
+
+        # Create new party
+        new_party = {
+            "name": name,
+            "abbreviation": abbreviation,
+            "color": party_color,
+            "created_at": datetime.utcnow(),
+            "is_default": False
+        }
+
+        config["parties"].append(new_party)
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"parties": config["parties"]}}
+        )
+
+        # Create embed to show the new party
+        embed = discord.Embed(
+            title="✅ Party Created Successfully",
+            color=discord.Color(party_color),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(name="Party Name", value=name, inline=True)
+        embed.add_field(name="Abbreviation", value=abbreviation, inline=True)
+        embed.add_field(name="Color", value=f"#{party_color:06X}", inline=True)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="list_parties",
+        description="List all available political parties"
+    )
+    async def list_parties(self, interaction: discord.Interaction):
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        embed = discord.Embed(
+            title="🏛️ Political Parties",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        for party in config["parties"]:
+            party_type = "Default" if party.get("is_default", False) else "Custom"
+            embed.add_field(
+                name=f"{party['name']} ({party['abbreviation']})",
+                value=f"Color: #{party['color']:06X}\nType: {party_type}",
+                inline=True
+            )
+
+        if not config["parties"]:
+            embed.description = "No parties configured yet."
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="remove_party",
+        description="Remove a political party (Admin only)"
+    )
+    @app_commands.describe(
+        party_name="Name of the party to remove"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def remove_party(
+        self,
+        interaction: discord.Interaction,
+        party_name: str
+    ):
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        # Find the party
+        party_found = None
+        for i, party in enumerate(config["parties"]):
+            if party["name"].lower() == party_name.lower():
+                party_found = i
+                break
+
+        if party_found is None:
+            await interaction.response.send_message(
+                f"❌ Party '{party_name}' not found.",
+                ephemeral=True
+            )
+            return
+
+        party = config["parties"][party_found]
+
+        # Prevent removal of default parties
+        if party.get("is_default", False):
+            await interaction.response.send_message(
+                f"❌ Cannot remove default party '{party['name']}'.",
+                ephemeral=True
+            )
+            return
+
+        # Remove the party
+        removed_party = config["parties"].pop(party_found)
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"parties": config["parties"]}}
+        )
+
+        await interaction.response.send_message(
+            f"✅ Removed party **{removed_party['name']}** ({removed_party['abbreviation']})",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="edit_party",
+        description="Edit an existing political party (Admin only)"
+    )
+    @app_commands.describe(
+        current_name="Current name of the party to edit",
+        new_name="New name for the party (optional)",
+        new_abbreviation="New abbreviation for the party (optional)",
+        new_color="New hex color code (optional)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def edit_party(
+        self,
+        interaction: discord.Interaction,
+        current_name: str,
+        new_name: str = None,
+        new_abbreviation: str = None,
+        new_color: str = None
+    ):
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        # Find the party
+        party_found = None
+        for i, party in enumerate(config["parties"]):
+            if party["name"].lower() == current_name.lower():
+                party_found = i
+                break
+
+        if party_found is None:
+            await interaction.response.send_message(
+                f"❌ Party '{current_name}' not found.",
+                ephemeral=True
+            )
+            return
+
+        party = config["parties"][party_found]
+        changes = []
+
+        # Update name if provided
+        if new_name:
+            if len(new_name) < 2 or len(new_name) > 50:
+                await interaction.response.send_message(
+                    "❌ Party name must be between 2 and 50 characters.",
+                    ephemeral=True
+                )
+                return
+
+            # Check if new name conflicts
+            for other_party in config["parties"]:
+                if other_party["name"].lower() == new_name.lower() and other_party != party:
+                    await interaction.response.send_message(
+                        f"❌ A party named '{new_name}' already exists.",
+                        ephemeral=True
+                    )
+                    return
+
+            config["parties"][party_found]["name"] = new_name
+            changes.append(f"Name: {party['name']} → {new_name}")
+
+        # Update abbreviation if provided
+        if new_abbreviation:
+            new_abbreviation = new_abbreviation.upper()
+            if len(new_abbreviation) < 1 or len(new_abbreviation) > 3:
+                await interaction.response.send_message(
+                    "❌ Party abbreviation must be between 1 and 3 characters.",
+                    ephemeral=True
+                )
+                return
+
+            # Check if new abbreviation conflicts
+            for other_party in config["parties"]:
+                if other_party["abbreviation"].upper() == new_abbreviation.upper() and other_party != party:
+                    await interaction.response.send_message(
+                        f"❌ A party with abbreviation '{new_abbreviation}' already exists.",
+                        ephemeral=True
+                    )
+                    return
+
+            config["parties"][party_found]["abbreviation"] = new_abbreviation
+            changes.append(f"Abbreviation: {party['abbreviation']} → {new_abbreviation}")
+
+        # Update color if provided
+        if new_color:
+            try:
+                if new_color.startswith("#"):
+                    new_color = new_color[1:]
+                party_color = int(new_color, 16)
+                if party_color > 0xFFFFFF:
+                    raise ValueError("Color too large")
+
+                config["parties"][party_found]["color"] = party_color
+                changes.append(f"Color: #{party['color']:06X} → #{party_color:06X}")
+            except (ValueError, TypeError):
+                await interaction.response.send_message(
+                    "❌ Invalid color format. Use hex format like #FF0000 or FF0000.",
+                    ephemeral=True
+                )
+                return
+
+        if not changes:
+            await interaction.response.send_message(
+                "❌ No changes provided. Specify at least one field to update.",
+                ephemeral=True
+            )
+            return
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"parties": config["parties"]}}
+        )
+
+        embed = discord.Embed(
+            title="✅ Party Updated Successfully",
+            color=discord.Color(config["parties"][party_found]["color"]),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="Changes Made",
+            value="\n".join([f"• {change}" for change in changes]),
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    def get_party_choices(self, guild_id: int) -> list:
+        """Get list of party choices for autocomplete"""
+        col, config = self._get_parties_config(guild_id)
+        return [
+            app_commands.Choice(name=party["name"], value=party["name"])
+            for party in config["parties"]
+        ]
+
+    @app_commands.command(
+        name="admin_reset_parties",
+        description="Reset all parties to default (Admin only - DESTRUCTIVE)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_reset_parties(
+        self,
+        interaction: discord.Interaction,
+        confirm: bool = False
+    ):
+        """Reset all parties to default configuration"""
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will remove ALL custom parties and reset to defaults:\n"
+                f"• Democratic Party (D)\n"
+                f"• Republican Party (R)\n"
+                f"• Independent (I)\n\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        col = self.bot.db["parties_config"]
+        
+        # Reset to default configuration
+        default_config = {
+            "guild_id": interaction.guild.id,
+            "parties": [
+                {
+                    "name": "Democratic Party",
+                    "abbreviation": "D",
+                    "color": 0x0099FF,  # Blue
+                    "created_at": datetime.utcnow(),
+                    "is_default": True
+                },
+                {
+                    "name": "Republican Party",
+                    "abbreviation": "R",
+                    "color": 0xFF0000,  # Red
+                    "created_at": datetime.utcnow(),
+                    "is_default": True
+                },
+                {
+                    "name": "Independent",
+                    "abbreviation": "I",
+                    "color": 0x800080,  # Purple
+                    "created_at": datetime.utcnow(),
+                    "is_default": True
+                }
+            ]
+        }
+
+        col.replace_one(
+            {"guild_id": interaction.guild.id},
+            default_config,
+            upsert=True
+        )
+
+        await interaction.response.send_message(
+            f"✅ All parties have been reset to defaults:\n"
+            f"• Democratic Party (D) - Blue\n"
+            f"• Republican Party (R) - Red\n"
+            f"• Independent (I) - Purple",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_bulk_create_parties",
+        description="Create multiple parties at once (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_bulk_create_parties(
+        self,
+        interaction: discord.Interaction,
+        party_data: str
+    ):
+        """Create multiple parties from formatted text: Name:Abbr:Color,Name:Abbr:Color"""
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        # Parse format: "Green Party:G:00FF00,Libertarian Party:L:FFFF00"
+        party_entries = party_data.split(",")
+        created_parties = []
+        errors = []
+
+        for entry in party_entries:
+            try:
+                parts = entry.strip().split(":")
+                if len(parts) != 3:
+                    errors.append(f"Invalid format: {entry}")
+                    continue
+
+                name, abbreviation, color = parts
+                abbreviation = abbreviation.upper()
+
+                # Validate name length
+                if len(name) < 2 or len(name) > 50:
+                    errors.append(f"Name too long/short: {name}")
+                    continue
+
+                # Validate abbreviation length
+                if len(abbreviation) < 1 or len(abbreviation) > 3:
+                    errors.append(f"Invalid abbreviation: {abbreviation}")
+                    continue
+
+                # Check for duplicates
+                duplicate = False
+                for party in config["parties"]:
+                    if party["name"].lower() == name.lower():
+                        errors.append(f"Name already exists: {name}")
+                        duplicate = True
+                        break
+                    if party["abbreviation"].upper() == abbreviation.upper():
+                        errors.append(f"Abbreviation already exists: {abbreviation}")
+                        duplicate = True
+                        break
+
+                if duplicate:
+                    continue
+
+                # Parse color
+                try:
+                    if color.startswith("#"):
+                        color = color[1:]
+                    party_color = int(color, 16)
+                    if party_color > 0xFFFFFF:
+                        raise ValueError("Color too large")
+                except (ValueError, TypeError):
+                    errors.append(f"Invalid color: {color}")
+                    continue
+
+                # Create party
+                new_party = {
+                    "name": name,
+                    "abbreviation": abbreviation,
+                    "color": party_color,
+                    "created_at": datetime.utcnow(),
+                    "is_default": False
+                }
+
+                config["parties"].append(new_party)
+                created_parties.append(f"{name} ({abbreviation})")
+
+            except Exception as e:
+                errors.append(f"Error with {entry}: {str(e)}")
+
+        if created_parties:
+            col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"parties": config["parties"]}}
+            )
+
+        response = f"✅ Created {len(created_parties)} parties"
+        if created_parties:
+            response += f":\n• {chr(10).join(created_parties)}"
+
+        if errors:
+            response += f"\n\n❌ Errors:\n• {chr(10).join(errors[:5])}"
+            if len(errors) > 5:
+                response += f"\n• ... and {len(errors) - 5} more errors"
+
+        await interaction.response.send_message(response, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_remove_all_custom_parties",
+        description="Remove all custom parties (keep defaults) (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_remove_all_custom_parties(
+        self,
+        interaction: discord.Interaction,
+        confirm: bool = False
+    ):
+        """Remove all non-default parties"""
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        custom_parties = [p for p in config["parties"] if not p.get("is_default", False)]
+
+        if not custom_parties:
+            await interaction.response.send_message(
+                "ℹ️ No custom parties found to remove.",
+                ephemeral=True
+            )
+            return
+
+        if not confirm:
+            party_names = [p["name"] for p in custom_parties]
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will remove {len(custom_parties)} custom parties:\n"
+                f"• {chr(10).join(party_names[:10])}"
+                f"{chr(10) + '• ... and more' if len(party_names) > 10 else ''}\n\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Keep only default parties
+        config["parties"] = [p for p in config["parties"] if p.get("is_default", False)]
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"parties": config["parties"]}}
+        )
+
+        await interaction.response.send_message(
+            f"✅ Removed {len(custom_parties)} custom parties. Only default parties remain.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_export_parties",
+        description="Export party configuration as text (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_export_parties(
+        self,
+        interaction: discord.Interaction,
+        format_type: str = "csv"
+    ):
+        """Export party data"""
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        if not config["parties"]:
+            await interaction.response.send_message(
+                "❌ No parties configured.",
+                ephemeral=True
+            )
+            return
+
+        if format_type.lower() == "csv":
+            lines = ["name,abbreviation,color,is_default,created_at"]
+            for party in config["parties"]:
+                created_date = party["created_at"].strftime("%Y-%m-%d") if party.get("created_at") else ""
+                lines.append(
+                    f"{party['name']},{party['abbreviation']},{party['color']:06X},"
+                    f"{party.get('is_default', False)},{created_date}"
+                )
+            export_text = "\n".join(lines)
+        elif format_type.lower() == "bulk":
+            # Format for bulk_create_parties command
+            lines = []
+            for party in config["parties"]:
+                lines.append(f"{party['name']}:{party['abbreviation']}:{party['color']:06X}")
+            export_text = ",".join(lines)
+        else:
+            # Text format
+            lines = []
+            for party in config["parties"]:
+                party_type = "Default" if party.get("is_default", False) else "Custom"
+                lines.append(
+                    f"{party['name']} ({party['abbreviation']}) - "
+                    f"#{party['color']:06X} - {party_type}"
+                )
+            export_text = "\n".join(lines)
+
+        await interaction.response.send_message(
+            f"📊 Party Export ({format_type.upper()}):\n```\n{export_text}\n```",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_modify_party_color",
+        description="Change the color of multiple parties at once (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_modify_party_color(
+        self,
+        interaction: discord.Interaction,
+        party_name: str,
+        new_color: str
+    ):
+        """Change a party's color"""
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        # Find the party
+        party_found = None
+        for i, party in enumerate(config["parties"]):
+            if party["name"].lower() == party_name.lower():
+                party_found = i
+                break
+
+        if party_found is None:
+            await interaction.response.send_message(
+                f"❌ Party '{party_name}' not found.",
+                ephemeral=True
+            )
+            return
+
+        # Parse color
+        try:
+            if new_color.startswith("#"):
+                new_color = new_color[1:]
+            party_color = int(new_color, 16)
+            if party_color > 0xFFFFFF:
+                raise ValueError("Color too large")
+        except (ValueError, TypeError):
+            await interaction.response.send_message(
+                "❌ Invalid color format. Use hex format like #FF0000 or FF0000.",
+                ephemeral=True
+            )
+            return
+
+        old_color = config["parties"][party_found]["color"]
+        config["parties"][party_found]["color"] = party_color
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"parties": config["parties"]}}
+        )
+
+        await interaction.response.send_message(
+            f"✅ Updated color for **{party_name}**: #{old_color:06X} → #{party_color:06X}",
+            ephemeral=True
+        )
+
+async def setup(bot):
+    await bot.add_cog(PartyManagement(bot))

@@ -18,8 +18,8 @@ if not db_password:
  #   return
 uri = f"mongodb+srv://{db_user}:{db_password}@election-bot.sxvcepu.mongodb.net/?retryWrites=true&w=majority&appName=election-bot"
 
-# Create a new client and connect to the server
-client = MongoClient(uri)
+# Create a new client and connect to the server with timeout
+client = MongoClient(uri, serverSelectionTimeoutMS=5000)
 
 # Send a ping to confirm a successful connection
 try:
@@ -33,5 +33,3 @@ async def setup(bot):
 #    bot.db = client.election_bot  # Set the database to election_bot
 
     await bot.add_cog(Db(bot))
-
-
