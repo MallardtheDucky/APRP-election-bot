@@ -1,4 +1,3 @@
-
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -121,7 +120,7 @@ class AllWinners(commands.Cog):
         primary_winners = []
         
         # Import ideology data for seat-based points
-        from ideology import STATE_DATA, calculate_region_medians, STATE_TO_SEAT
+        from cogs.ideology import STATE_DATA, calculate_region_medians, STATE_TO_SEAT
         
         # Get region medians for senate/governor seats
         region_medians = calculate_region_medians()
@@ -220,7 +219,7 @@ class AllWinners(commands.Cog):
         embed.add_field(
             name="🎯 What's Next?",
             value=f"These {len(winners)} candidates will now compete in the General Election!\n"
-                  "Points have been reset to 0 for the general campaign.",
+                  f"Points have been reset to 0 for the general campaign.",
             inline=False
         )
 
@@ -599,6 +598,228 @@ class AllWinners(commands.Cog):
             response += f"\n\n❌ Errors:\n• " + "\n• ".join(errors[:5])
 
         await interaction.response.send_message(response, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_general_points",
+        description="View all candidate points in general campaign phase (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_general_points(
+        self,
+        interaction: discord.Interaction,
+        sort_by: str = "points",
+        filter_state: str = None,
+        filter_party: str = None,
+        year: int = None
+    ):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
+
+        winners_col, winners_config = self._get_winners_config(interaction.guild.id)
+
+        # Get primary winners (candidates in general election)
+        candidates = [
+            w for w in winners_config["winners"] 
+            if w["year"] == target_year and w.get("primary_winner", False)
+        ]
+
+        if not candidates:
+            await interaction.response.send_message(
+                f"❌ No general election candidates found for {target_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Apply filters
+        if filter_state:
+            candidates = [c for c in candidates if c["state"].lower() == filter_state.lower()]
+        
+        if filter_party:
+            candidates = [c for c in candidates if c["party"].lower() == filter_party.lower()]
+
+        if not candidates:
+            await interaction.response.send_message(
+                "❌ No candidates found with those filters.",
+                ephemeral=True
+            )
+            return
+
+        # Sort candidates
+        if sort_by.lower() == "points":
+            candidates.sort(key=lambda x: x["points"], reverse=True)
+        elif sort_by.lower() == "votes":
+            candidates.sort(key=lambda x: x["votes"], reverse=True)
+        elif sort_by.lower() == "final_score":
+            candidates.sort(key=lambda x: x["final_score"], reverse=True)
+        elif sort_by.lower() == "corruption":
+            candidates.sort(key=lambda x: x["corruption"], reverse=True)
+        elif sort_by.lower() == "stamina":
+            candidates.sort(key=lambda x: x["stamina"], reverse=True)
+        else:
+            candidates.sort(key=lambda x: x["candidate"].lower())
+
+        # Create embed with top candidates
+        embed = discord.Embed(
+            title=f"📊 {target_year} General Campaign Points",
+            description=f"Sorted by {sort_by} • {len(candidates)} candidates",
+            color=discord.Color.purple(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Show top 15 candidates
+        top_candidates = candidates[:15]
+        candidate_list = ""
+        
+        for i, candidate in enumerate(top_candidates, 1):
+            user = interaction.guild.get_member(candidate["user_id"])
+            user_mention = user.mention if user else candidate["candidate"]
+            
+            candidate_list += (
+                f"**{i}.** {candidate['candidate']} ({candidate['party']})\n"
+                f"   └ {candidate['seat_id']} • Points: {candidate['points']:.2f} • "
+                f"Votes: {candidate['votes']} • Score: {candidate['final_score']:.2f}\n"
+                f"   └ Stamina: {candidate['stamina']} • Corruption: {candidate['corruption']} • {user_mention}\n\n"
+            )
+
+        embed.add_field(
+            name="🏆 Top Candidates",
+            value=candidate_list[:1024],  # Discord field limit
+            inline=False
+        )
+
+        # Summary stats
+        total_points = sum(c['points'] for c in candidates)
+        total_votes = sum(c['votes'] for c in candidates)
+        avg_corruption = sum(c['corruption'] for c in candidates) / len(candidates) if candidates else 0
+
+        embed.add_field(
+            name="📈 Summary Statistics",
+            value=f"**Total Candidates:** {len(candidates)}\n"
+                  f"**Total Points:** {total_points:.2f}\n"
+                  f"**Total Votes:** {total_votes:,}\n"
+                  f"**Avg Corruption:** {avg_corruption:.1f}",
+            inline=True
+        )
+
+        # Show filter info if applied
+        filter_info = ""
+        if filter_state:
+            filter_info += f"State: {filter_state} • "
+        if filter_party:
+            filter_info += f"Party: {filter_party} • "
+        if filter_info:
+            embed.add_field(
+                name="🔍 Active Filters",
+                value=filter_info.rstrip(" • "),
+                inline=True
+            )
+
+        if len(candidates) > 15:
+            embed.set_footer(text=f"Showing top 15 of {len(candidates)} candidates")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_candidate_details",
+        description="View detailed info for a specific general election candidate (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_candidate_details(
+        self,
+        interaction: discord.Interaction,
+        candidate_name: str,
+        year: int = None
+    ):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
+
+        winners_col, winners_config = self._get_winners_config(interaction.guild.id)
+
+        # Find the candidate
+        candidate = None
+        for w in winners_config["winners"]:
+            if (w["candidate"].lower() == candidate_name.lower() and 
+                w["year"] == target_year and
+                w.get("primary_winner", False)):
+                candidate = w
+                break
+
+        if not candidate:
+            await interaction.response.send_message(
+                f"❌ General election candidate '{candidate_name}' not found for {target_year}.",
+                ephemeral=True
+            )
+            return
+
+        user = interaction.guild.get_member(candidate["user_id"])
+        user_info = f"{user.mention} ({user.display_name})" if user else "User not found"
+
+        embed = discord.Embed(
+            title=f"👤 {candidate['candidate']} - Campaign Details",
+            description=f"**{candidate['party']}** candidate for **{candidate['seat_id']}**",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="🏛️ Election Info",
+            value=f"**Year:** {candidate['year']}\n"
+                  f"**Office:** {candidate['office']}\n"
+                  f"**State/Region:** {candidate['state']}\n"
+                  f"**Seat ID:** {candidate['seat_id']}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📊 Campaign Stats",
+            value=f"**Points:** {candidate['points']:.2f}\n"
+                  f"**Votes:** {candidate['votes']:,}\n"
+                  f"**Final Score:** {candidate['final_score']:.2f}\n"
+                  f"**Stamina:** {candidate['stamina']}/100",
+            inline=True
+        )
+
+        embed.add_field(
+            name="⚖️ Status",
+            value=f"**Corruption:** {candidate['corruption']}\n"
+                  f"**Primary Winner:** {'✅' if candidate.get('primary_winner') else '❌'}\n"
+                  f"**General Winner:** {'✅' if candidate.get('general_winner') else '❌'}\n"
+                  f"**Phase:** {candidate.get('phase', 'General Campaign')}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="👤 Player Info",
+            value=user_info,
+            inline=False
+        )
+
+        # Calculate score breakdown
+        score_breakdown = f"**Score Calculation:**\n"
+        score_breakdown += f"Points: {candidate['points']:.2f}\n"
+        score_breakdown += f"+ Votes: {candidate['votes']}\n"
+        score_breakdown += f"- Corruption: {candidate['corruption']}\n"
+        score_breakdown += f"= **Final Score: {candidate['final_score']:.2f}**"
+
+        embed.add_field(
+            name="🧮 Score Breakdown",
+            value=score_breakdown,
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="admin_force_primary_winners",

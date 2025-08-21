@@ -259,7 +259,11 @@ class GeneralCampaignActions(commands.Cog):
 
         embed.set_footer(text=f"Next speech available in 12 hours")
 
-        await interaction.response.send_message(embed=embed)
+        # Check if interaction has already been responded to
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed)
+        else:
+            await interaction.response.send_message(embed=embed)
 
     async def _process_donor(self, interaction: discord.Interaction, donor_appeal: str, target_name: str):
         """Process donor appeal submission"""
@@ -419,9 +423,47 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Show modal for speech input
-        modal = self.SpeechModal(target)
-        await interaction.response.send_modal(modal)
+        # Send initial message asking for speech
+        await interaction.response.send_message(
+            f"🎤 **{candidate['name']}**, please reply to this message with your campaign speech!\n\n"
+            f"**Target:** {target_candidate['name']}\n"
+            f"**Requirements:**\n"
+            f"• 600-3000 characters\n"
+            f"• Reply within 10 minutes\n"
+            f"• +1% polling per 1200 characters (max 2.5%)\n\n"
+            f"**Cost:** -2.25 stamina (estimated)",
+            ephemeral=False
+        )
+
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
+
+        try:
+            # Wait for user to reply with speech
+            reply_message = await self.bot.wait_for('message', timeout=600.0, check=check)  # 10 minute timeout
+
+            speech_text = reply_message.content
+
+            # Check character limits
+            char_count = len(speech_text)
+            if char_count < 600 or char_count > 3000:
+                await reply_message.reply(
+                    f"❌ Speech must be 600-3000 characters. You wrote {char_count:,} characters."
+                )
+                return
+
+            # Process the speech
+            await self._process_speech(interaction, speech_text, target)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/speech` again and reply with your speech within 10 minutes."
+            )
 
     @app_commands.command(
         name="canvassing",
@@ -573,7 +615,7 @@ class GeneralCampaignActions(commands.Cog):
 
     @app_commands.command(
         name="ad",
-        description="Create a campaign video ad (reply with video attachment, 0.3-0.6% boost, costs 1.5 stamina, 6h cooldown)"
+        description="Create a campaign video ad (0.3-0.6% boost, costs 1.5 stamina, 6h cooldown)"
     )
     @app_commands.describe(target="The candidate who will receive the ad benefits (optional)")
     async def ad(self, interaction: discord.Interaction, target: Optional[str] = None):

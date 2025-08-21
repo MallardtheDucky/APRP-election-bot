@@ -1,4 +1,3 @@
-
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -52,7 +51,7 @@ class AllSignups(commands.Cog):
 
         # Filter parties based on current input
         filtered_parties = [
-            party for party in parties 
+            party for party in parties
             if current.lower() in party.lower()
         ]
 
@@ -138,7 +137,7 @@ class AllSignups(commands.Cog):
                 return election_year % 6 == 0  # 2000, 2006, 2012, etc.
             elif seat_num % 3 == 2:  # Class 2 seats
                 return (election_year - 2) % 6 == 0  # 1998, 2004, 2010, etc.
-            else:  # Class 3 seats  
+            else:  # Class 3 seats
                 return (election_year - 4) % 6 == 0  # 1996, 2002, 2008, etc.
 
         elif office == "Governor":
@@ -163,7 +162,7 @@ class AllSignups(commands.Cog):
 
         # Filter regions based on current input
         filtered_regions = [
-            region for region in regions 
+            region for region in regions
             if current.lower() in region.lower()
         ]
 
@@ -185,7 +184,7 @@ class AllSignups(commands.Cog):
     @app_commands.autocomplete(party=party_autocomplete)
     @app_commands.autocomplete(region=region_autocomplete)
     async def signup(
-        self, 
+        self,
         interaction: discord.Interaction,
         name: str,
         party: str,
@@ -235,7 +234,7 @@ class AllSignups(commands.Cog):
 
         existing_signup = None
         for candidate in signups_config["candidates"]:
-            if (candidate["user_id"] == interaction.user.id and 
+            if (candidate["user_id"] == interaction.user.id and
                 candidate["year"] == current_year):
                 existing_signup = candidate
                 break
@@ -396,7 +395,7 @@ class AllSignups(commands.Cog):
                 super().__init__(timeout=300)  # 5 minute timeout
                 self.add_item(SeatSelect(available_seats, {
                     "name": name,
-                    "party": party, 
+                    "party": party,
                     "region": region,
                     "year": current_year
                 }))
@@ -428,7 +427,7 @@ class AllSignups(commands.Cog):
 
         # Filter candidates for current year
         current_candidates = [
-            c for c in signups_config["candidates"] 
+            c for c in signups_config["candidates"]
             if c["year"] == current_year
         ]
 
@@ -497,7 +496,7 @@ class AllSignups(commands.Cog):
         user_signup = None
         signup_index = None
         for i, candidate in enumerate(signups_config["candidates"]):
-            if (candidate["user_id"] == interaction.user.id and 
+            if (candidate["user_id"] == interaction.user.id and
                 candidate["year"] == current_year):
                 user_signup = candidate
                 signup_index = i
@@ -542,7 +541,7 @@ class AllSignups(commands.Cog):
         # Find user's signup
         user_signup = None
         for candidate in signups_config["candidates"]:
-            if (candidate["user_id"] == interaction.user.id and 
+            if (candidate["user_id"] == interaction.user.id and
                 candidate["year"] == current_year):
                 user_signup = candidate
                 break
@@ -630,7 +629,7 @@ class AllSignups(commands.Cog):
         # Find candidate
         candidate_found = None
         for i, candidate in enumerate(signups_config["candidates"]):
-            if (candidate["name"].lower() == candidate_name.lower() and 
+            if (candidate["name"].lower() == candidate_name.lower() and
                 candidate["year"] == target_year):
                 candidate_found = i
                 break
@@ -738,7 +737,7 @@ class AllSignups(commands.Cog):
         # Find candidate
         candidate_found = None
         for i, candidate in enumerate(signups_config["candidates"]):
-            if (candidate["name"].lower() == candidate_name.lower() and 
+            if (candidate["name"].lower() == candidate_name.lower() and
                 candidate["year"] == target_year):
                 candidate_found = i
                 break
@@ -1125,6 +1124,251 @@ class AllSignups(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
+        name="admin_view_campaign_points",
+        description="View all candidate points in primary campaign phase (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_campaign_points(
+        self,
+        interaction: discord.Interaction,
+        sort_by: str = "points",
+        filter_region: str = None,
+        filter_party: str = None,
+        filter_seat: str = None,
+        year: int = None
+    ):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
+
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        # Get candidates for target year
+        candidates = [c for c in signups_config["candidates"] if c["year"] == target_year]
+
+        if not candidates:
+            await interaction.response.send_message(
+                f"❌ No signups found for {target_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Apply filters
+        if filter_region:
+            candidates = [c for c in candidates if c["region"].lower() == filter_region.lower()]
+
+        if filter_party:
+            candidates = [c for c in candidates if c["party"].lower() == filter_party.lower()]
+
+        if filter_seat:
+            candidates = [c for c in candidates if filter_seat.lower() in c["seat_id"].lower()]
+
+        if not candidates:
+            await interaction.response.send_message(
+                "❌ No candidates found with those filters.",
+                ephemeral=True
+            )
+            return
+
+        # Sort candidates
+        if sort_by.lower() == "points":
+            candidates.sort(key=lambda x: x["points"], reverse=True)
+        elif sort_by.lower() == "corruption":
+            candidates.sort(key=lambda x: x["corruption"], reverse=True)
+        elif sort_by.lower() == "stamina":
+            candidates.sort(key=lambda x: x["stamina"], reverse=True)
+        elif sort_by.lower() == "seat":
+            candidates.sort(key=lambda x: x["seat_id"])
+        else:
+            candidates.sort(key=lambda x: x["name"].lower())
+
+        # Create embed with top candidates
+        embed = discord.Embed(
+            title=f"📊 {target_year} Primary Campaign Points",
+            description=f"Sorted by {sort_by} • {len(candidates)} candidates",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Show top 15 candidates
+        top_candidates = candidates[:15]
+        candidate_list = ""
+
+        for i, candidate in enumerate(top_candidates, 1):
+            user = interaction.guild.get_member(candidate["user_id"])
+            user_mention = user.mention if user else candidate["name"]
+
+            candidate_list += (
+                f"**{i}.** {candidate['name']} ({candidate['party']})\n"
+                f"   └ {candidate['seat_id']} • Points: {candidate['points']:.2f}\n"
+                f"   └ Stamina: {candidate['stamina']} • Corruption: {candidate['corruption']} • {user_mention}\n\n"
+            )
+
+        embed.add_field(
+            name="🏆 Top Candidates",
+            value=candidate_list[:1024],  # Discord field limit
+            inline=False
+        )
+
+        # Group by seat for competitive analysis
+        seats = {}
+        for candidate in candidates:
+            seat_id = candidate["seat_id"]
+            if seat_id not in seats:
+                seats[seat_id] = []
+            seats[seat_id].append(candidate)
+
+        competitive_seats = [(seat_id, len(candidates)) for seat_id, candidates in seats.items() if len(candidates) > 1]
+        competitive_seats.sort(key=lambda x: x[1], reverse=True)
+
+        if competitive_seats:
+            competitive_text = ""
+            for seat_id, count in competitive_seats[:5]:
+                competitive_text += f"**{seat_id}:** {count} candidates\n"
+
+            embed.add_field(
+                name="🔥 Most Competitive Seats",
+                value=competitive_text,
+                inline=True
+            )
+
+        # Summary stats
+        total_points = sum(c['points'] for c in candidates)
+        avg_corruption = sum(c['corruption'] for c in candidates) / len(candidates) if candidates else 0
+        avg_stamina = sum(c['stamina'] for c in candidates) / len(candidates) if candidates else 0
+
+        embed.add_field(
+            name="📈 Summary Statistics",
+            value=f"**Total Candidates:** {len(candidates)}\n"
+                  f"**Total Points:** {total_points:.2f}\n"
+                  f"**Avg Corruption:** {avg_corruption:.1f}\n"
+                  f"**Avg Stamina:** {avg_stamina:.1f}",
+            inline=True
+        )
+
+        # Show filter info if applied
+        filter_info = ""
+        if filter_region:
+            filter_info += f"Region: {filter_region} • "
+        if filter_party:
+            filter_info += f"Party: {filter_party} • "
+        if filter_seat:
+            filter_info += f"Seat: {filter_seat} • "
+        if filter_info:
+            embed.add_field(
+                name="🔍 Active Filters",
+                value=filter_info.rstrip(" • "),
+                inline=False
+            )
+
+        if len(candidates) > 15:
+            embed.set_footer(text=f"Showing top 15 of {len(candidates)} candidates")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_seat_competition",
+        description="View all candidates competing for a specific seat (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_seat_competition(
+        self,
+        interaction: discord.Interaction,
+        seat_id: str,
+        year: int = None
+    ):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
+
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        # Find candidates for this seat
+        seat_candidates = [
+            c for c in signups_config["candidates"]
+            if c["year"] == target_year and c["seat_id"].lower() == seat_id.lower()
+        ]
+
+        if not seat_candidates:
+            await interaction.response.send_message(
+                f"❌ No candidates found for seat '{seat_id}' in {target_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Sort by points
+        seat_candidates.sort(key=lambda x: x["points"], reverse=True)
+
+        # Get seat info
+        seat_info = seat_candidates[0]  # They all have same seat info
+
+        embed = discord.Embed(
+            title=f"🏛️ Competition for {seat_id}",
+            description=f"**{seat_info['office']}** in **{seat_info['region']}** ({target_year})",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Group by party
+        parties = {}
+        for candidate in seat_candidates:
+            party = candidate["party"]
+            if party not in parties:
+                parties[party] = []
+            parties[party].append(candidate)
+
+        for party, party_candidates in parties.items():
+            party_candidates.sort(key=lambda x: x["points"], reverse=True)
+
+            party_text = ""
+            for i, candidate in enumerate(party_candidates, 1):
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else candidate["name"]
+
+                leader_indicator = " 👑" if i == 1 and len(party_candidates) > 1 else ""
+                party_text += (
+                    f"**{i}.** {candidate['name']}{leader_indicator}\n"
+                    f"   └ Points: {candidate['points']:.2f} • Stamina: {candidate['stamina']} • "
+                    f"Corruption: {candidate['corruption']}\n"
+                    f"   └ {user_mention}\n\n"
+                )
+
+            embed.add_field(
+                name=f"🎗️ {party} ({len(party_candidates)})",
+                value=party_text[:1024],
+                inline=False
+            )
+
+        # Overall leader
+        overall_leader = seat_candidates[0]
+        embed.add_field(
+            name="🥇 Current Leader",
+            value=f"**{overall_leader['name']}** ({overall_leader['party']})\n"
+                  f"Points: {overall_leader['points']:.2f}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📊 Competition Stats",
+            value=f"**Total Candidates:** {len(seat_candidates)}\n"
+                  f"**Parties Represented:** {len(parties)}\n"
+                  f"**Point Spread:** {seat_candidates[0]['points']:.2f} - {seat_candidates[-1]['points']:.2f}",
+            inline=True
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
         name="admin_process_to_winners",
         description="Process current signups to winners (moves to all_winners.py) (Admin only)"
     )
@@ -1137,7 +1381,7 @@ class AllSignups(commands.Cog):
     ):
         """Process signups and move winners to all_winners.py"""
         time_col, time_config = self._get_time_config(interaction.guild.id)
-        
+
         if not time_config:
             await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
             return
