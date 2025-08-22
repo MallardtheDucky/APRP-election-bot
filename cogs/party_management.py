@@ -1,4 +1,3 @@
-
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -8,6 +7,11 @@ class PartyManagement(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         print("Party Management cog loaded successfully")
+
+    # Create command groups
+    party_group = app_commands.Group(name="party", description="Party management commands")
+    member_group = app_commands.Group(name="member", description="Party member commands")
+
 
     def _get_parties_config(self, guild_id: int):
         """Get or create parties configuration for a guild"""
@@ -44,8 +48,8 @@ class PartyManagement(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    @app_commands.command(
-        name="create_party",
+    @party_group.command(
+        name="create",
         description="Create a new political party (Admin only)"
     )
     @app_commands.describe(
@@ -139,8 +143,8 @@ class PartyManagement(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
-        name="list_parties",
+    @party_group.command(
+        name="list",
         description="List all available political parties"
     )
     async def list_parties(self, interaction: discord.Interaction):
@@ -165,8 +169,8 @@ class PartyManagement(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="remove_party",
+    @party_group.command(
+        name="remove",
         description="Remove a political party (Admin only)"
     )
     @app_commands.describe(
@@ -217,8 +221,8 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
-        name="edit_party",
+    @party_group.command(
+        name="edit",
         description="Edit an existing political party (Admin only)"
     )
     @app_commands.describe(
@@ -350,8 +354,8 @@ class PartyManagement(commands.Cog):
             for party in config["parties"]
         ]
 
-    @app_commands.command(
-        name="admin_reset_parties",
+    @party_group.command(
+        name="admin_reset",
         description="Reset all parties to default (Admin only - DESTRUCTIVE)"
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -416,8 +420,8 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
-        name="admin_bulk_create_parties",
+    @party_group.command(
+        name="admin_bulk_create",
         description="Create multiple parties at once (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -512,8 +516,8 @@ class PartyManagement(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @app_commands.command(
-        name="admin_remove_all_custom_parties",
+    @party_group.command(
+        name="admin_remove_all_custom",
         description="Remove all custom parties (keep defaults) (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -558,8 +562,8 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
-        name="admin_export_parties",
+    @party_group.command(
+        name="admin_export",
         description="Export party configuration as text (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -609,8 +613,8 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
-        name="admin_modify_party_color",
+    @party_group.command(
+        name="admin_modify_color",
         description="Change the color of multiple parties at once (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)

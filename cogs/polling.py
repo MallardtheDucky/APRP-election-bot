@@ -11,6 +11,10 @@ class Polling(commands.Cog):
         self.bot = bot
         print("Polling cog loaded successfully")
 
+    # Create command groups
+    poll_group = app_commands.Group(name="poll", description="Polling commands")
+    survey_group = app_commands.Group(name="survey", description="Survey commands")
+
     def _get_signups_config(self, guild_id: int):
         """Get signups configuration"""
         col = self.bot.db["signups"]
@@ -263,8 +267,8 @@ class Polling(commands.Cog):
 
         return poll_result
 
-    @app_commands.command(
-        name="poll",
+    @poll_group.command(
+        name="candidate",
         description="Conduct an NPC poll for a specific candidate (shows polling with 7% margin of error)"
     )
     @app_commands.describe(candidate_name="The candidate to poll (leave blank to poll yourself)")
@@ -440,8 +444,8 @@ class Polling(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="state_poll",
+    @survey_group.command(
+        name="state",
         description="Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support."
     )
     @app_commands.describe(state="The state to poll (e.g., 'California', 'NY')")
@@ -541,8 +545,8 @@ class Polling(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="seat_poll",
+    @poll_group.command(
+        name="seat",
         description="Conduct an NPC poll for a specific seat, showing all candidates with 7% margin of error"
     )
     @app_commands.describe(

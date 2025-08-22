@@ -1,4 +1,7 @@
-
+import discord
+from discord.ext import commands
+from discord import app_commands
+from datetime import datetime
 import statistics
 from typing import Dict, List, Tuple
 
@@ -113,31 +116,31 @@ STATE_TO_SEAT = {
 # Regional mappings
 REGIONS = {
     "Cambridge": [
-        "NEW YORK", "MASSACHUSETTS", "NEW HAMPSHIRE", "CONNECTICUT", 
-        "RHODE ISLAND", "VERMONT", "MAINE", "PENNSYLVANIA", 
+        "NEW YORK", "MASSACHUSETTS", "NEW HAMPSHIRE", "CONNECTICUT",
+        "RHODE ISLAND", "VERMONT", "MAINE", "PENNSYLVANIA",
         "DELAWARE", "NEW JERSEY", "MARYLAND"
     ],
     "Superior": [
         "OHIO", "ILLINOIS", "MICHIGAN", "WISCONSIN", "INDIANA"
     ],
     "Heartland": [
-        "MINNESOTA", "IOWA", "MISSOURI", "NORTH DAKOTA", 
+        "MINNESOTA", "IOWA", "MISSOURI", "NORTH DAKOTA",
         "SOUTH DAKOTA", "NEBRASKA", "KANSAS"
     ],
     "Columbia": [
-        "VIRGINIA", "WEST VIRGINIA", "NORTH CAROLINA", "SOUTH CAROLINA", 
-        "KENTUCKY", "TENNESSEE", "GEORGIA", "FLORIDA", 
+        "VIRGINIA", "WEST VIRGINIA", "NORTH CAROLINA", "SOUTH CAROLINA",
+        "KENTUCKY", "TENNESSEE", "GEORGIA", "FLORIDA",
         "ALABAMA", "MISSISSIPPI"
     ],
     "Austin": [
         "TEXAS", "LOUISIANA", "ARKANSAS", "OKLAHOMA"
     ],
     "Yellowstone": [
-        "WYOMING", "MONTANA", "IDAHO", "COLORADO", 
+        "WYOMING", "MONTANA", "IDAHO", "COLORADO",
         "NEW MEXICO", "UTAH", "ARIZONA"
     ],
     "Phoenix": [
-        "CALIFORNIA", "WASHINGTON", "OREGON", "NEVADA", 
+        "CALIFORNIA", "WASHINGTON", "OREGON", "NEVADA",
         "HAWAII", "ALASKA"
     ]
 }
@@ -167,7 +170,7 @@ def calculate_region_medians(custom_regions=None) -> Dict[str, Dict[str, float]]
         if valid_states > 0:  # Only calculate if we have data
             # Calculate the total sum
             regional_total = total_republican + total_democrat + total_other
-            
+
             # Normalize to percentages that add up to exactly 100%
             region_medians[region] = {
                 "republican": (total_republican / regional_total) * 100,
@@ -184,7 +187,7 @@ def calculate_seat_medians() -> Dict[str, Dict[str, float]]:
     # Group seats by region prefix
     seat_regions = {
         "CA": "Cambridge",
-        "SU": "Superior", 
+        "SU": "Superior",
         "HL": "Heartland",
         "CO": "Columbia",
         "AU": "Austin",
@@ -216,10 +219,10 @@ def calculate_seat_medians() -> Dict[str, Dict[str, float]]:
             total_republican = sum(seat["republican"] for seat in seats)
             total_democrat = sum(seat["democrat"] for seat in seats)
             total_other = sum(seat["other"] for seat in seats)
-            
+
             # Calculate the total sum
             regional_total = total_republican + total_democrat + total_other
-            
+
             # Normalize to percentages that add up to exactly 100%
             region_median = {
                 "republican": (total_republican / regional_total) * 100,
@@ -298,6 +301,540 @@ def print_all_medians():
     print_region_medians()
     print_seat_medians()
 
-# Main execution for testing
-if __name__ == "__main__":
-    print_all_medians()
+class IdeologyManagement(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        print("Ideology Management cog loaded successfully")
+
+    def _get_available_choices(self):
+        """Get all available ideology choices from STATE_DATA"""
+        ideologies = set()
+        economics = set()
+        socials = set()
+        governments = set()
+        axes = set()
+
+        for state_data in STATE_DATA.values():
+            if "ideology" in state_data:
+                ideologies.add(state_data["ideology"])
+            if "economic" in state_data:
+                economics.add(state_data["economic"])
+            if "social" in state_data:
+                socials.add(state_data["social"])
+            if "government" in state_data:
+                governments.add(state_data["government"])
+            if "axis" in state_data:
+                axes.add(state_data["axis"])
+
+        return {
+            "ideology": sorted(list(ideologies)),
+            "economic": sorted(list(economics)),
+            "social": sorted(list(socials)),
+            "government": sorted(list(governments)),
+            "axis": sorted(list(axes))
+        }
+
+    @app_commands.command(
+        name="admin_add_ideology_option",
+        description="Add a new ideology option by updating a state in STATE_DATA (Admin only)"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    @app_commands.describe(
+        state_name="The state to update with the new ideology option",
+        category="The ideology category to update",
+        new_value="The new ideology value to set"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_add_ideology_option(
+        self,
+        interaction: discord.Interaction,
+        state_name: str,
+        category: str,
+        new_value: str
+    ):
+        """Add new ideology options by updating a state"""
+        state_name = state_name.upper()
+        category = category.lower()
+        valid_categories = ["ideology", "economic", "social", "government", "axis"]
+
+        if category not in valid_categories:
+            await interaction.response.send_message(
+                f"❌ Invalid category '{category}'. \n\n**Valid options:** {', '.join(valid_categories)}\n\n"
+                f"Please type one of the categories exactly as shown.",
+                ephemeral=True
+            )
+            return
+
+        if state_name not in STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ State '{state_name}' not found in STATE_DATA.\nAvailable states: {', '.join(list(STATE_DATA.keys())[:10])}...",
+                ephemeral=True
+            )
+            return
+
+        # Check if new value already exists
+        available_choices = self._get_available_choices()
+        current_options = available_choices.get(category, [])
+
+        if new_value in current_options:
+            await interaction.response.send_message(
+                f"❌ '{new_value}' already exists in {category}.\n"
+                f"Current options: {', '.join(current_options)}",
+                ephemeral=True
+            )
+            return
+
+        # Store the modification in database for tracking
+        # Assuming self.bot.db provides access to your database (e.g., motor or pymongo)
+        # Replace 'ideology_modifications' with your actual collection name
+        ideology_col = self.bot.db["ideology_modifications"]
+
+        old_value = STATE_DATA[state_name][category]
+
+        modification = {
+            "guild_id": interaction.guild.id,
+            "action": "add_ideology_option",
+            "state_name": state_name,
+            "category": category,
+            "old_value": old_value,
+            "new_value": new_value,
+            "timestamp": datetime.utcnow(),
+            "user_id": interaction.user.id
+        }
+
+        ideology_col.insert_one(modification)
+
+        await interaction.response.send_message(
+            f"✅ **Note:** This would add '{new_value}' to the {category} category by updating {state_name}.\n\n"
+            f"**Current {state_name} {category}:** {old_value}\n"
+            f"**Would change to:** {new_value}\n\n"
+            f"**To implement this change:**\n"
+            f"1. Edit `cogs/ideology.py`\n"
+            f"2. Find the '{state_name}' entry in STATE_DATA\n"
+            f"3. Change `\"{category}\": \"{old_value}\"` to `\"{category}\": \"{new_value}\"`\n\n"
+            f"This will make '{new_value}' available as a {category} option for all signups.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_change_ideology_option",
+        description="Change an existing ideology option across all states (Admin only)"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    @app_commands.describe(
+        category="The ideology category to update",
+        old_value="The current ideology value to replace",
+        new_value="The new ideology value"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_change_ideology_option(
+        self,
+        interaction: discord.Interaction,
+        category: str,
+        old_value: str,
+        new_value: str
+    ):
+        """Change an ideology option across all states that use it"""
+        category = category.lower()
+        valid_categories = ["ideology", "economic", "social", "government", "axis"]
+
+        if category not in valid_categories:
+            await interaction.response.send_message(
+                f"❌ Invalid category '{category}'. \n\n**Valid options:** {', '.join(valid_categories)}\n\n"
+                f"Please type one of the categories exactly as shown.",
+                ephemeral=True
+            )
+            return
+
+        # Check if old value exists
+        available_choices = self._get_available_choices()
+        current_options = available_choices.get(category, [])
+
+        if old_value not in current_options:
+            await interaction.response.send_message(
+                f"❌ '{old_value}' not found in {category}.\n"
+                f"Available options: {', '.join(current_options)}",
+                ephemeral=True
+            )
+            return
+
+        if new_value in current_options:
+            await interaction.response.send_message(
+                f"❌ '{new_value}' already exists in {category}.",
+                ephemeral=True
+            )
+            return
+
+        # Find all states using this value
+        affected_states = []
+        for state_name, state_data in STATE_DATA.items():
+            if state_data.get(category) == old_value:
+                affected_states.append(state_name)
+
+        if not affected_states:
+            await interaction.response.send_message(
+                f"❌ No states found using '{old_value}' in {category}.",
+                ephemeral=True
+            )
+            return
+
+        # Store the modification in database for tracking
+        ideology_col = self.bot.db["ideology_modifications"]
+
+        modification = {
+            "guild_id": interaction.guild.id,
+            "action": "change_ideology_option",
+            "category": category,
+            "old_value": old_value,
+            "new_value": new_value,
+            "affected_states": affected_states,
+            "timestamp": datetime.utcnow(),
+            "user_id": interaction.user.id
+        }
+
+        ideology_col.insert_one(modification)
+
+        await interaction.response.send_message(
+            f"✅ **Note:** This would change '{old_value}' to '{new_value}' in the {category} category.\n\n"
+            f"**Affected states ({len(affected_states)}):** {', '.join(affected_states[:10])}"
+            f"{'...' if len(affected_states) > 10 else ''}\n\n"
+            f"**To implement this change:**\n"
+            f"1. Edit `cogs/ideology.py`\n"
+            f"2. Find all instances of `\"{category}\": \"{old_value}\"` in STATE_DATA\n"
+            f"3. Replace them with `\"{category}\": \"{new_value}\"`\n\n"
+            f"This will update the {category} option globally across all affected states.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_remove_ideology_option",
+        description="Remove an ideology option by reassigning all states using it (Admin only)"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    @app_commands.describe(
+        category="The ideology category to update",
+        value_to_remove="The ideology value to remove",
+        replacement_value="The ideology value to replace it with"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_remove_ideology_option(
+        self,
+        interaction: discord.Interaction,
+        category: str,
+        value_to_remove: str,
+        replacement_value: str
+    ):
+        """Remove an ideology option by replacing it with another"""
+        category = category.lower()
+        valid_categories = ["ideology", "economic", "social", "government", "axis"]
+
+        if category not in valid_categories:
+            await interaction.response.send_message(
+                f"❌ Invalid category '{category}'. \n\n**Valid options:** {', '.join(valid_categories)}\n\n"
+                f"Please type one of the categories exactly as shown.",
+                ephemeral=True
+            )
+            return
+
+        # Check if values exist
+        available_choices = self._get_available_choices()
+        current_options = available_choices.get(category, [])
+
+        if value_to_remove not in current_options:
+            await interaction.response.send_message(
+                f"❌ '{value_to_remove}' not found in {category}.\n"
+                f"Available options: {', '.join(current_options)}",
+                ephemeral=True
+            )
+            return
+
+        if replacement_value not in current_options:
+            await interaction.response.send_message(
+                f"❌ Replacement value '{replacement_value}' not found in {category}.\n"
+                f"Available options: {', '.join(current_options)}",
+                ephemeral=True
+            )
+            return
+
+        # Find all states using this value
+        affected_states = []
+        for state_name, state_data in STATE_DATA.items():
+            if state_data.get(category) == value_to_remove:
+                affected_states.append(state_name)
+
+        if not affected_states:
+            await interaction.response.send_message(
+                f"❌ No states found using '{value_to_remove}' in {category}. Option may already be unused.",
+                ephemeral=True
+            )
+            return
+
+        # Store the modification in database for tracking
+        ideology_col = self.bot.db["ideology_modifications"]
+
+        modification = {
+            "guild_id": interaction.guild.id,
+            "action": "remove_ideology_option",
+            "category": category,
+            "removed_value": value_to_remove,
+            "replacement_value": replacement_value,
+            "affected_states": affected_states,
+            "timestamp": datetime.utcnow(),
+            "user_id": interaction.user.id
+        }
+
+        ideology_col.insert_one(modification)
+
+        await interaction.response.send_message(
+            f"✅ **Note:** This would remove '{value_to_remove}' from the {category} category.\n\n"
+            f"**Affected states ({len(affected_states)}):** {', '.join(affected_states[:10])}"
+            f"{'...' if len(affected_states) > 10 else ''}\n"
+            f"**Replacement value:** {replacement_value}\n\n"
+            f"**To implement this change:**\n"
+            f"1. Edit `cogs/ideology.py`\n"
+            f"2. Find all instances of `\"{category}\": \"{value_to_remove}\"` in STATE_DATA\n"
+            f"3. Replace them with `\"{category}\": \"{replacement_value}\"`\n\n"
+            f"After this change, '{value_to_remove}' will no longer be available as a {category} option.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="show_ideology_options",
+        description="Show all available ideology options"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    async def show_ideology_options(self, interaction: discord.Interaction):
+        """Show all available ideology choices"""
+        choices = self._get_available_choices()
+
+        embed = discord.Embed(
+            title="🎯 Available Ideology Options",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        for category, options in choices.items():
+            embed.add_field(
+                name=f"📋 {category.title()}",
+                value=", ".join(options),
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_state_ideology",
+        description="View ideology data for a specific state (Admin only)"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    @app_commands.describe(
+        state_name="The state name to view (optional - shows all if not specified)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_state_ideology(
+        self,
+        interaction: discord.Interaction,
+        state_name: str = None
+    ):
+        """View ideology data for a specific state or all states"""
+        if state_name:
+            state_name = state_name.upper()
+            if state_name not in STATE_DATA:
+                await interaction.response.send_message(
+                    f"❌ State '{state_name}' not found in STATE_DATA.",
+                    ephemeral=True
+                )
+                return
+
+            data = STATE_DATA[state_name]
+            embed = discord.Embed(
+                title=f"📊 Ideology Data: {state_name}",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="🗳️ Party Support",
+                value=f"**Republican:** {data.get('republican', 'N/A')}%\n"
+                      f"**Democrat:** {data.get('democrat', 'N/A')}%\n"
+                      f"**Other:** {data.get('other', 'N/A')}%",
+                inline=True
+            )
+
+            embed.add_field(
+                name="🎯 Political Profile",
+                value=f"**Ideology:** {data.get('ideology', 'N/A')}\n"
+                      f"**Economic:** {data.get('economic', 'N/A')}\n"
+                      f"**Social:** {data.get('social', 'N/A')}\n"
+                      f"**Government:** {data.get('government', 'N/A')}\n"
+                      f"**Axis:** {data.get('axis', 'N/A')}",
+                inline=True
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            # Show summary of all states
+            embed = discord.Embed(
+                title="📊 All STATE_DATA Summary",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            states_list = list(STATE_DATA.keys())
+            states_per_field = 20
+
+            # Split states into chunks for display
+            for i in range(0, len(states_list), states_per_field):
+                chunk = states_list[i:i + states_per_field]
+                field_name = f"States ({i+1}-{min(i+states_per_field, len(states_list))})"
+                embed.add_field(
+                    name=field_name,
+                    value=", ".join(chunk),
+                    inline=False
+                )
+
+            embed.add_field(
+                name="📈 Total States",
+                value=str(len(states_list)),
+                inline=True
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_ideology_mod_log",
+        description="View log of ideology modifications made (Admin only)"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    @app_commands.describe(
+        limit="Number of recent modifications to show (max 25)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_ideology_mod_log(
+        self,
+        interaction: discord.Interaction,
+        limit: int = 10
+    ):
+        """View recent ideology modifications"""
+        if limit > 25:
+            limit = 25
+
+        ideology_col = self.bot.db["ideology_modifications"]
+
+        modifications = list(ideology_col.find(
+            {"guild_id": interaction.guild.id}
+        ).sort("timestamp", -1).limit(limit))
+
+        if not modifications:
+            await interaction.response.send_message(
+                "📝 No ideology modifications found for this server.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="📝 Ideology Modifications Log",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        for mod in modifications:
+            user = interaction.guild.get_member(mod.get("user_id"))
+            user_name = user.display_name if user else f"User {mod.get('user_id', 'Unknown')}"
+
+            timestamp = mod["timestamp"].strftime("%Y-%m-%d %H:%M")
+
+            if mod["action"] == "add_ideology_option":
+                value = f"**Added option:** {mod['new_value']}\n"
+                value += f"**Category:** {mod['category']}\n"
+                value += f"**Via state:** {mod['state_name']}\n"
+                value += f"**By:** {user_name} on {timestamp}"
+            elif mod["action"] == "change_ideology_option":
+                value = f"**Changed:** {mod['old_value']} → {mod['new_value']}\n"
+                value += f"**Category:** {mod['category']}\n"
+                value += f"**States affected:** {len(mod['affected_states'])}\n"
+                value += f"**By:** {user_name} on {timestamp}"
+            elif mod["action"] == "remove_ideology_option":
+                value = f"**Removed:** {mod['removed_value']}\n"
+                value += f"**Category:** {mod['category']}\n"
+                value += f"**Replaced with:** {mod['replacement_value']}\n"
+                value += f"**States affected:** {len(mod['affected_states'])}\n"
+                value += f"**By:** {user_name} on {timestamp}"
+            else:
+                value = f"**Action:** {mod['action']}\n**By:** {user_name} on {timestamp}"
+
+            embed.add_field(
+                name=f"🔄 {mod['action'].replace('_', ' ').title()}",
+                value=value,
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # Autocomplete functions for admin commands
+    @admin_add_ideology_option.autocomplete("state_name")
+    async def state_name_autocomplete(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
+
+    @admin_add_ideology_option.autocomplete("category")
+    async def category_autocomplete(self, interaction: discord.Interaction, current: str):
+        categories = ["ideology", "economic", "social", "government", "axis"]
+        return [app_commands.Choice(name=cat, value=cat)
+                for cat in categories if current.lower() in cat][:25]
+
+    @admin_change_ideology_option.autocomplete("category")
+    async def change_category_autocomplete(self, interaction: discord.Interaction, current: str):
+        categories = ["ideology", "economic", "social", "government", "axis"]
+        return [app_commands.Choice(name=cat, value=cat)
+                for cat in categories if current.lower() in cat][:25]
+
+    @admin_change_ideology_option.autocomplete("old_value")
+    async def old_value_autocomplete(self, interaction: discord.Interaction, current: str):
+        # Get category from current input to show relevant options
+        # Note: This requires fetching the category from the interaction or assuming a default
+        # For simplicity, we'll get all possible values. A more robust solution would
+        # involve parsing the interaction data to get the selected category.
+        choices = self._get_available_choices()
+        all_values = []
+        for category_values in choices.values():
+            all_values.extend(category_values)
+
+        return [app_commands.Choice(name=value, value=value)
+                for value in set(all_values) if current.lower() in value.lower()][:25]
+
+    @admin_remove_ideology_option.autocomplete("category")
+    async def remove_category_autocomplete(self, interaction: discord.Interaction, current: str):
+        categories = ["ideology", "economic", "social", "government", "axis"]
+        return [app_commands.Choice(name=cat, value=cat)
+                for cat in categories if current.lower() in cat][:25]
+
+    @admin_remove_ideology_option.autocomplete("value_to_remove")
+    async def value_to_remove_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()
+        all_values = []
+        for category_values in choices.values():
+            all_values.extend(category_values)
+
+        return [app_commands.Choice(name=value, value=value)
+                for value in set(all_values) if current.lower() in value.lower()][:25]
+
+    @admin_remove_ideology_option.autocomplete("replacement_value")
+    async def replacement_value_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()
+        all_values = []
+        for category_values in choices.values():
+            all_values.extend(category_values)
+
+        return [app_commands.Choice(name=value, value=value)
+                for value in set(all_values) if current.lower() in value.lower()][:25]
+
+    @admin_view_state_ideology.autocomplete("state_name")
+    async def view_state_name_autocomplete(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
+
+async def setup(bot):
+    await bot.add_cog(IdeologyManagement(bot))

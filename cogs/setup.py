@@ -18,16 +18,22 @@ class Setup(commands.Cog):
             config = {
                 "guild_id": guild_id,
                 "regions": [],       # list of state codes
-                "start_datetime": None
+                "start_datetime": None,
+                "announcement_channel_id": None
             }
             col.insert_one(config)
         return col, config
 
-    @app_commands.command(
+    # Create a command group
+    setup_group = app_commands.Group(
+        name="setup", 
+        description="Setup commands for election configuration"
+    )
+
+    @setup_group.command(
         name="add_region",
         description="Add a US state (by abbreviation) to this guild's election regions"
     )
-    @app_commands.guilds(discord.Object(id=1249351532697358399))  # for dev
     async def add_region(
         self,
         interaction: discord.Interaction,
@@ -45,11 +51,10 @@ class Setup(commands.Cog):
         )
         await interaction.response.send_message(f"✅ Added region `{state}`.", ephemeral=True)
 
-    @app_commands.command(
+    @setup_group.command(
         name="remove_region",
         description="Remove a US state from this guild's regions"
     )
-    @app_commands.guilds(discord.Object(id=1249351532697358399))
     async def remove_region(
         self,
         interaction: discord.Interaction,
@@ -67,11 +72,10 @@ class Setup(commands.Cog):
         )
         await interaction.response.send_message(f"✅ Removed region `{state}`.", ephemeral=True)
 
-    @app_commands.command(
+    @setup_group.command(
         name="show_config",
         description="Show current election configuration"
     )
-    @app_commands.guilds(discord.Object(id=1249351532697358399))
     async def show_config(self, interaction: discord.Interaction):
         _, config = self._get_config(interaction.guild.id)
         
@@ -86,13 +90,21 @@ class Setup(commands.Cog):
         start_text = config["start_datetime"] if config["start_datetime"] else "Not set"
         embed.add_field(name="Start DateTime", value=start_text, inline=False)
         
+        # Show announcement channel
+        channel_id = config.get("announcement_channel_id")
+        if channel_id:
+            channel = interaction.guild.get_channel(channel_id)
+            channel_text = channel.mention if channel else f"Channel not found (ID: {channel_id})"
+        else:
+            channel_text = "Not set"
+        embed.add_field(name="Announcement Channel", value=channel_text, inline=False)
+        
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
+    @setup_group.command(
         name="list_regions",
         description="List all the US states you've added as regions"
     )
-    @app_commands.guilds(discord.Object(id=1249351532697358399))
     async def list_regions(self, interaction: discord.Interaction):
         _, config = self._get_config(interaction.guild.id)
         regions = config["regions"]
@@ -104,11 +116,10 @@ class Setup(commands.Cog):
                 ephemeral=True
             )
 
-    @app_commands.command(
+    @setup_group.command(
         name="set_start",
         description="Set the start date & time for your election (format: YYYY-MM-DD HH:MM)"
     )
-    @app_commands.guilds(discord.Object(id=1249351532697358399))
     async def set_start(
         self,
         interaction: discord.Interaction,
@@ -131,6 +142,43 @@ class Setup(commands.Cog):
         )
         await interaction.response.send_message(
             f"✅ Election start set to: {start_dt.strftime('%Y-%m-%d %H:%M')}",
+            ephemeral=True
+        )
+
+    @setup_group.command(
+        name="set_announcement_channel",
+        description="Set the channel for election announcements"
+    )
+    async def set_announcement_channel(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel
+    ):
+        col, config = self._get_config(interaction.guild.id)
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"announcement_channel_id": channel.id}}
+        )
+        await interaction.response.send_message(
+            f"✅ Announcement channel set to {channel.mention}",
+            ephemeral=True
+        )
+
+    @setup_group.command(
+        name="remove_announcement_channel",
+        description="Remove the announcement channel setting"
+    )
+    async def remove_announcement_channel(
+        self,
+        interaction: discord.Interaction
+    ):
+        col, config = self._get_config(interaction.guild.id)
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$unset": {"announcement_channel_id": ""}}
+        )
+        await interaction.response.send_message(
+            "✅ Announcement channel setting removed",
             ephemeral=True
         )
 

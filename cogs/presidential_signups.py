@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -61,6 +60,15 @@ class PresidentialSignups(commands.Cog):
     @app_commands.command(
         name="pres_signup",
         description="Sign up to run for President"
+    )
+    @app_commands.describe(
+        name="Your candidate's name",
+        party="Your political party",
+        ideology="Your ideological position",
+        economic="Your economic position", 
+        social="Your social position",
+        government="Your government size preference",
+        axis="Your political axis"
     )
     async def pres_signup(
         self,
@@ -166,6 +174,8 @@ class PresidentialSignups(commands.Cog):
             "vp_candidate_id": None,
             "signup_date": datetime.utcnow(),
             "points": 0.0,
+            "stamina": 200,
+            "corruption": 0,
             "phase": "Primary Campaign" if current_phase in ["Primary Campaign", "Primary Election"] else "Primary Campaign"
         }
 
@@ -202,6 +212,14 @@ class PresidentialSignups(commands.Cog):
         )
 
         embed.add_field(
+            name="📊 Starting Stats",
+            value=f"**Points:** {new_candidate['points']:.2f}\n"
+                  f"**Stamina:** {new_candidate['stamina']}\n"
+                  f"**Corruption:** {new_candidate['corruption']}",
+            inline=True
+        )
+
+        embed.add_field(
             name="📅 Campaign Info",
             value=f"**Year:** {current_year}\n"
                   f"**Phase:** {current_phase}\n"
@@ -214,6 +232,16 @@ class PresidentialSignups(commands.Cog):
     @app_commands.command(
         name="vp_signup",
         description="Sign up to run for Vice President under a specific presidential candidate"
+    )
+    @app_commands.describe(
+        name="Your candidate's name",
+        party="Your political party",
+        ideology="Your ideological position",
+        economic="Your economic position", 
+        social="Your social position",
+        government="Your government size preference",
+        axis="Your political axis",
+        presidential_candidate="Name of the presidential candidate you want to run with"
     )
     async def vp_signup(
         self,
@@ -457,6 +485,8 @@ class PresidentialSignups(commands.Cog):
             "presidential_candidate_id": interaction.user.id,
             "signup_date": datetime.utcnow(),
             "points": 0.0,
+            "stamina": 200,
+            "corruption": 0,
             "phase": "Primary Campaign"
         }
 
@@ -547,6 +577,122 @@ class PresidentialSignups(commands.Cog):
         )
 
     @app_commands.command(
+        name="pres_withdraw",
+        description="Withdraw from your presidential or VP campaign"
+    )
+    async def pres_withdraw(self, interaction: discord.Interaction):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message(
+                "❌ Election system not configured.",
+                ephemeral=True
+            )
+            return
+
+        current_year = time_config["current_rp_date"].year
+        current_phase = time_config.get("current_phase", "")
+
+        if current_phase not in ["Signups", "Primary Campaign"]:
+            await interaction.response.send_message(
+                f"❌ Withdrawals are not allowed during the {current_phase} phase.",
+                ephemeral=True
+            )
+            return
+
+        pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+        # Find user's campaign
+        user_campaign = None
+        campaign_index = None
+        for i, candidate in enumerate(pres_config["candidates"]):
+            if (candidate["user_id"] == interaction.user.id and
+                candidate["year"] == current_year and
+                candidate["office"] in ["President", "Vice President"]):
+                user_campaign = candidate
+                campaign_index = i
+                break
+
+        if not user_campaign:
+            await interaction.response.send_message(
+                "❌ You don't have an active presidential or VP campaign to withdraw from.",
+                ephemeral=True
+            )
+            return
+
+        # If withdrawing from presidential campaign, handle VP candidate
+        if user_campaign["office"] == "President":
+            vp_candidate_name = user_campaign.get("vp_candidate")
+            vp_candidate_id = user_campaign.get("vp_candidate_id")
+
+            # Remove VP candidate if exists
+            if vp_candidate_id:
+                vp_removed = False
+                for i, candidate in enumerate(pres_config["candidates"]):
+                    if (candidate["user_id"] == vp_candidate_id and
+                        candidate["year"] == current_year and
+                        candidate["office"] == "Vice President"):
+                        pres_config["candidates"].pop(i)
+                        vp_removed = True
+                        break
+
+        # If withdrawing from VP campaign, update presidential candidate
+        elif user_campaign["office"] == "Vice President":
+            presidential_candidate_id = user_campaign.get("presidential_candidate_id")
+            if presidential_candidate_id:
+                for i, candidate in enumerate(pres_config["candidates"]):
+                    if (candidate["user_id"] == presidential_candidate_id and
+                        candidate["year"] == current_year and
+                        candidate["office"] == "President"):
+                        pres_config["candidates"][i]["vp_candidate"] = None
+                        pres_config["candidates"][i]["vp_candidate_id"] = None
+                        break
+
+        # Remove the candidate
+        withdrawn_candidate = pres_config["candidates"].pop(campaign_index)
+
+        # Also remove any pending VP requests for this user
+        if "pending_vp_requests" not in pres_config:
+            pres_config["pending_vp_requests"] = []
+
+        pres_config["pending_vp_requests"] = [
+            req for req in pres_config["pending_vp_requests"] 
+            if not (req["user_id"] == interaction.user.id or req["presidential_candidate_id"] == interaction.user.id)
+        ]
+
+        pres_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {
+                "candidates": pres_config["candidates"],
+                "pending_vp_requests": pres_config["pending_vp_requests"]
+            }}
+        )
+
+        embed = discord.Embed(
+            title="🚪 Campaign Withdrawal",
+            description=f"**{withdrawn_candidate['name']}** has withdrawn from the {current_year} {withdrawn_candidate['office']}ial race.",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📋 Withdrawn Candidate",
+            value=f"**Name:** {withdrawn_candidate['name']}\n"
+                  f"**Party:** {withdrawn_candidate['party']}\n"
+                  f"**Office:** {withdrawn_candidate['office']}",
+            inline=True
+        )
+
+        if withdrawn_candidate["office"] == "President" and withdrawn_candidate.get("vp_candidate"):
+            embed.add_field(
+                name="⚠️ Impact",
+                value=f"VP candidate **{withdrawn_candidate['vp_candidate']}** has also been removed from the ticket.",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
         name="show_presidential_candidates",
         description="Show all presidential and VP candidates"
     )
@@ -603,322 +749,123 @@ class PresidentialSignups(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="admin_add_ideology_option",
-        description="Add a new ideology option to STATE_DATA (Admin only)"
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def admin_add_ideology_option(
-        self,
-        interaction: discord.Interaction,
-        category: str,
-        new_option: str,
-        state_to_update: str = None
-    ):
-        """Add new ideology options"""
-        valid_categories = ["ideology", "economic", "social", "government", "axis"]
+    @pres_signup.autocomplete("ideology")
+    async def ideology_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["ideology"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @pres_signup.autocomplete("economic")
+    async def economic_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["economic"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @pres_signup.autocomplete("social")
+    async def social_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["social"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @pres_signup.autocomplete("government")
+    async def government_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["government"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @pres_signup.autocomplete("axis")
+    async def axis_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["axis"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @vp_signup.autocomplete("ideology")
+    async def vp_ideology_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["ideology"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @vp_signup.autocomplete("economic")
+    async def vp_economic_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["economic"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @vp_signup.autocomplete("social")
+    async def vp_social_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["social"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @vp_signup.autocomplete("government")
+    async def vp_government_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["government"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @vp_signup.autocomplete("axis")
+    async def vp_axis_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = self._get_available_choices()["axis"]
+        return [app_commands.Choice(name=choice, value=choice) 
+                for choice in choices if current.lower() in choice.lower()][:25]
+
+    @vp_signup.autocomplete("presidential_candidate")
+    async def vp_presidential_candidate_autocomplete(self, interaction: discord.Interaction, current: str):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year
+        pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+        available_presidents = [c["name"] for c in pres_config["candidates"] 
+                              if c["year"] == current_year and c["office"] == "President"]
+
+        return [app_commands.Choice(name=name, value=name) 
+                for name in available_presidents if current.lower() in name.lower()][:25]
+
+    @pres_signup.autocomplete("party")
+    async def pres_party_autocomplete(self, interaction: discord.Interaction, current: str):
+        # Get party choices from party management
+        try:
+            from .party_management import PartyManagement
+            party_cog = self.bot.get_cog("PartyManagement")
+            if party_cog:
+                parties_col = self.bot.db["parties_config"]
+                config = parties_col.find_one({"guild_id": interaction.guild.id})
+                if config and "parties" in config:
+                    party_names = [party["name"] for party in config["parties"]]
+                    return [app_commands.Choice(name=name, value=name) 
+                            for name in party_names if current.lower() in name.lower()][:25]
+        except:
+            pass
         
-        if category not in valid_categories:
-            await interaction.response.send_message(
-                f"❌ Invalid category. Valid options: {', '.join(valid_categories)}",
-                ephemeral=True
-            )
-            return
+        # Fallback to default parties if party management not available
+        default_parties = ["Democratic Party", "Republican Party", "Independent"]
+        return [app_commands.Choice(name=name, value=name) 
+                for name in default_parties if current.lower() in name.lower()][:25]
 
-        # This command would ideally modify the ideology.py file
-        # For now, we'll just show what would be done
-        available_choices = self._get_available_choices()
-        current_options = available_choices.get(category, [])
+    @vp_signup.autocomplete("party")
+    async def vp_party_autocomplete(self, interaction: discord.Interaction, current: str):
+        # Get party choices from party management
+        try:
+            from .party_management import PartyManagement
+            party_cog = self.bot.get_cog("PartyManagement")
+            if party_cog:
+                parties_col = self.bot.db["parties_config"]
+                config = parties_col.find_one({"guild_id": interaction.guild.id})
+                if config and "parties" in config:
+                    party_names = [party["name"] for party in config["parties"]]
+                    return [app_commands.Choice(name=name, value=name) 
+                            for name in party_names if current.lower() in name.lower()][:25]
+        except:
+            pass
         
-        if new_option in current_options:
-            await interaction.response.send_message(
-                f"❌ '{new_option}' already exists in {category}.\nCurrent options: {', '.join(current_options)}",
-                ephemeral=True
-            )
-            return
+        # Fallback to default parties if party management not available
+        default_parties = ["Democratic Party", "Republican Party", "Independent"]
+        return [app_commands.Choice(name=name, value=name) 
+                for name in default_parties if current.lower() in name.lower()][:25]
 
-        await interaction.response.send_message(
-            f"ℹ️ To add '{new_option}' to the {category} category, you would need to:\n"
-            f"1. Edit `cogs/ideology.py`\n"
-            f"2. Add or update a state in STATE_DATA with `\"{category}\": \"{new_option}\"`\n"
-            f"3. Current {category} options: {', '.join(current_options)}",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="show_ideology_options",
-        description="Show all available ideology options"
-    )
-    async def show_ideology_options(self, interaction: discord.Interaction):
-        """Show all available ideology choices"""
-        choices = self._get_available_choices()
-
-        embed = discord.Embed(
-            title="🎯 Available Ideology Options",
-            color=discord.Color.blue(),
-            timestamp=datetime.utcnow()
-        )
-
-        for category, options in choices.items():
-            embed.add_field(
-                name=f"📋 {category.title()}",
-                value=", ".join(options),
-                inline=False
-            )
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @app_commands.command(
-        name="admin_add_state",
-        description="Add a new state to STATE_DATA (Admin only)"
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def admin_add_state(
-        self,
-        interaction: discord.Interaction,
-        state_name: str,
-        republican: int,
-        democrat: int,
-        other: int,
-        ideology: str,
-        economic: str,
-        social: str,
-        government: str,
-        axis: str
-    ):
-        """Add a new state to STATE_DATA"""
-        state_name = state_name.upper()
-        
-        # Validate percentages add up to 100
-        if republican + democrat + other != 100:
-            await interaction.response.send_message(
-                f"❌ Percentages must add up to 100. Current total: {republican + democrat + other}",
-                ephemeral=True
-            )
-            return
-
-        # Validate ideology choices
-        available_choices = self._get_available_choices()
-        errors = []
-        
-        if ideology not in available_choices["ideology"]:
-            errors.append(f"Invalid ideology '{ideology}'. Available: {', '.join(available_choices['ideology'])}")
-        if economic not in available_choices["economic"]:
-            errors.append(f"Invalid economic '{economic}'. Available: {', '.join(available_choices['economic'])}")
-        if social not in available_choices["social"]:
-            errors.append(f"Invalid social '{social}'. Available: {', '.join(available_choices['social'])}")
-        if government not in available_choices["government"]:
-            errors.append(f"Invalid government '{government}'. Available: {', '.join(available_choices['government'])}")
-        if axis not in available_choices["axis"]:
-            errors.append(f"Invalid axis '{axis}'. Available: {', '.join(available_choices['axis'])}")
-
-        if errors:
-            await interaction.response.send_message(
-                f"❌ Validation errors:\n" + "\n".join(errors),
-                ephemeral=True
-            )
-            return
-
-        # Check if state already exists
-        if state_name in STATE_DATA:
-            await interaction.response.send_message(
-                f"❌ State '{state_name}' already exists in STATE_DATA. Use `/admin_modify_state` to update it.",
-                ephemeral=True
-            )
-            return
-
-        # Store the addition in database for tracking
-        ideology_col = self.bot.db["ideology_modifications"]
-        
-        modification = {
-            "guild_id": interaction.guild.id,
-            "action": "add_state",
-            "state_name": state_name,
-            "data": {
-                "republican": republican,
-                "democrat": democrat,
-                "other": other,
-                "ideology": ideology,
-                "economic": economic,
-                "social": social,
-                "government": government,
-                "axis": axis
-            },
-            "timestamp": datetime.utcnow(),
-            "user_id": interaction.user.id
-        }
-        
-        ideology_col.insert_one(modification)
-
-        await interaction.response.send_message(
-            f"✅ **Note:** State '{state_name}' would be added to STATE_DATA with:\n"
-            f"• **Republican:** {republican}%\n"
-            f"• **Democrat:** {democrat}%\n"
-            f"• **Other:** {other}%\n"
-            f"• **Ideology:** {ideology}\n"
-            f"• **Economic:** {economic}\n"
-            f"• **Social:** {social}\n"
-            f"• **Government:** {government}\n"
-            f"• **Axis:** {axis}\n\n"
-            f"**To actually implement this:**\n"
-            f"1. Edit `cogs/ideology.py`\n"
-            f"2. Add this entry to STATE_DATA:\n"
-            f'```python\n"{state_name}": {{"republican": {republican}, "democrat": {democrat}, "other": {other}, "ideology": "{ideology}", "economic": "{economic}", "social": "{social}", "government": "{government}", "axis": "{axis}"}},\n```',
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="admin_modify_state",
-        description="Modify an existing state in STATE_DATA (Admin only)"
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def admin_modify_state(
-        self,
-        interaction: discord.Interaction,
-        state_name: str,
-        field: str,
-        new_value: str
-    ):
-        """Modify a specific field of an existing state"""
-        state_name = state_name.upper()
-        field = field.lower()
-        
-        valid_fields = ["republican", "democrat", "other", "ideology", "economic", "social", "government", "axis"]
-        
-        if field not in valid_fields:
-            await interaction.response.send_message(
-                f"❌ Invalid field '{field}'. Valid fields: {', '.join(valid_fields)}",
-                ephemeral=True
-            )
-            return
-
-        # Check if state exists
-        if state_name not in STATE_DATA:
-            await interaction.response.send_message(
-                f"❌ State '{state_name}' not found in STATE_DATA. Use `/admin_add_state` to add it.",
-                ephemeral=True
-            )
-            return
-
-        # Validate the new value
-        if field in ["republican", "democrat", "other"]:
-            try:
-                new_value = int(new_value)
-                if new_value < 0 or new_value > 100:
-                    await interaction.response.send_message(
-                        f"❌ Percentage values must be between 0 and 100.",
-                        ephemeral=True
-                    )
-                    return
-                
-                # Check if percentages still add up to 100
-                current_data = STATE_DATA[state_name].copy()
-                current_data[field] = new_value
-                total = current_data["republican"] + current_data["democrat"] + current_data["other"]
-                
-                if total != 100:
-                    await interaction.response.send_message(
-                        f"❌ After this change, percentages would total {total}% instead of 100%.\n"
-                        f"Current: Republican {current_data['republican']}%, Democrat {current_data['democrat']}%, Other {current_data['other']}%",
-                        ephemeral=True
-                    )
-                    return
-                    
-            except ValueError:
-                await interaction.response.send_message(
-                    f"❌ '{new_value}' is not a valid integer for field '{field}'.",
-                    ephemeral=True
-                )
-                return
-        else:
-            # Validate ideology choices
-            available_choices = self._get_available_choices()
-            if new_value not in available_choices[field]:
-                await interaction.response.send_message(
-                    f"❌ Invalid {field} '{new_value}'. Available options: {', '.join(available_choices[field])}",
-                    ephemeral=True
-                )
-                return
-
-        # Store the modification in database for tracking
-        ideology_col = self.bot.db["ideology_modifications"]
-        
-        old_value = STATE_DATA[state_name][field]
-        
-        modification = {
-            "guild_id": interaction.guild.id,
-            "action": "modify_state",
-            "state_name": state_name,
-            "field": field,
-            "old_value": old_value,
-            "new_value": new_value,
-            "timestamp": datetime.utcnow(),
-            "user_id": interaction.user.id
-        }
-        
-        ideology_col.insert_one(modification)
-
-        await interaction.response.send_message(
-            f"✅ **Note:** State '{state_name}' field '{field}' would be changed from '{old_value}' to '{new_value}'.\n\n"
-            f"**To actually implement this:**\n"
-            f"1. Edit `cogs/ideology.py`\n"
-            f"2. Find the '{state_name}' entry in STATE_DATA\n"
-            f"3. Change `\"{field}\": \"{old_value}\"` to `\"{field}\": \"{new_value}\"`",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="admin_remove_state",
-        description="Remove a state from STATE_DATA (Admin only)"
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def admin_remove_state(
-        self,
-        interaction: discord.Interaction,
-        state_name: str,
-        confirm: bool = False
-    ):
-        """Remove a state from STATE_DATA"""
-        state_name = state_name.upper()
-        
-        if state_name not in STATE_DATA:
-            await interaction.response.send_message(
-                f"❌ State '{state_name}' not found in STATE_DATA.",
-                ephemeral=True
-            )
-            return
-
-        if not confirm:
-            await interaction.response.send_message(
-                f"⚠️ **Warning:** This will remove '{state_name}' from STATE_DATA.\n"
-                f"Current data: {STATE_DATA[state_name]}\n\n"
-                f"Use `/admin_remove_state {state_name} True` to confirm deletion.",
-                ephemeral=True
-            )
-            return
-
-        # Store the removal in database for tracking
-        ideology_col = self.bot.db["ideology_modifications"]
-        
-        modification = {
-            "guild_id": interaction.guild.id,
-            "action": "remove_state",
-            "state_name": state_name,
-            "removed_data": STATE_DATA[state_name],
-            "timestamp": datetime.utcnow(),
-            "user_id": interaction.user.id
-        }
-        
-        ideology_col.insert_one(modification)
-
-        await interaction.response.send_message(
-            f"✅ **Note:** State '{state_name}' would be removed from STATE_DATA.\n"
-            f"Removed data: {STATE_DATA[state_name]}\n\n"
-            f"**To actually implement this:**\n"
-            f"1. Edit `cogs/ideology.py`\n"
-            f"2. Find and delete the entire '{state_name}' entry from STATE_DATA",
-            ephemeral=True
-        )
 
     @app_commands.command(
         name="admin_view_state_data",

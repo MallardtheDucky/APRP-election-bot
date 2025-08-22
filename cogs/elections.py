@@ -10,6 +10,10 @@ class Elections(commands.Cog):
         self.seats_data = self._initialize_seats()
         print("Elections cog loaded successfully")
 
+    # Create command groups
+    election_group = app_commands.Group(name="election", description="Election management commands")
+    vote_group = app_commands.Group(name="vote", description="Voting commands")
+
     @commands.Cog.listener()
     async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
         """Automatically handle phase changes from time manager"""
@@ -371,7 +375,7 @@ class Elections(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    @app_commands.command(
+    @election_group.command(
         name="show_seats",
         description="Show all election seats by state or office type"
     )
@@ -436,7 +440,7 @@ class Elections(commands.Cog):
             await interaction.followup.send(f"❌ Error loading seats: {str(e)}", ephemeral=True)
 
 
-    @app_commands.command(
+    @election_group.command(
         name="assign_seat",
         description="Assign a user to an election seat"
     )
@@ -495,7 +499,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="seats_up_for_election",
         description="Show all seats that are up for election this cycle"
     )
@@ -568,7 +572,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
+    @election_group.command(
         name="toggle_seat_election",
         description="Toggle whether a seat is up for election"
     )
@@ -607,7 +611,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="vacant_seat",
         description="Mark a seat as vacant (remove current holder)"
     )
@@ -650,7 +654,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="bulk_assign_election",
         description="Mark all seats of a specific type or state as up for election"
     )
@@ -704,7 +708,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="modify_seat_term",
         description="Modify the term length for a specific seat type"
     )
@@ -753,7 +757,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="election_stats",
         description="Show statistics about current elections and seats"
     )
@@ -836,7 +840,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
+    @election_group.command(
         name="add_state",
         description="Add a new state/region with configurable seats"
     )
@@ -936,7 +940,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="add_districts",
         description="Add additional house districts to an existing state"
     )
@@ -1013,7 +1017,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="add_senate_seats",
         description="Add additional senate seats to an existing state"
     )
@@ -1089,7 +1093,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="remove_seat",
         description="Remove a specific seat from the election system"
     )
@@ -1124,7 +1128,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="remove_state",
         description="Remove an entire state/region and all its seats"
     )
@@ -1175,7 +1179,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="set_seat_term_year",
         description="Set a specific term end year for a seat"
     )
@@ -1218,7 +1222,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="bulk_set_term_years",
         description="Bulk set term end years for multiple seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR)"
     )
@@ -1276,7 +1280,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @app_commands.command(
+    @election_group.command(
         name="advance_all_terms",
         description="Manually advance all seat terms that were up for election"
     )
@@ -1299,7 +1303,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @app_commands.command(
+    @election_group.command(
         name="show_seat_terms",
         description="Show term end years for all seats or filter by state/office"
     )
@@ -1386,7 +1390,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
+    @election_group.command(
         name="list_states",
         description="List all states/regions and their seat counts"
     )
@@ -1441,7 +1445,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
+    @election_group.command(
         name="import_seat_term_years",
         description="Import specific term end years for seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR,...)"
     )
@@ -1515,7 +1519,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @app_commands.command(
+    @election_group.command(
         name="shift_all_term_years_negative",
         description="Shift all seat term end years by a specified number of years (subtract)"
     )
@@ -1557,7 +1561,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="admin_clear_all_elections",
         description="Clear all election data (Admin only - DESTRUCTIVE)"
     )
@@ -1613,7 +1617,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="admin_bulk_clear_holders",
         description="Clear all current seat holders (Admin only)"
     )
@@ -1675,7 +1679,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
+    @election_group.command(
         name="admin_modify_election_config",
         description="Modify election configuration settings (Admin only)"
     )
@@ -1732,7 +1736,7 @@ class Elections(commands.Cog):
         except ValueError as e:
             await interaction.response.send_message(f"❌ Invalid value: {str(e)}", ephemeral=True)
 
-    @app_commands.command(
+    @election_group.command(
         name="admin_export_seats",
         description="Export seat configuration as text (Admin only)"
     )

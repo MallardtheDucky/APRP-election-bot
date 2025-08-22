@@ -8,8 +8,11 @@ import pytz
 class TimeManager(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.time_loop.start()
         print("Time Manager cog loaded successfully")
+
+    # Create command groups
+    time_group = app_commands.Group(name="time", description="Time management commands")
+    schedule_group = app_commands.Group(name="schedule", description="Schedule management commands")
 
     def cog_unload(self):
         self.time_loop.cancel()
@@ -207,7 +210,7 @@ class TimeManager(commands.Cog):
     async def before_time_loop(self):
         await self.bot.wait_until_ready()
 
-    @app_commands.command(
+    @time_group.command(
         name="current_time",
         description="Show the current RP date and election phase"
     )
@@ -241,7 +244,7 @@ class TimeManager(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @time_group.command(
         name="set_current_time",
         description="Set the current RP date and time"
     )
@@ -309,7 +312,7 @@ class TimeManager(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @time_group.command(
         name="set_time_scale",
         description="Set how many real minutes equal one RP day"
     )
@@ -349,7 +352,7 @@ class TimeManager(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @time_group.command(
         name="reset_cycle",
         description="Reset the election cycle to the beginning (Signups phase)"
     )
@@ -488,7 +491,7 @@ class TimeManager(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @time_group.command(
         name="set_voice_channel",
         description="Set which voice channel to update with RP date"
     )
@@ -511,7 +514,7 @@ class TimeManager(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @time_group.command(
         name="toggle_voice_updates",
         description="Toggle automatic voice channel name updates with current RP date"
     )
@@ -534,7 +537,7 @@ class TimeManager(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @time_group.command(
         name="update_voice_channel",
         description="Manually update the configured voice channel with current RP date"
     )

@@ -1186,60 +1186,15 @@ class GeneralCampaignActions(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
+    # Create command groups
+    admin_group = app_commands.Group(name="admin", description="Administrative commands")
+    campaign_group = app_commands.Group(name="campaign", description="Campaign action commands")
+
+    @admin_group.command(
+        name="reset_timer",
+        description="Reset specific command cooldown for a user"
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="reset_cooldowns",
-        description="Reset action cooldowns for a specific user"
-    )
-    @app_commands.describe(
-        user="The user whose cooldowns to reset",
-        action="Specific action to reset (optional - leave blank to reset all)"
-    )
-    async def reset_cooldowns(
-        self, 
-        interaction: discord.Interaction, 
-        user: discord.Member,
-        action: Optional[str] = None
-    ):
-        cooldowns_col = self.bot.db["action_cooldowns"]
-
-        if action:
-            # Reset specific action cooldown
-            valid_actions = ["speech", "donor", "ad", "poster"]
-            if action.lower() not in valid_actions:
-                await interaction.response.send_message(
-                    f"❌ Invalid action. Valid actions: {', '.join(valid_actions)}",
-                    ephemeral=True
-                )
-                return
-
-            result = cooldowns_col.delete_many({
-                "guild_id": interaction.guild.id,
-                "user_id": user.id,
-                "action_type": action.lower()
-            })
-
-            await interaction.response.send_message(
-                f"✅ Reset **{action}** cooldown for {user.mention}. ({result.deleted_count} records cleared)",
-                ephemeral=True
-            )
-        else:
-            # Reset all cooldowns for user
-            result = cooldowns_col.delete_many({
-                "guild_id": interaction.guild.id,
-                "user_id": user.id
-            })
-
-            await interaction.response.send_message(
-                f"✅ Reset **all** cooldowns for {user.mention}. ({result.deleted_count} records cleared)",
-                ephemeral=True
-            )
-
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="reset_command_timer",
-        description="Reset specific command cooldown for a user (alias for reset_cooldowns)"
-    )
     @app_commands.describe(
         user="The user whose cooldown to reset",
         command="Command to reset (speech, donor, ad, poster, or 'all')"
@@ -1268,27 +1223,34 @@ class GeneralCampaignActions(commands.Cog):
             valid_commands = ["speech", "donor", "ad", "poster"]
             if command.lower() not in valid_commands:
                 await interaction.response.send_message(
-                    f"❌ Invalid command. Valid commands: {', '.join(valid_commands)}, all",
+                    f"❌ Invalid command. Valid options: {', '.join(valid_commands)}, all",
                     ephemeral=True
                 )
                 return
 
-            result = cooldowns_col.delete_many({
+            result = cooldowns_col.delete_one({
                 "guild_id": interaction.guild.id,
                 "user_id": user.id,
                 "action_type": command.lower()
             })
 
-            await interaction.response.send_message(
-                f"✅ Reset **{command}** timer for {user.mention}. ({result.deleted_count} records cleared)",
-                ephemeral=True
-            )
+            if result.deleted_count > 0:
+                await interaction.response.send_message(
+                    f"✅ Reset **{command.lower()}** timer for {user.mention}.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"ℹ️ No active **{command.lower()}** cooldown found for {user.mention}.",
+                    ephemeral=True
+                )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="admin_view_general_points",
+    @admin_group.command(
+        name="view_points",
         description="View all general campaign points and standings (Admin only)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(seat_filter="Filter results by seat ID (optional)")
     async def admin_view_general_points(self, interaction: discord.Interaction, seat_filter: Optional[str] = None):
         # Check if we're in general campaign phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
@@ -1423,11 +1385,11 @@ class GeneralCampaignActions(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @admin_group.command(
         name="reset_all_cooldowns",
         description="Reset ALL action cooldowns for everyone in the server"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(confirm="Type 'yes' to confirm this action")
     async def reset_all_cooldowns(
         self, 
@@ -1449,9 +1411,8 @@ class GeneralCampaignActions(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="campaign_status",
+    @campaign_group.command(
+        name="status",
         description="View your campaign statistics and available actions"
     )
     async def campaign_status(self, interaction: discord.Interaction):
