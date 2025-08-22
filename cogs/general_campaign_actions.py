@@ -118,6 +118,59 @@ class GeneralCampaignActions(commands.Cog):
 
         return remaining
 
+    def _calculate_baseline_percentage(self, guild_id: int, seat_id: str):
+        """Calculate baseline starting percentage based on party distribution for a seat"""
+        signups_col, signups_config = self._get_signups_config(guild_id)
+
+        if not signups_config:
+            return 50.0  # Default fallback
+
+        # Get current year
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        # Find all candidates for this seat in current year
+        seat_candidates = [
+            c for c in signups_config["candidates"] 
+            if c["seat_id"] == seat_id and c["year"] == current_year
+        ]
+
+        if not seat_candidates:
+            return 50.0  # Default if no candidates
+
+        # Count parties
+        party_counts = {}
+        for candidate in seat_candidates:
+            party = candidate["party"]
+            party_counts[party] = party_counts.get(party, 0) + 1
+
+        total_candidates = len(seat_candidates)
+        major_parties = ["Democratic Party", "Republican Party"]
+
+        # Calculate distribution
+        dem_count = party_counts.get("Democratic Party", 0)
+        rep_count = party_counts.get("Republican Party", 0) 
+        ind_count = total_candidates - dem_count - rep_count
+        major_count = dem_count + rep_count
+
+        if ind_count == 0:
+            # Just Dem vs Rep: 50-50
+            return 50.0
+        elif ind_count == 1:
+            # Dem-Rep-Ind: 40-40-20
+            if major_count == 2:
+                return 40.0  # Major parties get 40%
+            else:
+                return 20.0  # Independent gets 20%
+        else:
+            # Multiple independents: majors get 40% each, independents split remainder
+            if major_count > 0:
+                # Major parties present
+                remaining_percentage = 100.0 - (major_count * 40.0)
+                return 40.0 if dem_count > 0 or rep_count > 0 else remaining_percentage / ind_count
+            else:
+                # All independents, split evenly
+                return 100.0 / total_candidates
 
 
     class SpeechModal(discord.ui.Modal, title='Campaign Speech'):
@@ -214,7 +267,7 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Calculate polling boost
+        # Calculate polling boost - 1% per 1200 characters
         char_count = len(speech_text)
         polling_boost = (char_count / 1200) * 1.0  # 1% per 1200 characters
         polling_boost = min(polling_boost, 2.5)  # Cap at 2.5%
@@ -319,7 +372,7 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Calculate polling boost (1% per 1000 characters, capped at 2%)
+        # Calculate polling boost - 1% per 1000 characters  
         char_count = len(donor_appeal)
         polling_boost = (char_count / 1000) * 1.0
         polling_boost = min(polling_boost, 2.0)
@@ -871,6 +924,74 @@ class GeneralCampaignActions(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
+        name="polling_standings",
+        description="View current polling standings for your seat"
+    )
+    async def polling_standings(self, interaction: discord.Interaction):
+        # Check if user is a candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered candidate to view standings. Use `/signup` first.",
+                ephemeral=True
+            )
+            return
+
+        # Get current year
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        # Get all candidates for same seat
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+        seat_candidates = [
+            c for c in signups_config["candidates"] 
+            if c["seat_id"] == candidate["seat_id"] and c["year"] == current_year
+        ]
+
+        embed = discord.Embed(
+            title=f"📊 Polling Standings - {candidate['seat_id']}",
+            description=f"{candidate['office']} • {candidate['region']}",
+            color=discord.Color.gold(),
+            timestamp=datetime.utcnow()
+        )
+
+        standings = []
+        for c in seat_candidates:
+            baseline = c.get("baseline_percentage", 50.0)
+            campaign_points = c.get("points", 0.0)
+            total_percentage = baseline + campaign_points
+
+            standings.append({
+                "name": c["name"],
+                "party": c["party"],
+                "baseline": baseline,
+                "campaign_points": campaign_points,
+                "total": total_percentage,
+                "stamina": c.get("stamina", 100),
+                "corruption": c.get("corruption", 0)
+            })
+
+        # Sort by total percentage
+        standings.sort(key=lambda x: x["total"], reverse=True)
+
+        standings_text = ""
+        for i, s in enumerate(standings, 1):
+            standings_text += (
+                f"**{i}. {s['name']}** ({s['party']})\n"
+                f"   └ {s['baseline']:.1f}% (base) + {s['campaign_points']:.1f}% (campaign) = **{s['total']:.1f}%**\n"
+                f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
+            )
+
+        embed.add_field(
+            name="🏆 Current Standings",
+            value=standings_text,
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
         name="campaign_status",
         description="View your campaign statistics and available actions"
     )
@@ -900,9 +1021,14 @@ class GeneralCampaignActions(commands.Cog):
             inline=True
         )
 
+        baseline = candidate.get("baseline_percentage", 50.0)
+        total_percentage = baseline + candidate['points']
+
         embed.add_field(
             name="📈 Current Stats",
-            value=f"**Polling Points:** {candidate['points']:.2f}%\n"
+            value=f"**Baseline:** {baseline:.1f}%\n"
+                  f"**Campaign Points:** +{candidate['points']:.2f}%\n"
+                  f"**Total Polling:** {total_percentage:.1f}%\n"
                   f"**Stamina:** {candidate['stamina']}/100\n"
                   f"**Corruption:** {candidate['corruption']}",
             inline=True

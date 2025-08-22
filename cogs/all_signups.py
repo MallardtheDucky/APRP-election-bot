@@ -327,24 +327,24 @@ class AllSignups(commands.Cog):
                     await interaction.response.send_message("❌ Error: Seat not found", ephemeral=True)
                     return
 
-                # Add candidate to signups
+                # Create candidate entry (primary phase)
                 new_candidate = {
                     "user_id": interaction.user.id,
                     "name": self.candidate_info["name"],
-                    "seat_id": selected_seat_id,
                     "party": self.candidate_info["party"],
-                    "phase": "Signups",
                     "region": self.candidate_info["region"],
+                    "seat_id": selected_seat["seat_id"],
                     "office": selected_seat["office"],
-                    "corruption": 0,  # Starting values
-                    "stamina": 100,
-                    "points": 0,
                     "year": self.candidate_info["year"],
-                    "winner": False,
-                    "signup_date": datetime.utcnow()
+                    "signup_date": datetime.utcnow(),
+                    "points": 0.0,  # Start with 0 points for primary campaign
+                    "stamina": 100,
+                    "corruption": 0,
+                    "phase": "Primary Campaign"
                 }
 
                 signups_config["candidates"].append(new_candidate)
+
                 signups_col.update_one(
                     {"guild_id": interaction.guild.id},
                     {"$set": {"candidates": signups_config["candidates"]}}
@@ -371,9 +371,10 @@ class AllSignups(commands.Cog):
 
                 success_embed.add_field(
                     name="📊 Starting Stats",
-                    value=f"**Stamina:** 100\n"
-                          f"**Points:** 0\n"
-                          f"**Corruption:** 0",
+                    value=f"**Stamina:** {new_candidate['stamina']}\n"
+                          f"**Points:** {new_candidate['points']:.2f}\n"
+                          f"**Corruption:** {new_candidate['corruption']}\n"
+                          f"**Phase:** Primary Campaign",
                     inline=True
                 )
 
@@ -447,8 +448,8 @@ class AllSignups(commands.Cog):
             regions[region].append(candidate)
 
         embed = discord.Embed(
-            title=f"🗳️ {current_year} Election Signups",
-            description=f"Current phase: **{time_config.get('current_phase', 'Unknown')}**",
+            title=f"🗳️ {current_year} Primary Campaign Signups",
+            description=f"Current phase: **{time_config.get('current_phase', 'Unknown')}** • Only campaign points matter in primary phase",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
@@ -458,6 +459,7 @@ class AllSignups(commands.Cog):
             for candidate in candidates:
                 candidate_list += f"**{candidate['name']}** ({candidate['party']})\n"
                 candidate_list += f"└ {candidate['seat_id']} - {candidate['office']}\n\n"
+
 
             embed.add_field(
                 name=f"📍 {region}",
@@ -578,15 +580,15 @@ class AllSignups(commands.Cog):
         embed.add_field(
             name="📊 Campaign Stats",
             value=f"**Stamina:** {user_signup['stamina']}\n"
-                  f"**Points:** {user_signup['points']}\n"
+                  f"**Points:** {user_signup['points']:.2f}\n"
                   f"**Corruption:** {user_signup['corruption']}",
             inline=True
         )
 
         embed.add_field(
             name="📅 Status",
-            value=f"**Phase:** {user_signup['phase']}\n"
-                  f"**Winner:** {'Yes' if user_signup['winner'] else 'TBD'}",
+            value=f"**Phase:** {user_signup.get('phase', 'Primary Campaign')}\n"
+                  f"**Winner:** {'Yes' if user_signup.get('winner', False) else 'TBD'}",
             inline=False
         )
 
@@ -911,8 +913,8 @@ class AllSignups(commands.Cog):
                 lines.append(
                     f"{candidate['name']},{candidate['party']},{candidate['seat_id']},"
                     f"{candidate['office']},{candidate['region']},{candidate['stamina']},"
-                    f"{candidate['points']},{candidate['corruption']},{candidate['phase']},"
-                    f"{candidate['winner']}"
+                    f"{candidate['points']:.2f},{candidate['corruption']},{candidate['phase']},"
+                    f"{candidate.get('winner', False)}"
                 )
             export_text = "\n".join(lines)
         else:
@@ -922,8 +924,8 @@ class AllSignups(commands.Cog):
                 export_lines.append(
                     f"{candidate['name']} ({candidate['party']}) - {candidate['seat_id']} "
                     f"({candidate['office']}, {candidate['region']}) | "
-                    f"S:{candidate['stamina']} P:{candidate['points']} C:{candidate['corruption']} "
-                    f"Phase:{candidate['phase']} Winner:{candidate['winner']}"
+                    f"S:{candidate['stamina']} P:{candidate['points']:.2f} C:{candidate['corruption']} "
+                    f"Phase:{candidate['phase']} Winner:{candidate.get('winner', False)}"
                 )
             export_text = "\n".join(export_lines)
 
@@ -1241,7 +1243,6 @@ class AllSignups(commands.Cog):
         total_points = sum(c['points'] for c in candidates)
         avg_corruption = sum(c['corruption'] for c in candidates) / len(candidates) if candidates else 0
         avg_stamina = sum(c['stamina'] for c in candidates) / len(candidates) if candidates else 0
-
         embed.add_field(
             name="📈 Summary Statistics",
             value=f"**Total Candidates:** {len(candidates)}\n"
@@ -1507,6 +1508,180 @@ class AllSignups(commands.Cog):
             )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_signup_user",
+        description="Sign up a user as a candidate for any race (Admin only - bypasses phase restrictions)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(
+        user="The user to sign up as a candidate",
+        name="Candidate name (optional - defaults to user's display name)",
+        party="Political party affiliation",
+        region="Region/state the candidate will run in",
+        seat_id="Specific seat ID to run for (e.g., SEN-CO-1, CA-GOV)"
+    )
+    @app_commands.autocomplete(party=party_autocomplete)
+    @app_commands.autocomplete(region=region_autocomplete)
+    async def admin_signup_user(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        party: str,
+        region: str,
+        seat_id: str,
+        name: str = None
+    ):
+        """Admin command to sign up any user for any race, bypassing normal restrictions"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message(
+                "❌ Election system not configured. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        current_year = time_config["current_rp_date"].year
+        candidate_name = name if name else user.display_name
+
+        # Validate region
+        available_regions = self._get_regions_from_elections(interaction.guild.id)
+        if region not in available_regions:
+            regions_text = ", ".join(available_regions) if available_regions else "None available"
+            await interaction.response.send_message(
+                f"❌ Invalid region. Available regions: {regions_text}",
+                ephemeral=True
+            )
+            return
+
+        # Get available seats in the region
+        available_seats = self._get_available_seats_in_region(interaction.guild.id, region)
+
+        # Find the specific seat
+        selected_seat = None
+        for seat in available_seats:
+            if seat['seat_id'].upper() == seat_id.upper():
+                selected_seat = seat
+                break
+
+        if not selected_seat:
+            available_seat_ids = [seat['seat_id'] for seat in available_seats]
+            if available_seat_ids:
+                await interaction.response.send_message(
+                    f"❌ Seat '{seat_id}' not found or not available in {region}.\n"
+                    f"Available seats: {', '.join(available_seat_ids)}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"❌ No seats are currently available in {region}.",
+                    ephemeral=True
+                )
+            return
+
+        # Check if user already has a signup for this election cycle
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        existing_signup = None
+        for candidate in signups_config["candidates"]:
+            if (candidate["user_id"] == user.id and
+                candidate["year"] == current_year):
+                existing_signup = candidate
+                break
+
+        if existing_signup:
+            await interaction.response.send_message(
+                f"❌ {user.mention} is already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for {existing_signup['region']} - {existing_signup['office']} in {current_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Determine current phase for appropriate starting stats
+        current_phase = time_config.get("current_phase", "")
+        if current_phase in ["Primary Campaign", "Primary Election"]:
+            phase = "Primary Campaign"
+            points = 0.0  # Start with 0 points for primary
+        elif current_phase in ["General Campaign", "General Election"]:
+            phase = "General Campaign"
+            # For general campaign, we should check if they won a primary first
+            # For admin signup, we'll give them baseline points
+            points = 50.0  # Give baseline points for general campaign
+        else:
+            # Default to primary campaign phase
+            phase = "Primary Campaign"
+            points = 0.0
+
+        # Create candidate entry
+        new_candidate = {
+            "user_id": user.id,
+            "name": candidate_name,
+            "party": party,
+            "region": region,
+            "seat_id": selected_seat["seat_id"],
+            "office": selected_seat["office"],
+            "year": current_year,
+            "signup_date": datetime.utcnow(),
+            "points": points,
+            "stamina": 100,
+            "corruption": 0,
+            "phase": phase
+        }
+
+        signups_config["candidates"].append(new_candidate)
+
+        signups_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"candidates": signups_config["candidates"]}}
+        )
+
+        # Create success embed
+        success_embed = discord.Embed(
+            title="✅ Admin Signup Successful!",
+            description=f"Successfully signed up {user.mention} for the {current_year} election!",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        success_embed.add_field(
+            name="📋 Campaign Details",
+            value=f"**Name:** {candidate_name}\n"
+                  f"**User:** {user.mention}\n"
+                  f"**Party:** {party}\n"
+                  f"**Seat:** {selected_seat['seat_id']}\n"
+                  f"**Office:** {selected_seat['office']}\n"
+                  f"**Region:** {region}\n"
+                  f"**Term:** {selected_seat['term_years']} years",
+            inline=True
+        )
+
+        success_embed.add_field(
+            name="📊 Starting Stats",
+            value=f"**Stamina:** {new_candidate['stamina']}\n"
+                  f"**Points:** {new_candidate['points']:.2f}\n"
+                  f"**Corruption:** {new_candidate['corruption']}\n"
+                  f"**Phase:** {phase}",
+            inline=True
+        )
+
+        incumbent_text = ""
+        if selected_seat.get("current_holder"):
+            incumbent_text = f"\n\n**Current Holder:** {selected_seat['current_holder']}"
+
+        success_embed.add_field(
+            name="🎯 Election Info",
+            value=f"**Election Year:** {current_year}\n"
+                  f"**Current Phase:** {current_phase}{incumbent_text}",
+            inline=False
+        )
+
+        success_embed.add_field(
+            name="⚠️ Admin Override",
+            value="This signup was created by an administrator and bypassed normal phase restrictions.",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=success_embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(AllSignups(bot))

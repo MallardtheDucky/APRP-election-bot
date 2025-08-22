@@ -47,22 +47,22 @@ class AllWinners(commands.Cog):
 
 
     def _calculate_ideology_points(self, winner, state_data, region_medians, state_to_seat):
-        """Calculate ideology-based points for a candidate based on their seat and party"""
+        """Calculate ideology-based baseline percentage for a candidate based on their seat and party"""
         seat_id = winner["seat_id"]
         party = winner["party"]
         office = winner["office"]
-        
+
         # Map party names to ideology data keys
         party_mapping = {
             "Republican Party": "republican",
             "Democratic Party": "democrat", 
             "Independent": "other"
         }
-        
+
         ideology_key = party_mapping.get(party)
         if not ideology_key:
-            return 0  # Unknown party gets no ideology bonus
-        
+            return 20.0  # Unknown party gets 20% baseline
+
         if "District" in office:
             # For House representatives, use specific state data
             # Find the state for this seat
@@ -71,60 +71,142 @@ class AllWinners(commands.Cog):
                 if rep_seat == seat_id:
                     target_state = state
                     break
-            
+
             if target_state and target_state in state_data:
                 return state_data[target_state][ideology_key]
             else:
-                return 0  # Fallback if state not found
-                
+                return 20.0  # Fallback if state not found
+
         elif office in ["Senate", "Governor"]:
             # For Senate/Governor, use regional medians
             region = winner["region"]
             if region in region_medians:
                 return region_medians[region][ideology_key]
             else:
-                return 0  # Fallback if region not found
-                
+                return 20.0  # Fallback if region not found
+
         else:
-            # For other offices (President, VP, etc.), no ideology bonus
-            return 0
+            # For other offices (President, VP, etc.), default baseline
+            return 25.0
 
+    def _calculate_seat_percentages(self, seat_candidates):
+        """Calculate final percentages for candidates in a seat"""
+        if not seat_candidates:
+            return {}
 
-    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
-        """Handle phase changes and process primary winners"""
-        if old_phase == "Primary Election" and new_phase == "General Campaign":
-            await self._process_primary_winners(guild_id, current_year)
+        # Count parties and determine baseline percentages
+        parties = {}
+        for candidate in seat_candidates:
+            party = candidate["party"]
+            if party not in parties:
+                parties[party] = []
+            parties[party].append(candidate)
+
+        num_parties = len(parties)
+        major_parties = ["Republican Party", "Democratic Party"]
+        
+        # Determine baseline percentages based on party composition
+        baseline_percentages = {}
+        
+        if num_parties == 2:
+            # 50-50 split
+            for party in parties.keys():
+                baseline_percentages[party] = 50.0
+        elif num_parties == 3:
+            # 40-40-20 split (majors get 40%, independent gets 20%)
+            for party in parties.keys():
+                if party in major_parties:
+                    baseline_percentages[party] = 40.0
+                else:
+                    baseline_percentages[party] = 20.0
+        else:
+            # More than 3 parties: majors get 40% each, independents split the remainder
+            major_count = sum(1 for p in parties.keys() if p in major_parties)
+            independent_count = num_parties - major_count
+            
+            for party in parties.keys():
+                if party in major_parties:
+                    baseline_percentages[party] = 40.0
+                else:
+                    # Split remaining percentage among independents
+                    remaining_percentage = 100.0 - (major_count * 40.0)
+                    baseline_percentages[party] = remaining_percentage / independent_count if independent_count > 0 else 0.0
+
+        # Calculate campaign point adjustments for each candidate
+        candidate_adjustments = {}
+        
+        for candidate in seat_candidates:
+            points = candidate.get("points", 0.0)
+            corruption = candidate.get("corruption", 0)
+            
+            # Points to percentage conversion (1200 points = 1%)
+            points_adjustment = points / 1200.0
+            
+            # Apply corruption penalty
+            corruption_penalty = corruption * 0.1  # Each corruption point = -0.1%
+            
+            # Net adjustment from campaign activities
+            net_adjustment = points_adjustment - corruption_penalty
+            candidate_adjustments[candidate["candidate"]] = net_adjustment
+
+        # Apply adjustments to baseline percentages
+        final_percentages = {}
+        total_adjustment = sum(candidate_adjustments.values())
+        
+        for candidate in seat_candidates:
+            party = candidate["party"]
+            candidate_name = candidate["candidate"]
+            
+            # Start with party baseline
+            base_percentage = baseline_percentages[party]
+            
+            # Add individual candidate's campaign adjustment
+            adjustment = candidate_adjustments[candidate_name]
+            adjusted_percentage = base_percentage + adjustment
+            
+            # Ensure no negative percentages
+            adjusted_percentage = max(0.1, adjusted_percentage)  # Minimum 0.1% to avoid zero
+            
+            final_percentages[candidate_name] = adjusted_percentage
+
+        # Normalize to ensure total equals 100%
+        total_percentage = sum(final_percentages.values())
+        if total_percentage > 0:
+            for candidate_name in final_percentages:
+                final_percentages[candidate_name] = (final_percentages[candidate_name] / total_percentage) * 100.0
+
+        return final_percentages
 
     async def _process_primary_winners(self, guild_id: int, current_year: int):
         """Process primary election results and determine winners"""
         signups_col, signups_config = self._get_signups_config(guild_id)
         winners_col, winners_config = self._get_winners_config(guild_id)
-        
+
         if not signups_config:
             return
 
         # Get all candidates for current year
         candidates = [c for c in signups_config["candidates"] if c["year"] == current_year]
-        
+
         # Group candidates by seat and party
         seat_party_groups = {}
         for candidate in candidates:
             seat_id = candidate["seat_id"]
             party = candidate["party"]
             key = f"{seat_id}_{party}"
-            
+
             if key not in seat_party_groups:
                 seat_party_groups[key] = []
             seat_party_groups[key].append(candidate)
 
         primary_winners = []
-        
+
         # Import ideology data for seat-based points
         from cogs.ideology import STATE_DATA, calculate_region_medians, STATE_TO_SEAT
-        
+
         # Get region medians for senate/governor seats
         region_medians = calculate_region_medians()
-        
+
         # Determine winner for each party in each seat
         for key, party_candidates in seat_party_groups.items():
             if len(party_candidates) == 1:
@@ -133,10 +215,10 @@ class AllWinners(commands.Cog):
             else:
                 # Multiple candidates, highest points wins
                 winner = max(party_candidates, key=lambda x: x["points"])
-            
-            # Calculate ideology-based points for general campaign
-            ideology_points = self._calculate_ideology_points(winner, STATE_DATA, region_medians, STATE_TO_SEAT)
-            
+
+            # Calculate ideology-based baseline percentage for general campaign
+            baseline_percentage = self._calculate_ideology_points(winner, STATE_DATA, region_medians, STATE_TO_SEAT)
+
             # Create winner entry
             winner_entry = {
                 "year": current_year,
@@ -146,7 +228,8 @@ class AllWinners(commands.Cog):
                 "seat_id": winner["seat_id"],
                 "candidate": winner["name"],
                 "party": winner["party"],
-                "points": ideology_points,  # Set ideology-based points for general election
+                "points": 0.0,  # Reset points for general election
+                "baseline_percentage": baseline_percentage,  # Store ideology-based baseline
                 "votes": 0,   # To be input by admins
                 "corruption": winner["corruption"],  # Keep corruption level
                 "final_score": 0,  # Calculated later
@@ -157,7 +240,7 @@ class AllWinners(commands.Cog):
                 "general_winner": False,
                 "created_date": datetime.utcnow()
             }
-            
+
             primary_winners.append(winner_entry)
 
         # Add winners to database
@@ -277,7 +360,8 @@ class AllWinners(commands.Cog):
             for winner in state_winners:
                 winner_list += f"**{winner['candidate']}** ({winner['party']})\n"
                 winner_list += f"└ {winner['seat_id']} - {winner['office']}\n"
-                winner_list += f"└ Points: {winner['points']} | Stamina: {winner['stamina']} | Corruption: {winner['corruption']}\n\n"
+                winner_list += f"└ Points: {winner['points']:.2f} | Stamina: {winner['stamina']} | Corruption: {winner['corruption']}\n"
+                winner_list += f"└ Baseline: {winner.get('baseline_percentage', 0):.1f}%\n\n"
 
             embed.add_field(
                 name=f"📍 {state}",
@@ -317,7 +401,7 @@ class AllWinners(commands.Cog):
 
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
-        # Find the winner
+        # Find the candidate
         winner_found = None
         for i, winner in enumerate(winners_config["winners"]):
             if (winner["candidate"].lower() == candidate_name.lower() and 
@@ -335,20 +419,37 @@ class AllWinners(commands.Cog):
 
         old_votes = winners_config["winners"][winner_found]["votes"]
         winners_config["winners"][winner_found]["votes"] = votes
-        
-        # Recalculate final score (simple formula: points + votes - corruption)
+
+        # Find all candidates in the same seat to recalculate percentages
         winner_data = winners_config["winners"][winner_found]
-        final_score = winner_data["points"] + votes - winner_data["corruption"]
-        winners_config["winners"][winner_found]["final_score"] = final_score
+        seat_id = winner_data["seat_id"]
+        seat_candidates = [
+            w for w in winners_config["winners"] 
+            if w["seat_id"] == seat_id and w["year"] == target_year and w.get("primary_winner", False)
+        ]
+
+        # Recalculate percentages for the entire seat
+        percentages = self._calculate_seat_percentages(seat_candidates)
+
+        # Update all candidates in this seat with new percentages
+        for candidate_name_key, percentage in percentages.items():
+            for i, winner in enumerate(winners_config["winners"]):
+                if (winner["candidate"] == candidate_name_key and 
+                    winner["year"] == target_year and
+                    winner["seat_id"] == seat_id):
+                    winners_config["winners"][i]["final_percentage"] = percentage
+                    break
 
         winners_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$set": {"winners": winners_config["winners"]}}
         )
 
+        new_percentage = percentages.get(candidate_name, 0)
         await interaction.response.send_message(
             f"✅ Set votes for **{candidate_name}**: {old_votes} → {votes}\n"
-            f"New final score: **{final_score}**",
+            f"New final percentage: **{new_percentage:.2f}%**\n"
+            f"Seat percentages have been recalculated for all candidates.",
             ephemeral=True
         )
 
@@ -404,20 +505,35 @@ class AllWinners(commands.Cog):
             seats[seat_id].append(winner)
 
         general_winners = []
-        
+
         for seat_id, candidates in seats.items():
-            # Find candidate with highest final score
-            seat_winner = max(candidates, key=lambda x: x["final_score"])
-            
-            # Update winner status
-            for i, winner in enumerate(winners_config["winners"]):
-                if (winner["candidate"] == seat_winner["candidate"] and 
-                    winner["year"] == target_year and
-                    winner["seat_id"] == seat_id):
-                    winners_config["winners"][i]["general_winner"] = True
-                    winners_config["winners"][i]["winner"] = True
-                    general_winners.append(winners_config["winners"][i])
-                    break
+            # Calculate final percentages for this seat
+            percentages = self._calculate_seat_percentages(candidates)
+
+            # Find candidate with highest percentage
+            if percentages:
+                winning_candidate = max(percentages.keys(), key=lambda x: percentages[x])
+                winning_percentage = percentages[winning_candidate]
+
+                # Update winner status and store final percentage
+                for i, winner in enumerate(winners_config["winners"]):
+                    if (winner["candidate"] == winning_candidate and 
+                        winner["year"] == target_year and
+                        winner["seat_id"] == seat_id):
+                        winners_config["winners"][i]["general_winner"] = True
+                        winners_config["winners"][i]["winner"] = True
+                        winners_config["winners"][i]["final_percentage"] = winning_percentage
+                        general_winners.append(winners_config["winners"][i])
+                        break
+
+                # Update all candidates in this seat with their final percentages
+                for candidate_name, percentage in percentages.items():
+                    for i, winner in enumerate(winners_config["winners"]):
+                        if (winner["candidate"] == candidate_name and 
+                            winner["year"] == target_year and
+                            winner["seat_id"] == seat_id):
+                            winners_config["winners"][i]["final_percentage"] = percentage
+                            break
 
         # Update database
         winners_col.update_one(
@@ -508,7 +624,8 @@ class AllWinners(commands.Cog):
             for winner in state_winners:
                 winner_list += f"**{winner['candidate']}** ({winner['party']})\n"
                 winner_list += f"└ {winner['seat_id']} - {winner['office']}\n"
-                winner_list += f"└ Final Score: {winner['final_score']} (P:{winner['points']} + V:{winner['votes']} - C:{winner['corruption']})\n\n"
+                winner_list += f"└ Final Percentage: {winner.get('final_percentage', 0):.2f}%\n"
+                winner_list += f"└ Points: {winner['points']:.2f} | Votes: {winner['votes']} | Corruption: {winner['corruption']}\n\n"
 
             embed.add_field(
                 name=f"📍 {state}",
@@ -552,6 +669,7 @@ class AllWinners(commands.Cog):
         pairs = vote_data.split(",")
         updated_candidates = []
         errors = []
+        candidate_percentages = {} # To store updated percentages
 
         for pair in pairs:
             try:
@@ -559,23 +677,37 @@ class AllWinners(commands.Cog):
                 votes = int(votes_str)
 
                 # Find the candidate
-                candidate_found = None
+                candidate_found_index = -1
                 for i, winner in enumerate(winners_config["winners"]):
                     if (winner["candidate"].lower() == candidate_name.lower() and 
                         winner["year"] == target_year and
                         winner.get("primary_winner", False)):
-                        candidate_found = i
+                        candidate_found_index = i
                         break
 
-                if candidate_found is not None:
-                    winners_config["winners"][candidate_found]["votes"] = votes
+                if candidate_found_index != -1:
+                    winners_config["winners"][candidate_found_index]["votes"] = votes
                     
-                    # Recalculate final score
-                    winner_data = winners_config["winners"][candidate_found]
-                    final_score = winner_data["points"] + votes - winner_data["corruption"]
-                    winners_config["winners"][candidate_found]["final_score"] = final_score
+                    # Recalculate percentages for the seat
+                    winner_data = winners_config["winners"][candidate_found_index]
+                    seat_id = winner_data["seat_id"]
+                    seat_candidates = [
+                        w for w in winners_config["winners"] 
+                        if w["seat_id"] == seat_id and w["year"] == target_year and w.get("primary_winner", False)
+                    ]
+                    percentages = self._calculate_seat_percentages(seat_candidates)
                     
-                    updated_candidates.append(f"{candidate_name}: {votes} votes (Score: {final_score})")
+                    # Update all candidates in this seat with new percentages
+                    for candidate_name_key, percentage in percentages.items():
+                        for i, winner in enumerate(winners_config["winners"]):
+                            if (winner["candidate"] == candidate_name_key and 
+                                winner["year"] == target_year and
+                                winner["seat_id"] == seat_id):
+                                winners_config["winners"][i]["final_percentage"] = percentage
+                                candidate_percentages[candidate_name_key] = percentage # Store for response
+                                break
+                    
+                    updated_candidates.append(f"{candidate_name}: {votes} votes (New %: {percentages.get(candidate_name, 0):.2f}%)")
                 else:
                     errors.append(f"Candidate {candidate_name} not found")
 
@@ -655,8 +787,8 @@ class AllWinners(commands.Cog):
             candidates.sort(key=lambda x: x["points"], reverse=True)
         elif sort_by.lower() == "votes":
             candidates.sort(key=lambda x: x["votes"], reverse=True)
-        elif sort_by.lower() == "final_score":
-            candidates.sort(key=lambda x: x["final_score"], reverse=True)
+        elif sort_by.lower() == "final_percentage":
+            candidates.sort(key=lambda x: x.get("final_percentage", 0), reverse=True)
         elif sort_by.lower() == "corruption":
             candidates.sort(key=lambda x: x["corruption"], reverse=True)
         elif sort_by.lower() == "stamina":
@@ -683,7 +815,7 @@ class AllWinners(commands.Cog):
             candidate_list += (
                 f"**{i}.** {candidate['candidate']} ({candidate['party']})\n"
                 f"   └ {candidate['seat_id']} • Points: {candidate['points']:.2f} • "
-                f"Votes: {candidate['votes']} • Score: {candidate['final_score']:.2f}\n"
+                f"Votes: {candidate['votes']} • %: {candidate.get('final_percentage', 0):.2f}%\n"
                 f"   └ Stamina: {candidate['stamina']} • Corruption: {candidate['corruption']} • {user_mention}\n\n"
             )
 
@@ -697,13 +829,15 @@ class AllWinners(commands.Cog):
         total_points = sum(c['points'] for c in candidates)
         total_votes = sum(c['votes'] for c in candidates)
         avg_corruption = sum(c['corruption'] for c in candidates) / len(candidates) if candidates else 0
+        total_percentage = sum(c.get('final_percentage', 0) for c in candidates)
 
         embed.add_field(
             name="📈 Summary Statistics",
             value=f"**Total Candidates:** {len(candidates)}\n"
                   f"**Total Points:** {total_points:.2f}\n"
                   f"**Total Votes:** {total_votes:,}\n"
-                  f"**Avg Corruption:** {avg_corruption:.1f}",
+                  f"**Avg Corruption:** {avg_corruption:.1f}\n"
+                  f"**Total %:** {total_percentage:.2f}%",
             inline=True
         )
 
@@ -786,7 +920,7 @@ class AllWinners(commands.Cog):
             name="📊 Campaign Stats",
             value=f"**Points:** {candidate['points']:.2f}\n"
                   f"**Votes:** {candidate['votes']:,}\n"
-                  f"**Final Score:** {candidate['final_score']:.2f}\n"
+                  f"**Final Percentage:** {candidate.get('final_percentage', 0):.2f}%\n"
                   f"**Stamina:** {candidate['stamina']}/100",
             inline=True
         )
@@ -807,14 +941,14 @@ class AllWinners(commands.Cog):
         )
 
         # Calculate score breakdown
-        score_breakdown = f"**Score Calculation:**\n"
-        score_breakdown += f"Points: {candidate['points']:.2f}\n"
-        score_breakdown += f"+ Votes: {candidate['votes']}\n"
-        score_breakdown += f"- Corruption: {candidate['corruption']}\n"
-        score_breakdown += f"= **Final Score: {candidate['final_score']:.2f}**"
+        score_breakdown = f"**Percentage Calculation:**\n"
+        score_breakdown += f"Baseline: {candidate.get('baseline_percentage', 0):.1f}%\n"
+        score_breakdown += f"+ Points to % ({candidate['points']:.2f}): {(candidate['points'] / 1200.0):.2f}%\n"
+        score_breakdown += f"- Corruption ({candidate['corruption']}): {(candidate['corruption'] * 0.1):.1f}%\n"
+        score_breakdown += f"= **Final Percentage: {candidate.get('final_percentage', 0):.2f}%**"
 
         embed.add_field(
-            name="🧮 Score Breakdown",
+            name="🧮 Percentage Breakdown",
             value=score_breakdown,
             inline=False
         )
@@ -956,13 +1090,13 @@ class AllWinners(commands.Cog):
             return
 
         # Create CSV format
-        lines = ["year,user_id,office,state,seat_id,candidate,party,points,votes,corruption,final_score,stamina,winner"]
+        lines = ["year,user_id,office,state,seat_id,candidate,party,points,baseline_percentage,votes,corruption,final_percentage,stamina,winner"]
         
         for winner in winners:
             lines.append(
                 f"{winner['year']},{winner['user_id']},{winner['office']},{winner['state']},"
                 f"{winner['seat_id']},{winner['candidate']},{winner['party']},{winner['points']},"
-                f"{winner['votes']},{winner['corruption']},{winner['final_score']},"
+                f"{winner.get('baseline_percentage', 0)},{winner['votes']},{winner['corruption']},{winner.get('final_percentage', 0)},"
                 f"{winner['stamina']},{winner.get('general_winner', False)}"
             )
 
