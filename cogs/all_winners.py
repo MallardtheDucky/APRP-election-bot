@@ -40,7 +40,7 @@ class AllWinners(commands.Cog):
         return col, config
 
     @commands.Cog.listener()
-    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
+    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: int, current_year: int):
         """Handle phase changes and process primary winners"""
         if old_phase == "Primary Election" and new_phase == "General Campaign":
             await self._process_primary_winners(guild_id, current_year)
@@ -90,7 +90,7 @@ class AllWinners(commands.Cog):
             return 25.0
 
     def _calculate_seat_percentages(self, seat_candidates):
-        """Calculate final percentages for candidates in a seat"""
+        """Calculate final percentages for candidates in a seat with zero-sum redistribution"""
         if not seat_candidates:
             return {}
 
@@ -142,44 +142,43 @@ class AllWinners(commands.Cog):
             for party in parties.keys():
                 baseline_percentages[party] = 100.0 / num_parties
 
-        # Calculate campaign point adjustments for each candidate
-        candidate_adjustments = {}
-
-        for candidate in seat_candidates:
-            points = candidate.get("points", 0.0)
-            corruption = candidate.get("corruption", 0)
-
-            # Points to percentage conversion (1200 points = 1%)
-            points_adjustment = points / 1200.0
-
-            # Apply corruption penalty
-            corruption_penalty = corruption * 0.1  # Each corruption point = -0.1%
-
-            # Net adjustment from campaign activities
-            net_adjustment = points_adjustment - corruption_penalty
-            candidate_adjustments[candidate["candidate"]] = net_adjustment
-
-        # Apply adjustments to baseline percentages
-        final_percentages = {}
-        total_adjustment = sum(candidate_adjustments.values())
-
+        # Step 1: Calculate each candidate's raw change (a_i)
+        raw_changes = {}
+        B = 100.0  # Total baseline percentage
+        
         for candidate in seat_candidates:
             party = candidate["party"]
             candidate_name = candidate["candidate"]
+            
+            # a_i = (p_i / 1200) - (0.1 * c_i)
+            points_change = candidate.get("points", 0.0) / 1200.0
+            corruption_penalty = candidate.get("corruption", 0) * 0.1
+            raw_change = points_change - corruption_penalty
+            
+            raw_changes[candidate_name] = raw_change
 
-            # Start with party baseline
-            base_percentage = baseline_percentages[party]
+        # Step 2: Calculate net change across all candidates (s)
+        net_change_s = sum(raw_changes.values())
 
-            # Add individual candidate's campaign adjustment
-            adjustment = candidate_adjustments[candidate_name]
-            adjusted_percentage = base_percentage + adjustment
+        # Step 3: Apply zero-sum redistribution formula
+        final_percentages = {}
+        
+        for candidate in seat_candidates:
+            party = candidate["party"]
+            candidate_name = candidate["candidate"]
+            
+            # Final_i = b_i + a_i - (b_i / B) * s
+            baseline_bi = baseline_percentages[party]
+            raw_change_ai = raw_changes[candidate_name]
+            redistribution = (baseline_bi / B) * net_change_s
+            
+            final_percentage = baseline_bi + raw_change_ai - redistribution
+            
+            # Ensure minimum percentage (optional guardrail)
+            final_percentage = max(0.1, final_percentage)
+            final_percentages[candidate_name] = final_percentage
 
-            # Ensure no negative percentages
-            adjusted_percentage = max(0.1, adjusted_percentage)  # Minimum 0.1% to avoid zero
-
-            final_percentages[candidate_name] = adjusted_percentage
-
-        # Normalize to ensure total equals 100%
+        # Final normalization to ensure exactly 100% (handles rounding and guardrails)
         total_percentage = sum(final_percentages.values())
         if total_percentage > 0:
             for candidate_name in final_percentages:
@@ -260,7 +259,7 @@ class AllWinners(commands.Cog):
             return
 
         # Get all candidates for current year
-        candidates = [c for c in signups_config["candidates"] if c["year"] == current_year]
+        candidates = [c for c in signups_config.get("candidates", []) if c["year"] == current_year]
 
         # Group candidates by seat and party
         seat_party_groups = {}
@@ -276,7 +275,11 @@ class AllWinners(commands.Cog):
         primary_winners = []
 
         # Import ideology data for seat-based points
-        from cogs.ideology import STATE_DATA, calculate_region_medians, STATE_TO_SEAT
+        try:
+            from cogs.ideology import STATE_DATA, calculate_region_medians, STATE_TO_SEAT
+        except ImportError:
+            print("Could not import ideology data. Ideology-based points will not be calculated.")
+            STATE_DATA, calculate_region_medians, STATE_TO_SEAT = {}, lambda: {}, {}
 
         # Get region medians for senate/governor seats
         region_medians = calculate_region_medians()
@@ -288,7 +291,7 @@ class AllWinners(commands.Cog):
                 winner = party_candidates[0]
             else:
                 # Multiple candidates, highest points wins
-                winner = max(party_candidates, key=lambda x: x["points"])
+                winner = max(party_candidates, key=lambda x: x.get("points", 0))
 
             # Calculate baseline percentage for general election
             baseline_percentage = self._calculate_baseline_percentage(guild_id, winner["seat_id"], winner["party"])
@@ -298,16 +301,16 @@ class AllWinners(commands.Cog):
                 "year": current_year,
                 "user_id": winner["user_id"],
                 "office": winner["office"],
-                "state": winner["region"],
+                "state": winner.get("region", "Unknown State"), # Use 'region' from signup if available
                 "seat_id": winner["seat_id"],
                 "candidate": winner["name"],
                 "party": winner["party"],
                 "points": 0.0,  # Reset campaign points for general election
                 "baseline_percentage": baseline_percentage,  # Store ideology-based baseline
                 "votes": 0,   # To be input by admins
-                "corruption": winner["corruption"],  # Keep corruption level
+                "corruption": winner.get("corruption", 0),  # Keep corruption level
                 "final_score": 0,  # Calculated later
-                "stamina": winner["stamina"],
+                "stamina": winner.get("stamina", 100),
                 "winner": False,  # TBD after general election
                 "phase": "Primary Winner",
                 "primary_winner": True,
@@ -319,6 +322,8 @@ class AllWinners(commands.Cog):
 
         # Add winners to database
         if primary_winners:
+            if "winners" not in winners_config:
+                winners_config["winners"] = []
             winners_config["winners"].extend(primary_winners)
             winners_col.update_one(
                 {"guild_id": guild_id},
@@ -382,8 +387,8 @@ class AllWinners(commands.Cog):
 
         try:
             await channel.send(embed=embed)
-        except:
-            pass
+        except Exception as e:
+            print(f"Error sending primary results announcement: {e}")
 
     @app_commands.command(
         name="view_primary_winners",
@@ -397,7 +402,7 @@ class AllWinners(commands.Cog):
             return
 
         current_year = time_config["current_rp_date"].year
-        current_phase = time_config["current_phase"]
+        current_phase = time_config.get("current_phase", "")
 
         # If we're in a general election year (even year), look for primary winners from previous year
         if current_year % 2 == 0:  # Even year (general election year)
@@ -409,7 +414,7 @@ class AllWinners(commands.Cog):
 
         # Filter primary winners for target year
         primary_winners = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config.get("winners", [])
             if w["year"] == target_year and w.get("primary_winner", False)
         ]
 
@@ -445,7 +450,7 @@ class AllWinners(commands.Cog):
             for winner in state_winners:
                 winner_list += f"**{winner['candidate']}** ({winner['party']})\n"
                 winner_list += f"└ {winner['seat_id']} - {winner['office']}\n"
-                winner_list += f"└ Points: {winner['points']:.2f} | Stamina: {winner['stamina']} | Corruption: {winner['corruption']}\n"
+                winner_list += f"└ Points: {winner.get('points', 0):.2f} | Stamina: {winner.get('stamina', 100)} | Corruption: {winner.get('corruption', 0)}\n"
                 winner_list += f"└ Baseline: {winner.get('baseline_percentage', 0):.1f}%\n\n"
 
             embed.add_field(
@@ -487,29 +492,29 @@ class AllWinners(commands.Cog):
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
         # Find the candidate
-        winner_found = -1
-        for i, winner in enumerate(winners_config["winners"]):
+        winner_found_index = -1
+        for i, winner in enumerate(winners_config.get("winners", [])):
             if (winner["candidate"].lower() == candidate_name.lower() and 
                 winner["year"] == target_year and
                 winner.get("primary_winner", False)):
-                winner_found = i
+                winner_found_index = i
                 break
 
-        if winner_found == -1:
+        if winner_found_index == -1:
             await interaction.response.send_message(
                 f"❌ Primary winner '{candidate_name}' not found for {target_year}.",
                 ephemeral=True
             )
             return
 
-        old_votes = winners_config["winners"][winner_found]["votes"]
-        winners_config["winners"][winner_found]["votes"] = votes
+        old_votes = winners_config["winners"][winner_found_index]["votes"]
+        winners_config["winners"][winner_found_index]["votes"] = votes
 
         # Find all candidates in the same seat to recalculate percentages
-        winner_data = winners_config["winners"][winner_found]
+        winner_data = winners_config["winners"][winner_found_index]
         seat_id = winner_data["seat_id"]
         seat_candidates = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config.get("winners", [])
             if w["seat_id"] == seat_id and w["year"] == target_year and w.get("primary_winner", False)
         ]
 
@@ -570,7 +575,7 @@ class AllWinners(commands.Cog):
 
         # Get primary winners for target year
         primary_winners = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config.get("winners", [])
             if w["year"] == target_year and w.get("primary_winner", False)
         ]
 
@@ -629,7 +634,7 @@ class AllWinners(commands.Cog):
         # Update election seats with new holders
         elections_col, elections_config = self._get_elections_config(interaction.guild.id)
 
-        if elections_config:
+        if elections_config and "seats" in elections_config:
             for winner in general_winners:
                 for i, seat in enumerate(elections_config["seats"]):
                     if seat["seat_id"] == winner["seat_id"]:
@@ -678,7 +683,7 @@ class AllWinners(commands.Cog):
 
         # Filter general winners for target year
         general_winners = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config.get("winners", [])
             if w["year"] == target_year and w.get("general_winner", False)
         ]
 
@@ -688,7 +693,7 @@ class AllWinners(commands.Cog):
             primary_year = target_year - 1 if target_year % 2 == 0 else target_year
 
             campaign_candidates = [
-                w for w in winners_config["winners"] 
+                w for w in winners_config.get("winners", [])
                 if w["year"] == primary_year and w.get("primary_winner", False)
             ]
 
@@ -727,7 +732,7 @@ class AllWinners(commands.Cog):
                 winner_list += f"**{winner['candidate']}** ({winner['party']})\n"
                 winner_list += f"└ {winner['seat_id']} - {winner['office']}\n"
                 winner_list += f"└ Final Percentage: {winner.get('final_percentage', 0):.2f}%\n"
-                winner_list += f"└ Points: {winner['points']:.2f} | Votes: {winner['votes']} | Corruption: {winner['corruption']}\n\n"
+                winner_list += f"└ Points: {winner.get('points', 0):.2f} | Votes: {winner['votes']} | Corruption: {winner.get('corruption', 0)}\n\n"
 
             embed.add_field(
                 name=f"📍 {state}",
@@ -780,7 +785,7 @@ class AllWinners(commands.Cog):
 
                 # Find the candidate
                 candidate_found_index = -1
-                for i, winner in enumerate(winners_config["winners"]):
+                for i, winner in enumerate(winners_config.get("winners", [])):
                     if (winner["candidate"].lower() == candidate_name.lower() and 
                         winner["year"] == target_year and
                         winner.get("primary_winner", False)):
@@ -794,7 +799,7 @@ class AllWinners(commands.Cog):
                     winner_data = winners_config["winners"][candidate_found_index]
                     seat_id = winner_data["seat_id"]
                     seat_candidates = [
-                        w for w in winners_config["winners"] 
+                        w for w in winners_config.get("winners", [])
                         if w["seat_id"] == seat_id and w["year"] == target_year and w.get("primary_winner", False)
                     ]
                     percentages = self._calculate_seat_percentages(seat_candidates)
@@ -865,7 +870,7 @@ class AllWinners(commands.Cog):
             primary_year = target_year
 
         candidates = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config.get("winners", [])
             if w["year"] == primary_year and w.get("primary_winner", False)
         ]
 
@@ -878,10 +883,10 @@ class AllWinners(commands.Cog):
 
         # Apply filters
         if filter_state:
-            candidates = [c for c in candidates if c["state"].lower() == filter_state.lower()]
+            candidates = [c for c in candidates if c.get("state", "").lower() == filter_state.lower()]
 
         if filter_party:
-            candidates = [c for c in candidates if c["party"].lower() == filter_party.lower()]
+            candidates = [c for c in candidates if c.get("party", "").lower() == filter_party.lower()]
 
         if not candidates:
             await interaction.response.send_message(
@@ -892,17 +897,17 @@ class AllWinners(commands.Cog):
 
         # Sort candidates
         if sort_by.lower() == "points":
-            candidates.sort(key=lambda x: x["points"], reverse=True)
+            candidates.sort(key=lambda x: x.get("points", 0), reverse=True)
         elif sort_by.lower() == "votes":
-            candidates.sort(key=lambda x: x["votes"], reverse=True)
+            candidates.sort(key=lambda x: x.get("votes", 0), reverse=True)
         elif sort_by.lower() == "final_percentage":
             candidates.sort(key=lambda x: x.get("final_percentage", 0), reverse=True)
         elif sort_by.lower() == "corruption":
-            candidates.sort(key=lambda x: x["corruption"], reverse=True)
+            candidates.sort(key=lambda x: x.get("corruption", 0), reverse=True)
         elif sort_by.lower() == "stamina":
-            candidates.sort(key=lambda x: x["stamina"], reverse=True)
+            candidates.sort(key=lambda x: x.get("stamina", 100), reverse=True)
         else:
-            candidates.sort(key=lambda x: x["candidate"].lower())
+            candidates.sort(key=lambda x: x.get("candidate", "").lower())
 
         # Create embed with top candidates
         embed = discord.Embed(
@@ -921,10 +926,10 @@ class AllWinners(commands.Cog):
             user_mention = user.mention if user else candidate["candidate"]
 
             candidate_list += (
-                f"**{i}.** {candidate['candidate']} ({candidate['party']})\n"
-                f"   └ {candidate['seat_id']} • Points: {candidate['points']:.2f} • "
-                f"Votes: {candidate['votes']} • %: {candidate.get('final_percentage', 0):.2f}%\n"
-                f"   └ Stamina: {candidate['stamina']} • Corruption: {candidate['corruption']} • {user_mention}\n\n"
+                f"**{i}.** {candidate.get('candidate', 'N/A')} ({candidate.get('party', 'N/A')})\n"
+                f"   └ {candidate.get('seat_id', 'N/A')} • Points: {candidate.get('points', 0):.2f} • "
+                f"Votes: {candidate.get('votes', 0):,} • %: {candidate.get('final_percentage', 0):.2f}%\n"
+                f"   └ Stamina: {candidate.get('stamina', 100)} • Corruption: {candidate.get('corruption', 0)} • {user_mention}\n\n"
             )
 
         embed.add_field(
@@ -934,9 +939,9 @@ class AllWinners(commands.Cog):
         )
 
         # Summary stats
-        total_points = sum(c['points'] for c in candidates)
-        total_votes = sum(c['votes'] for c in candidates)
-        avg_corruption = sum(c['corruption'] for c in candidates) / len(candidates) if candidates else 0
+        total_points = sum(c.get('points', 0) for c in candidates)
+        total_votes = sum(c.get('votes', 0) for c in candidates)
+        avg_corruption = sum(c.get('corruption', 0) for c in candidates) / len(candidates) if candidates else 0
         total_percentage = sum(c.get('final_percentage', 0) for c in candidates)
 
         embed.add_field(
@@ -997,7 +1002,7 @@ class AllWinners(commands.Cog):
             primary_year = target_year
 
         candidate = None
-        for w in winners_config["winners"]:
+        for w in winners_config.get("winners", []):
             if (w["candidate"].lower() == candidate_name.lower() and 
                 w["year"] == primary_year and
                 w.get("primary_winner", False)):
@@ -1032,16 +1037,16 @@ class AllWinners(commands.Cog):
 
         embed.add_field(
             name="📊 Campaign Stats",
-            value=f"**Points:** {candidate['points']:.2f}\n"
-                  f"**Votes:** {candidate['votes']:,}\n"
+            value=f"**Points:** {candidate.get('points', 0):.2f}\n"
+                  f"**Votes:** {candidate.get('votes', 0):,}\n"
                   f"**Final Percentage:** {candidate.get('final_percentage', 0):.2f}%\n"
-                  f"**Stamina:** {candidate['stamina']}/100",
+                  f"**Stamina:** {candidate.get('stamina', 100)}/100",
             inline=True
         )
 
         embed.add_field(
             name="⚖️ Status",
-            value=f"**Corruption:** {candidate['corruption']}\n"
+            value=f"**Corruption:** {candidate.get('corruption', 0)}\n"
                   f"**Primary Winner:** {'✅' if candidate.get('primary_winner') else '❌'}\n"
                   f"**General Winner:** {'✅' if candidate.get('general_winner') else '❌'}\n"
                   f"**Phase:** {candidate.get('phase', 'General Campaign')}",
@@ -1057,8 +1062,8 @@ class AllWinners(commands.Cog):
         # Calculate score breakdown
         score_breakdown = f"**Percentage Calculation:**\n"
         score_breakdown += f"Baseline: {candidate.get('baseline_percentage', 0):.1f}%\n"
-        score_breakdown += f"+ Points to % ({candidate['points']:.2f}): {(candidate['points'] / 1200.0):.2f}%\n"
-        score_breakdown += f"- Corruption ({candidate['corruption']}): {(candidate['corruption'] * 0.1):.1f}%\n"
+        score_breakdown += f"+ Points to % ({candidate.get('points', 0):.2f}): {(candidate.get('points', 0) / 1200.0):.2f}%\n"
+        score_breakdown += f"- Corruption ({candidate.get('corruption', 0)}): {(candidate.get('corruption', 0) * 0.1):.1f}%\n"
         score_breakdown += f"= **Final Percentage: {candidate.get('final_percentage', 0):.2f}%**"
 
         embed.add_field(
@@ -1132,7 +1137,7 @@ class AllWinners(commands.Cog):
 
         if target_year:
             # Clear specific year
-            year_winners = [w for w in winners_config["winners"] if w["year"] == target_year]
+            year_winners = [w for w in winners_config.get("winners", []) if w["year"] == target_year]
             if not confirm:
                 await interaction.response.send_message(
                     f"⚠️ **Warning:** This will permanently delete {len(year_winners)} winners for {target_year}.\n"
@@ -1141,12 +1146,12 @@ class AllWinners(commands.Cog):
                 )
                 return
 
-            winners_config["winners"] = [w for w in winners_config["winners"] if w["year"] != target_year]
+            winners_config["winners"] = [w for w in winners_config.get("winners", []) if w["year"] != target_year]
             cleared_count = len(year_winners)
             message = f"✅ Cleared {cleared_count} winners for {target_year}."
         else:
             # Clear all years
-            all_winners_count = len(winners_config["winners"])
+            all_winners_count = len(winners_config.get("winners", []))
             if not confirm:
                 await interaction.response.send_message(
                     f"⚠️ **DANGER:** This will permanently delete ALL {all_winners_count} winners from ALL years.\n"
@@ -1190,7 +1195,7 @@ class AllWinners(commands.Cog):
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
         # Count winners for target year (both primary and general)
-        year_winners = [w for w in winners_config["winners"] if w["year"] == target_year]
+        year_winners = [w for w in winners_config.get("winners", []) if w["year"] == target_year]
         primary_winners = [w for w in year_winners if w.get("primary_winner", False)]
         general_winners = [w for w in year_winners if w.get("general_winner", False)]
 
@@ -1215,7 +1220,7 @@ class AllWinners(commands.Cog):
             return
 
         # Remove all winners for target year
-        winners_config["winners"] = [w for w in winners_config["winners"] if w["year"] != target_year]
+        winners_config["winners"] = [w for w in winners_config.get("winners", []) if w["year"] != target_year]
 
         winners_col.update_one(
             {"guild_id": interaction.guild.id},
@@ -1226,7 +1231,7 @@ class AllWinners(commands.Cog):
         elections_col, elections_config = self._get_elections_config(interaction.guild.id)
         seats_reset = 0
 
-        if elections_config:
+        if elections_config and "seats" in elections_config:
             for i, seat in enumerate(elections_config["seats"]):
                 # Check if this seat was won in the target year
                 if (seat.get("term_start") and 
@@ -1280,7 +1285,7 @@ class AllWinners(commands.Cog):
             primary_year = target_year
 
         general_candidates = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config.get("winners", [])
             if w["year"] == primary_year and w.get("primary_winner", False)
         ]
 
@@ -1310,17 +1315,38 @@ class AllWinners(commands.Cog):
             # Sort by points (campaign progress)
             region_candidates.sort(key=lambda x: x.get("points", 0), reverse=True)
 
-            candidate_list = ""
+            # Group candidates by seat for proper percentage calculation
+            seats_in_region = {}
             for candidate in region_candidates:
-                candidate_list += f"**{candidate['candidate']}** ({candidate['party']})\n"
-                candidate_list += f"└ {candidate['seat_id']} - {candidate['office']}\n"
-                candidate_list += f"└ Stamina: {candidate.get('stamina', 100)} | Corruption: {candidate.get('corruption', 0)}\n"
+                seat_id = candidate["seat_id"]
+                if seat_id not in seats_in_region:
+                    seats_in_region[seat_id] = []
+                seats_in_region[seat_id].append(candidate)
 
-                user = interaction.guild.get_member(candidate["user_id"])
-                if user:
-                    candidate_list += f"└ {user.mention}\n\n"
-                else:
-                    candidate_list += "\n"
+            candidate_list = ""
+            for seat_id, seat_candidates in seats_in_region.items():
+                # Calculate normalized percentages for this seat
+                seat_percentages = self._calculate_seat_percentages(seat_candidates)
+                
+                for candidate in seat_candidates:
+                    baseline = candidate.get("baseline_percentage", 50.0)
+                    campaign_points = candidate.get('points', 0)
+                    
+                    # Use the normalized percentage from _calculate_seat_percentages
+                    candidate_name = candidate.get('candidate', 'N/A')
+                    normalized_percentage = seat_percentages.get(candidate_name, baseline + campaign_points)
+
+                    user = interaction.guild.get_member(candidate["user_id"])
+                    user_mention = user.mention if user else candidate["candidate"]
+
+                    candidate_list += (
+                        f"{candidate.get('candidate', 'N/A')} ({candidate.get('party', 'N/A')})\n"
+                        f"└ {candidate.get('seat_id', 'N/A')} - {candidate.get('office', 'N/A')}\n"
+                        f"└ Polling: {normalized_percentage:.1f}% ({baseline:.1f}% base + {campaign_points:.1f}% campaign)\n"
+                        f"└ Stamina: {candidate.get('stamina', 100)} | Corruption: {candidate.get('corruption', 0)}\n"
+                        f"└ {user_mention}\n\n"
+                    )
+
 
             # Handle long field values
             if len(candidate_list) > 1024:
@@ -1400,7 +1426,7 @@ class AllWinners(commands.Cog):
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
         # Filter winners
-        winners = [w for w in winners_config["winners"] if w["year"] == target_year]
+        winners = [w for w in winners_config.get("winners", []) if w["year"] == target_year]
 
         if winner_type.lower() == "primary":
             winners = [w for w in winners if w.get("primary_winner", False)]
@@ -1420,9 +1446,9 @@ class AllWinners(commands.Cog):
         for winner in winners:
             lines.append(
                 f"{winner['year']},{winner['user_id']},{winner['office']},{winner['state']},"
-                f"{winner['seat_id']},{winner['candidate']},{winner['party']},{winner['points']},"
-                f"{winner.get('baseline_percentage', 0)},{winner['votes']},{winner['corruption']},{winner.get('final_percentage', 0)},"
-                f"{winner['stamina']},{winner.get('general_winner', False)}"
+                f"{winner['seat_id']},{winner['candidate']},{winner['party']},{winner.get('points', 0)},"
+                f"{winner.get('baseline_percentage', 0)},{winner.get('votes', 0)},{winner.get('corruption', 0)},{winner.get('final_percentage', 0)},"
+                f"{winner.get('stamina', 100)},{winner.get('general_winner', False)}"
             )
 
         export_text = "\n".join(lines)

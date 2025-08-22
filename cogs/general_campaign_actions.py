@@ -101,7 +101,7 @@ class GeneralCampaignActions(commands.Cog):
 
             return signups_col, None
 
-    def _update_candidate_stats(self, signups_col, guild_id: int, user_id: int, 
+    def _update_candidate_stats(self, collection, guild_id: int, user_id: int, 
                                polling_boost: float = 0, stamina_cost: int = 0, 
                                corruption_increase: int = 0):
         """Update candidate's polling, stamina, and corruption"""
@@ -124,7 +124,7 @@ class GeneralCampaignActions(commands.Cog):
             )
         else:
             # For primary campaign, update in signups collection
-            signups_col.update_one(
+            collection.update_one(
                 {"guild_id": guild_id, "candidates.user_id": user_id},
                 {
                     "$inc": {
@@ -314,7 +314,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target_name is None:
-            target_name = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target_name = candidate.get('candidate') or candidate.get('name')
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target_name)
@@ -338,9 +339,10 @@ class GeneralCampaignActions(commands.Cog):
 
         # Estimate stamina cost for speech (assuming average 1500 characters)
         estimated_stamina = 2.25  # 1500 chars = 2.25 stamina
+        target_name_display = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < estimated_stamina:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a speech! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
+                f"❌ {target_name_display} doesn't have enough stamina for a speech! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
             )
             return
@@ -358,9 +360,10 @@ class GeneralCampaignActions(commands.Cog):
         self._set_cooldown(interaction.guild.id, interaction.user.id, "speech")
 
         # Create public speech announcement
+        candidate_name = candidate.get('candidate') or candidate.get('name')
         embed = discord.Embed(
             title="🎤 Campaign Speech",
-            description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}**!",
+            description=f"**{candidate_name}** ({candidate['party']}) gives a speech supporting **{target_name_display}**!",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
@@ -378,13 +381,13 @@ class GeneralCampaignActions(commands.Cog):
 
         embed.add_field(
             name="📊 Impact",
-            value=f"**Target:** {target_candidate['name']}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
+            value=f"**Target:** {target_name_display}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
             inline=True
         )
 
         embed.add_field(
             name="🗳️ Target Running For",
-            value=f"{target_candidate['seat_id']} ({target_candidate['region']})",
+            value=f"{target_candidate['seat_id']} ({target_candidate.get('region') or target_candidate.get('state', 'Unknown')})",
             inline=True
         )
 
@@ -419,7 +422,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target_name is None:
-            target_name = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target_name = candidate.get('candidate') or candidate.get('name')
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target_name)
@@ -443,9 +447,10 @@ class GeneralCampaignActions(commands.Cog):
 
         # Estimate stamina cost for donor appeal (assuming average 1000 characters)
         estimated_stamina = 1.5  # 1000 chars = 1.5 stamina
+        target_display_name = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < estimated_stamina:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a donor appeal! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
+                f"❌ {target_display_name} doesn't have enough stamina for a donor appeal! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
             )
             return
@@ -462,9 +467,10 @@ class GeneralCampaignActions(commands.Cog):
         # Set cooldown for appealer
         self._set_cooldown(interaction.guild.id, interaction.user.id, "donor")
 
+        candidate_name = candidate.get('candidate') or candidate.get('name')
         embed = discord.Embed(
             title="💰 Donor Fundraising",
-            description=f"**{candidate['name']}** makes a donor appeal for **{target_candidate['name']}**!",
+            description=f"**{candidate_name}** makes a donor appeal for **{target_display_name}**!",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
@@ -482,7 +488,7 @@ class GeneralCampaignActions(commands.Cog):
 
         embed.add_field(
             name="📊 Impact",
-            value=f"**Target:** {target_candidate['name']}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
+            value=f"**Target:** {target_display_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
             inline=True
         )
 
@@ -523,7 +529,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target = candidate.get('candidate') or candidate.get('name')
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
@@ -547,17 +554,19 @@ class GeneralCampaignActions(commands.Cog):
 
         # Estimate stamina cost for speech (assuming average 1500 characters)
         estimated_stamina = 2.25  # 1500 chars = 2.25 stamina
+        target_name_display = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < estimated_stamina:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a speech! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
+                f"❌ {target_name_display} doesn't have enough stamina for a speech! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
             )
             return
 
         # Send initial message asking for speech
+        candidate_name = candidate.get('candidate') or candidate.get('name')
         await interaction.response.send_message(
-            f"🎤 **{candidate['name']}**, please reply to this message with your campaign speech!\n\n"
-            f"**Target:** {target_candidate['name']}\n"
+            f"🎤 **{candidate_name}**, please reply to this message with your campaign speech!\n\n"
+            f"**Target:** {target_name_display}\n"
             f"**Requirements:**\n"
             f"• 600-3000 characters\n"
             f"• Reply within 10 minutes\n"
@@ -592,8 +601,9 @@ class GeneralCampaignActions(commands.Cog):
             await self._process_speech(interaction, speech_text, target)
 
         except asyncio.TimeoutError:
+            candidate_name = candidate.get('candidate') or candidate.get('name')
             await interaction.edit_original_response(
-                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/speech` again and reply with your speech within 10 minutes."
+                content=f"⏰ **{candidate_name}**, your speech timed out. Please use `/speech` again and reply with your speech within 10 minutes."
             )
 
     @app_commands.command(
@@ -623,7 +633,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target = candidate.get('candidate') or candidate.get('name')
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
@@ -644,9 +655,10 @@ class GeneralCampaignActions(commands.Cog):
             return
 
         # Check stamina
+        target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < 1:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1 stamina for canvassing.",
+                f"❌ {target_candidate_name} doesn't have enough stamina! They need at least 1 stamina for canvassing.",
                 ephemeral=True
             )
             return
@@ -655,9 +667,11 @@ class GeneralCampaignActions(commands.Cog):
         self._update_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
                                    polling_boost=0.1, stamina_cost=1)
 
+        candidate_name = candidate.get('candidate') or candidate.get('name')
+        target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         embed = discord.Embed(
             title="🚪 Door-to-Door Canvassing",
-            description=f"**{candidate['name']}** goes canvassing for **{target_candidate['name']}** in {target_candidate['region']}!",
+            description=f"**{candidate_name}** goes canvassing for **{target_candidate_name}** in {target_candidate.get('region') or target_candidate.get('state', 'Unknown')}!",
             color=discord.Color.green(),
             timestamp=datetime.utcnow()
         )
@@ -670,7 +684,7 @@ class GeneralCampaignActions(commands.Cog):
 
         embed.add_field(
             name="📊 Results",
-            value=f"**Target:** {target_candidate['name']}\n**Polling Boost:** +0.1%\n**Stamina Cost:** -1",
+            value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +0.1%\n**Stamina Cost:** -1",
             inline=True
         )
 
@@ -709,7 +723,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target = candidate.get('candidate') or candidate.get('name')
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
@@ -733,9 +748,10 @@ class GeneralCampaignActions(commands.Cog):
 
         # Estimate stamina cost for donor appeal (assuming average 1000 characters)
         estimated_stamina = 1.5  # 1000 chars = 1.5 stamina
+        target_display_name = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < estimated_stamina:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a donor appeal! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
+                f"❌ {target_display_name} doesn't have enough stamina for a donor appeal! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
             )
             return
@@ -771,7 +787,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target = candidate.get('candidate') or candidate.get('name')
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
@@ -783,9 +800,10 @@ class GeneralCampaignActions(commands.Cog):
             return
 
         # Check stamina
+        target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < 1.5:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1.5 stamina to create an ad.",
+                f"❌ {target_candidate_name} doesn't have enough stamina! They need at least 1.5 stamina to create an ad.",
                 ephemeral=True
             )
             return
@@ -802,9 +820,11 @@ class GeneralCampaignActions(commands.Cog):
             return
 
         # Send initial message asking for video
+        candidate_name = candidate.get('candidate') or candidate.get('name')
+        target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         await interaction.response.send_message(
-            f"📺 **{candidate['name']}**, please reply to this message with your campaign video!\n\n"
-            f"**Target:** {target_candidate['name']}\n"
+            f"📺 **{candidate_name}**, please reply to this message with your campaign video!\n\n"
+            f"**Target:** {target_candidate_name}\n"
             f"**Requirements:**\n"
             f"• Video file (MP4, MOV, AVI, etc.)\n"
             f"• Maximum size: 25MB\n"
@@ -852,16 +872,18 @@ class GeneralCampaignActions(commands.Cog):
             # Set cooldown
             self._set_cooldown(interaction.guild.id, interaction.user.id, "ad")
 
+            candidate_name = candidate.get('candidate') or candidate.get('name')
+            target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
             embed = discord.Embed(
                 title="📺 Campaign Video Ad",
-                description=f"**{candidate['name']}** creates a campaign advertisement for **{target_candidate['name']}**!",
+                description=f"**{candidate_name}** creates a campaign advertisement for **{target_candidate_name}**!",
                 color=discord.Color.purple(),
                 timestamp=datetime.utcnow()
             )
 
             embed.add_field(
                 name="📊 Ad Performance",
-                value=f"**Target:** {target_candidate['name']}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
+                value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
                 inline=True
             )
 
@@ -883,8 +905,9 @@ class GeneralCampaignActions(commands.Cog):
             await reply_message.reply(embed=embed)
 
         except asyncio.TimeoutError:
+            candidate_name = candidate.get('candidate') or candidate.get('name')
             await interaction.edit_original_response(
-                content=f"⏰ **{candidate['name']}**, your ad creation timed out. Please use `/ad` again and reply with your video within 5 minutes."
+                content=f"⏰ **{candidate_name}**, your ad creation timed out. Please use `/ad` again and reply with your video within 5 minutes."
             )
 
     @app_commands.command(
@@ -914,7 +937,8 @@ class GeneralCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = candidate['name']
+            # Use 'candidate' field for general campaign (winners), 'name' field for primary (signups)
+            target = candidate.get('candidate') or candidate.get('name')
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
@@ -926,9 +950,10 @@ class GeneralCampaignActions(commands.Cog):
             return
 
         # Check stamina
+        target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         if target_candidate["stamina"] < 1:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1 stamina to create a poster.",
+                f"❌ {target_candidate_name} doesn't have enough stamina! They need at least 1 stamina to create a poster.",
                 ephemeral=True
             )
             return
@@ -970,16 +995,18 @@ class GeneralCampaignActions(commands.Cog):
         # Set cooldown
         self._set_cooldown(interaction.guild.id, interaction.user.id, "poster")
 
+        candidate_name = candidate.get('candidate') or candidate.get('name')
+        target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         embed = discord.Embed(
             title="🖼️ Campaign Poster",
-            description=f"**{candidate['name']}** creates campaign materials for **{target_candidate['name']}** around {target_candidate['region']}!",
+            description=f"**{candidate_name}** creates campaign materials for **{target_candidate_name}** around {target_candidate.get('region') or target_candidate.get('state', 'Unknown')}!",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow()
         )
 
         embed.add_field(
             name="📊 Poster Impact",
-            value=f"**Target:** {target_candidate['name']}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
+            value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
             inline=True
         )
 
@@ -1139,9 +1166,10 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
+        candidate_name = candidate.get('candidate') or candidate.get('name')
         embed = discord.Embed(
             title="📊 Campaign Status",
-            description=f"**{candidate['name']}** ({candidate['party']})",
+            description=f"**{candidate_name}** ({candidate['party']})",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
