@@ -55,7 +55,7 @@ class AllWinners(commands.Cog):
         # Map party names to ideology data keys
         party_mapping = {
             "Republican Party": "republican",
-            "Democratic Party": "democrat", 
+            "Democratic Party": "democrat",
             "Independent": "other"
         }
 
@@ -92,7 +92,7 @@ class AllWinners(commands.Cog):
     def _calculate_zero_sum_percentages(self, guild_id: int, seat_id: str):
         """Calculate final percentages for candidates in a seat with zero-sum redistribution"""
         winners_col, winners_config = self._get_winners_config(guild_id)
-        
+
         time_col, time_config = self._get_time_config(guild_id)
         current_year = time_config["current_rp_date"].year
 
@@ -156,16 +156,16 @@ class AllWinners(commands.Cog):
         # Step 1: Calculate each candidate's raw change (a_i)
         raw_changes = {}
         B = 100.0  # Total baseline percentage
-        
+
         for candidate in seat_candidates:
             party = candidate["party"]
             candidate_name = candidate["candidate"]
-            
+
             # a_i = (p_i / 1200) - (0.1 * c_i)
             points_change = candidate.get("points", 0.0) / 1200.0
             corruption_penalty = candidate.get("corruption", 0) * 0.1
             raw_change = points_change - corruption_penalty
-            
+
             raw_changes[candidate_name] = raw_change
 
         # Step 2: Calculate net change across all candidates (s)
@@ -173,18 +173,18 @@ class AllWinners(commands.Cog):
 
         # Step 3: Apply zero-sum redistribution formula
         final_percentages = {}
-        
+
         for candidate in seat_candidates:
             party = candidate["party"]
             candidate_name = candidate["candidate"]
-            
+
             # Final_i = b_i + a_i - (b_i / B) * s
             baseline_bi = baseline_percentages[party]
             raw_change_ai = raw_changes[candidate_name]
             redistribution = (baseline_bi / B) * net_change_s
-            
+
             final_percentage = baseline_bi + raw_change_ai - redistribution
-            
+
             # Ensure minimum percentage (optional guardrail)
             final_percentage = max(0.1, final_percentage)
             final_percentages[candidate_name] = final_percentage
@@ -211,7 +211,7 @@ class AllWinners(commands.Cog):
 
         # Find all primary winners for this seat
         seat_winners = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config["winners"]
             if w["seat_id"] == seat_id and w["year"] == current_year and w.get("primary_winner", False)
         ]
 
@@ -505,7 +505,7 @@ class AllWinners(commands.Cog):
         # Find the candidate
         winner_found_index = -1
         for i, winner in enumerate(winners_config.get("winners", [])):
-            if (winner["candidate"].lower() == candidate_name.lower() and 
+            if (winner["candidate"].lower() == candidate_name.lower() and
                 winner["year"] == target_year and
                 winner.get("primary_winner", False)):
                 winner_found_index = i
@@ -535,7 +535,7 @@ class AllWinners(commands.Cog):
         # Update all candidates in this seat with new percentages
         for candidate_name_key, percentage in percentages.items():
             for i, winner in enumerate(winners_config["winners"]):
-                if (winner["candidate"] == candidate_name_key and 
+                if (winner["candidate"] == candidate_name_key and
                     winner["year"] == target_year and
                     winner["seat_id"] == seat_id):
                     winners_config["winners"][i]["final_percentage"] = percentage
@@ -618,7 +618,7 @@ class AllWinners(commands.Cog):
 
                 # Update winner status and store final percentage
                 for i, winner in enumerate(winners_config["winners"]):
-                    if (winner["candidate"] == winning_candidate and 
+                    if (winner["candidate"] == winning_candidate and
                         winner["year"] == target_year and
                         winner["seat_id"] == seat_id):
                         winners_config["winners"][i]["general_winner"] = True
@@ -630,11 +630,20 @@ class AllWinners(commands.Cog):
                 # Update all candidates in this seat with their final percentages
                 for candidate_name, percentage in percentages.items():
                     for i, winner in enumerate(winners_config["winners"]):
-                        if (winner["candidate"] == candidate_name and 
+                        if (winner["candidate"] == candidate_name and
                             winner["year"] == target_year and
                             winner["seat_id"] == seat_id):
                             winners_config["winners"][i]["final_percentage"] = percentage
                             break
+
+        # Apply ideology shifts for winners
+        try:
+            from cogs.ideology import shift_state_ideology_for_winner
+            for winner in general_winners:
+                shift_state_ideology_for_winner(winner, shift_amount=1.0)
+            print(f"Applied ideology shifts for {len(general_winners)} election winners")
+        except Exception as e:
+            print(f"Error applying ideology shifts: {e}")
 
         # Update database
         winners_col.update_one(
@@ -797,7 +806,7 @@ class AllWinners(commands.Cog):
                 # Find the candidate
                 candidate_found_index = -1
                 for i, winner in enumerate(winners_config.get("winners", [])):
-                    if (winner["candidate"].lower() == candidate_name.lower() and 
+                    if (winner["candidate"].lower() == candidate_name.lower() and
                         winner["year"] == target_year and
                         winner.get("primary_winner", False)):
                         candidate_found_index = i
@@ -818,7 +827,7 @@ class AllWinners(commands.Cog):
                     # Update all candidates in this seat with new percentages
                     for candidate_name_key, percentage in percentages.items():
                         for i, winner in enumerate(winners_config["winners"]):
-                            if (winner["candidate"] == candidate_name_key and 
+                            if (winner["candidate"] == candidate_name_key and
                                 winner["year"] == target_year and
                                 winner["seat_id"] == seat_id):
                                 winners_config["winners"][i]["final_percentage"] = percentage
@@ -1038,7 +1047,7 @@ class AllWinners(commands.Cog):
 
         candidate = None
         for w in winners_config.get("winners", []):
-            if (w["candidate"].lower() == candidate_name.lower() and 
+            if (w["candidate"].lower() == candidate_name.lower() and
                 w["year"] == primary_year and
                 w.get("primary_winner", False)):
                 candidate = w
@@ -1269,7 +1278,7 @@ class AllWinners(commands.Cog):
         if elections_config and "seats" in elections_config:
             for i, seat in enumerate(elections_config["seats"]):
                 # Check if this seat was won in the target year
-                if (seat.get("term_start") and 
+                if (seat.get("term_start") and
                     seat["term_start"].year == target_year + 1):  # Terms start year after election
                     elections_config["seats"][i].update({
                         "current_holder": None,
@@ -1362,11 +1371,11 @@ class AllWinners(commands.Cog):
             for seat_id, seat_candidates in seats_in_region.items():
                 # Calculate normalized percentages for this seat
                 seat_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
-                
+
                 for candidate in seat_candidates:
                     baseline = candidate.get("baseline_percentage", 50.0)
                     campaign_points = candidate.get('points', 0)
-                    
+
                     # Use the normalized percentage from _calculate_zero_sum_percentages
                     candidate_name = candidate.get('candidate', 'N/A')
                     normalized_percentage = seat_percentages.get(candidate_name, baseline + campaign_points)

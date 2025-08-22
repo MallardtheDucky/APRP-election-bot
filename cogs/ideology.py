@@ -254,6 +254,145 @@ def get_dynamic_regions_from_db(client, guild_id: int) -> Dict[str, list]:
         pass
     return None
 
+def shift_state_ideology_for_winner(winner_data: dict, shift_amount: float = 1.0):
+    """Shift state ideology based on election winner's party"""
+    # Determine which state to shift based on seat type
+    state_to_shift = None
+
+    # Map seat types to states
+    seat_id = winner_data.get("seat_id", "")
+    office = winner_data.get("office", "")
+
+    if seat_id.startswith("REP-"):
+        # House representative - find state from STATE_TO_SEAT mapping
+        for state, rep_seat in STATE_TO_SEAT.items():
+            if rep_seat == seat_id:
+                state_to_shift = state
+                break
+    elif seat_id.startswith("SEN-") or seat_id.endswith("-GOV"):
+        # Senate or Governor - extract state from seat_id or use region mapping
+        if seat_id.endswith("-GOV"):
+            # Governor seat format: CO-GOV, CA-GOV, etc.
+            region_code = seat_id.split("-")[0]
+            region_mapping = {
+                "CO": "Columbia",
+                "CA": "Cambridge", 
+                "AU": "Austin",
+                "SU": "Superior",
+                "HL": "Heartland",
+                "YS": "Yellowstone",
+                "PH": "Phoenix"
+            }
+            region_name = region_mapping.get(region_code)
+
+            # For governors, shift all states in that region
+            if region_name and region_name in REGIONS:
+                states_to_shift = REGIONS[region_name]
+                party = winner_data.get("party", "")
+
+                # Apply shift to all states in the region
+                for state in states_to_shift:
+                    if state in STATE_DATA:
+                        apply_ideology_shift(state, party, shift_amount / len(states_to_shift))
+                return
+        else:
+            # Senate seat - similar to governor, affect region
+            region_code = seat_id.split("-")[1]
+            region_mapping = {
+                "CO": "Columbia",
+                "CA": "Cambridge",
+                "AU": "Austin", 
+                "SU": "Superior",
+                "HL": "Heartland",
+                "YS": "Yellowstone",
+                "PH": "Phoenix"
+            }
+            region_name = region_mapping.get(region_code)
+
+            if region_name and region_name in REGIONS:
+                states_to_shift = REGIONS[region_name]
+                party = winner_data.get("party", "")
+
+                # Apply smaller shift to all states in region for senate
+                for state in states_to_shift:
+                    if state in STATE_DATA:
+                        apply_ideology_shift(state, party, shift_amount / (len(states_to_shift) * 2))
+                return
+
+    # For house representatives, find the specific state
+    if state_to_shift and state_to_shift in STATE_DATA:
+        party = winner_data.get("party", "")
+        apply_ideology_shift(state_to_shift, party, shift_amount)
+
+def apply_ideology_shift(state: str, party: str, shift_amount: float):
+    """Apply ideology shift to a specific state"""
+    if state not in STATE_DATA or not party:
+        return
+
+    # Map party names to ideology keys
+    party_mapping = {
+        "Republican Party": "republican",
+        "Democratic Party": "democrat",
+        "Independent": "other"
+    }
+
+    winning_party_key = party_mapping.get(party)
+    if not winning_party_key:
+        return
+
+    # Get current percentages
+    current_rep = STATE_DATA[state]["republican"]
+    current_dem = STATE_DATA[state]["democrat"] 
+    current_other = STATE_DATA[state]["other"]
+
+    # Apply shift toward winning party
+    if winning_party_key == "republican":
+        # Shift toward Republican
+        new_rep = min(100, current_rep + shift_amount)
+        reduction_needed = new_rep - current_rep
+
+        # Reduce from other parties proportionally
+        if current_dem + current_other > 0:
+            dem_reduction = reduction_needed * (current_dem / (current_dem + current_other))
+            other_reduction = reduction_needed * (current_other / (current_dem + current_other))
+
+            STATE_DATA[state]["republican"] = round(new_rep, 1)
+            STATE_DATA[state]["democrat"] = round(max(0, current_dem - dem_reduction), 1)
+            STATE_DATA[state]["other"] = round(max(0, current_other - other_reduction), 1)
+
+    elif winning_party_key == "democrat":
+        # Shift toward Democrat
+        new_dem = min(100, current_dem + shift_amount)
+        reduction_needed = new_dem - current_dem
+
+        if current_rep + current_other > 0:
+            rep_reduction = reduction_needed * (current_rep / (current_rep + current_other))
+            other_reduction = reduction_needed * (current_other / (current_rep + current_other))
+
+            STATE_DATA[state]["democrat"] = round(new_dem, 1)
+            STATE_DATA[state]["republican"] = round(max(0, current_rep - rep_reduction), 1)
+            STATE_DATA[state]["other"] = round(max(0, current_other - other_reduction), 1)
+
+    elif winning_party_key == "other":
+        # Shift toward Independent/Other
+        new_other = min(100, current_other + shift_amount)
+        reduction_needed = new_other - current_other
+
+        if current_rep + current_dem > 0:
+            rep_reduction = reduction_needed * (current_rep / (current_rep + current_dem))
+            dem_reduction = reduction_needed * (current_dem / (current_rep + current_dem))
+
+            STATE_DATA[state]["other"] = round(new_other, 1)
+            STATE_DATA[state]["republican"] = round(max(0, current_rep - rep_reduction), 1)
+            STATE_DATA[state]["democrat"] = round(max(0, current_dem - dem_reduction), 1)
+
+    # Ensure percentages still add up to approximately 100
+    total = STATE_DATA[state]["republican"] + STATE_DATA[state]["democrat"] + STATE_DATA[state]["other"]
+    if abs(total - 100) > 0.1:  # If deviation is significant, normalize
+        STATE_DATA[state]["republican"] = round((STATE_DATA[state]["republican"] / total) * 100, 1)
+        STATE_DATA[state]["democrat"] = round((STATE_DATA[state]["democrat"] / total) * 100, 1) 
+        STATE_DATA[state]["other"] = round((STATE_DATA[state]["other"] / total) * 100, 1)
+
 def get_all_medians(client=None, guild_id=None) -> Dict[str, Dict]:
     """Get all calculated medians in one convenient function"""
     # Try to get dynamic regions from database first
@@ -771,6 +910,101 @@ class IdeologyManagement(commands.Cog):
             )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_test_ideology_shift",
+        description="Test ideology shift for a winner (Admin only)"
+    )
+    @app_commands.guilds(discord.Object(id=1407527193470439565))
+    @app_commands.describe(
+        seat_id="Seat ID of the winner (e.g., REP-CA-1, CO-GOV)",
+        party="Party of the winner",
+        shift_amount="Amount to shift (default 1.0%)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_test_ideology_shift(
+        self,
+        interaction: discord.Interaction,
+        seat_id: str,
+        party: str,
+        shift_amount: float = 1.0
+    ):
+        """Test ideology shift functionality"""
+
+        # Create mock winner data
+        winner_data = {
+            "seat_id": seat_id,
+            "party": party,
+            "office": "Test Office"
+        }
+
+        # Get affected states before shift
+        affected_states = []
+        if seat_id.startswith("REP-"):
+            for state, rep_seat in STATE_TO_SEAT.items():
+                if rep_seat == seat_id:
+                    affected_states.append(state)
+                    break
+        elif seat_id.endswith("-GOV") or seat_id.startswith("SEN-"):
+            region_code = seat_id.split("-")[0] if seat_id.endswith("-GOV") else seat_id.split("-")[1]
+            region_mapping = {
+                "CO": "Columbia", "CA": "Cambridge", "AU": "Austin",
+                "SU": "Superior", "HL": "Heartland", "YS": "Yellowstone", "PH": "Phoenix"
+            }
+            region_name = region_mapping.get(region_code)
+            if region_name and region_name in REGIONS:
+                affected_states.extend(REGIONS[region_name])
+
+        if not affected_states:
+            await interaction.response.send_message(
+                f"❌ No states found for seat {seat_id}",
+                ephemeral=True
+            )
+            return
+
+        # Show before state
+        before_data = {}
+        for state in affected_states:
+            if state in STATE_DATA:
+                before_data[state] = {
+                    "republican": STATE_DATA[state]["republican"],
+                    "democrat": STATE_DATA[state]["democrat"],
+                    "other": STATE_DATA[state]["other"]
+                }
+
+        # Apply shift
+        shift_state_ideology_for_winner(winner_data, shift_amount)
+
+        # Show results
+        embed = discord.Embed(
+            title=f"🧪 Ideology Shift Test: {seat_id}",
+            description=f"**Party:** {party}\n**Shift Amount:** {shift_amount}%",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        for state in affected_states:
+            if state in STATE_DATA and state in before_data:
+                before = before_data[state]
+                after = STATE_DATA[state]
+
+                changes = []
+                if abs(before["republican"] - after["republican"]) > 0.05:
+                    changes.append(f"R: {before['republican']}% → {after['republican']}%")
+                if abs(before["democrat"] - after["democrat"]) > 0.05:
+                    changes.append(f"D: {before['democrat']}% → {after['democrat']}%")  
+                if abs(before["other"] - after["other"]) > 0.05:
+                    changes.append(f"I: {before['other']}% → {after['other']}%")
+
+                if changes:
+                    embed.add_field(
+                        name=f"📍 {state}",
+                        value="\n".join(changes),
+                        inline=True
+                    )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
     # Autocomplete functions for admin commands
     @admin_add_ideology_option.autocomplete("state_name")

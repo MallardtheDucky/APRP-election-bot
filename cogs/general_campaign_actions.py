@@ -1089,7 +1089,7 @@ class PresCampaignActions(commands.Cog):
 
     @app_commands.command(
         name="pres_polling",
-        description="Conduct NPC presidential poll for a U.S. state (Republican/Democrat/Independent support with 7% margin of error)"
+        description="Conduct NPC presidential poll for a U.S. state (party support with 7% margin of error)"
     )
     @app_commands.describe(state="U.S. state to poll for presidential support")
     async def pres_polling(self, interaction: discord.Interaction, state: str):
@@ -1172,22 +1172,6 @@ class PresCampaignActions(commands.Cog):
             name="🗳️ Presidential Support",
             value=results_text,
             inline=False
-        )
-
-        # Show base vs poll comparison
-        comparison_text = ""
-        for party in ["Republican", "Democrat", "Independent"]:
-            base_pct = state_data.get(party.lower(), state_data.get("other" if party == "Independent" else party.lower(), 0))
-            poll_pct = poll_results[party]
-            diff = poll_pct - base_pct
-            arrow = "↗️" if diff > 2 else "↘️" if diff < -2 else "➡️"
-            
-            comparison_text += f"**{party}:** {base_pct}% → {poll_pct:.1f}% {arrow}\n"
-
-        embed.add_field(
-            name="📈 Base vs Poll",
-            value=comparison_text,
-            inline=True
         )
 
         embed.add_field(
@@ -1584,6 +1568,65 @@ class PresCampaignActions(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_reset_pres_cooldowns",
+        description="Reset all presidential campaign action cooldowns for a user (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_reset_pres_cooldowns(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member = None,
+        action_type: str = "all"
+    ):
+        target_user = user if user else interaction.user
+        cooldowns_col = self.bot.db["pres_action_cooldowns"]
+        
+        if action_type == "all":
+            # Reset all cooldowns for the user
+            result = cooldowns_col.delete_many({
+                "guild_id": interaction.guild.id,
+                "user_id": target_user.id
+            })
+            
+            await interaction.response.send_message(
+                f"✅ Reset all presidential campaign cooldowns for {target_user.mention}. "
+                f"Removed {result.deleted_count} cooldown record(s).",
+                ephemeral=True
+            )
+        else:
+            # Reset specific action type
+            valid_actions = ["pres_speech", "pres_donor", "pres_ad", "pres_poster"]
+            if action_type not in valid_actions:
+                await interaction.response.send_message(
+                    f"❌ Invalid action type. Valid options: {', '.join(valid_actions)}",
+                    ephemeral=True
+                )
+                return
+                
+            result = cooldowns_col.delete_one({
+                "guild_id": interaction.guild.id,
+                "user_id": target_user.id,
+                "action_type": action_type
+            })
+            
+            if result.deleted_count > 0:
+                await interaction.response.send_message(
+                    f"✅ Reset {action_type} cooldown for {target_user.mention}.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"ℹ️ No {action_type} cooldown found for {target_user.mention}.",
+                    ephemeral=True
+                )
+
+    @admin_reset_pres_cooldowns.autocomplete("action_type")
+    async def action_type_autocomplete(self, interaction: discord.Interaction, current: str):
+        actions = ["all", "pres_speech", "pres_donor", "pres_ad", "pres_poster"]
+        return [app_commands.Choice(name=action, value=action)
+                for action in actions if current.lower() in action.lower()][:25]
 
 async def setup(bot):
     await bot.add_cog(PresCampaignActions(bot))
