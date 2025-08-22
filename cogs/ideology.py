@@ -15,6 +15,7 @@ STATE_DATA = {
     "COLORADO": {"republican": 45, "democrat": 47, "other": 8, "ideology": "Liberal", "economic": "Capitalist", "social": "Moderate", "government": "Moderate", "axis": "Centre"},
     "CONNECTICUT": {"republican": 40, "democrat": 50, "other": 10, "ideology": "Liberal", "economic": "Moderate", "social": "Progressive", "government": "Big", "axis": "Left"},
     "DELAWARE": {"republican": 37, "democrat": 55, "other": 8, "ideology": "Liberal", "economic": "Moderate", "social": "Progressive", "government": "Big", "axis": "Left"},
+    "DISTRICT OF COLUMBIA": {"republican": 12, "democrat": 78, "other": 10, "ideology": "Progressive", "economic": "Socialist", "social": "Progressive", "government": "Big", "axis": "Left"},
     "FLORIDA": {"republican": 48, "democrat": 43, "other": 9, "ideology": "Conservative", "economic": "Capitalist", "social": "Moderate", "government": "Small", "axis": "Right"},
     "GEORGIA": {"republican": 47, "democrat": 44, "other": 9, "ideology": "Conservative", "economic": "Capitalist", "social": "Traditionalist", "government": "Small", "axis": "Right"},
     "HAWAII": {"republican": 33, "democrat": 58, "other": 9, "ideology": "Progressive", "economic": "Socialist", "social": "Progressive", "government": "Big", "axis": "Left"},
