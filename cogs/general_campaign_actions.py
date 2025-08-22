@@ -25,44 +25,115 @@ class GeneralCampaignActions(commands.Cog):
 
     def _get_user_candidate(self, guild_id: int, user_id: int):
         """Get user's candidate information"""
-        signups_col, signups_config = self._get_signups_config(guild_id)
+        # Check if we're in general campaign phase
+        time_col, time_config = self._get_time_config(guild_id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_year = time_config["current_rp_date"].year if time_config else 2024
 
-        if not signups_config:
-            return None, None
+        if current_phase == "General Campaign":
+            # Look in winners collection for general campaign
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": guild_id})
 
-        for candidate in signups_config["candidates"]:
-            if candidate["user_id"] == user_id:
-                return signups_col, candidate
+            if not winners_config:
+                return None, None
 
-        return signups_col, None
+            # For general campaign, look for primary winners from the previous year if we're in an even year
+            # Or current year if odd year
+            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+            for winner in winners_config["winners"]:
+                if (winner["user_id"] == user_id and 
+                    winner.get("primary_winner", False) and 
+                    winner["year"] == primary_year):
+                    return winners_col, winner
+
+            return winners_col, None
+        else:
+            # Look in signups collection for primary campaign
+            signups_col, signups_config = self._get_signups_config(guild_id)
+
+            if not signups_config:
+                return None, None
+
+            for candidate in signups_config["candidates"]:
+                if candidate["user_id"] == user_id and candidate["year"] == current_year:
+                    return signups_col, candidate
+
+            return signups_col, None
 
     def _get_candidate_by_name(self, guild_id: int, candidate_name: str):
         """Get candidate by name"""
-        signups_col, signups_config = self._get_signups_config(guild_id)
+        # Check if we're in general campaign phase
+        time_col, time_config = self._get_time_config(guild_id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_year = time_config["current_rp_date"].year if time_config else 2024
 
-        if not signups_config:
-            return None, None
+        if current_phase == "General Campaign":
+            # Look in winners collection for general campaign
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": guild_id})
 
-        for candidate in signups_config["candidates"]:
-            if candidate["name"].lower() == candidate_name.lower():
-                return signups_col, candidate
+            if not winners_config:
+                return None, None
 
-        return signups_col, None
+            # For general campaign, look for primary winners from the previous year if we're in an even year
+            # Or current year if odd year
+            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+            for winner in winners_config["winners"]:
+                if (winner["candidate"].lower() == candidate_name.lower() and 
+                    winner.get("primary_winner", False) and
+                    winner["year"] == primary_year):
+                    return winners_col, winner
+
+            return winners_col, None
+        else:
+            # Look in signups collection for primary campaign
+            signups_col, signups_config = self._get_signups_config(guild_id)
+
+            if not signups_config:
+                return None, None
+
+            for candidate in signups_config["candidates"]:
+                if candidate["name"].lower() == candidate_name.lower() and candidate["year"] == current_year:
+                    return signups_col, candidate
+
+            return signups_col, None
 
     def _update_candidate_stats(self, signups_col, guild_id: int, user_id: int, 
                                polling_boost: float = 0, stamina_cost: int = 0, 
                                corruption_increase: int = 0):
         """Update candidate's polling, stamina, and corruption"""
-        signups_col.update_one(
-            {"guild_id": guild_id, "candidates.user_id": user_id},
-            {
-                "$inc": {
-                    "candidates.$.points": polling_boost,
-                    "candidates.$.stamina": -stamina_cost,
-                    "candidates.$.corruption": corruption_increase
+        # Check if we're in general campaign phase
+        time_col, time_config = self._get_time_config(guild_id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+
+        if current_phase == "General Campaign":
+            # For general campaign, update in winners collection
+            winners_col = self.bot.db["winners"]
+            winners_col.update_one(
+                {"guild_id": guild_id, "winners.user_id": user_id},
+                {
+                    "$inc": {
+                        "winners.$.points": polling_boost,
+                        "winners.$.stamina": -stamina_cost,
+                        "winners.$.corruption": corruption_increase
+                    }
                 }
-            }
-        )
+            )
+        else:
+            # For primary campaign, update in signups collection
+            signups_col.update_one(
+                {"guild_id": guild_id, "candidates.user_id": user_id},
+                {
+                    "$inc": {
+                        "candidates.$.points": polling_boost,
+                        "candidates.$.stamina": -stamina_cost,
+                        "candidates.$.corruption": corruption_increase
+                    }
+                }
+            )
 
     def _check_cooldown(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
         """Check if user is on cooldown for a specific action"""
@@ -118,59 +189,66 @@ class GeneralCampaignActions(commands.Cog):
 
         return remaining
 
-    def _calculate_baseline_percentage(self, guild_id: int, seat_id: str):
+    def _calculate_baseline_percentage(self, guild_id: int, seat_id: str, candidate_party: str = None):
         """Calculate baseline starting percentage based on party distribution for a seat"""
-        signups_col, signups_config = self._get_signups_config(guild_id)
+        # Get general election candidates (primary winners) for this seat
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": guild_id})
 
-        if not signups_config:
+        if not winners_config:
             return 50.0  # Default fallback
 
         # Get current year
         time_col, time_config = self._get_time_config(guild_id)
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
-        # Find all candidates for this seat in current year
+        # Find all primary winners (general election candidates) for this seat
         seat_candidates = [
-            c for c in signups_config["candidates"] 
-            if c["seat_id"] == seat_id and c["year"] == current_year
+            w for w in winners_config["winners"] 
+            if w["seat_id"] == seat_id and w["year"] == current_year and w.get("primary_winner", False)
         ]
 
         if not seat_candidates:
             return 50.0  # Default if no candidates
 
-        # Count parties
-        party_counts = {}
-        for candidate in seat_candidates:
-            party = candidate["party"]
-            party_counts[party] = party_counts.get(party, 0) + 1
+        # Count unique parties
+        parties = set(candidate["party"] for candidate in seat_candidates)
+        num_parties = len(parties)
+        major_parties = {"Democratic Party", "Republican Party"}
 
-        total_candidates = len(seat_candidates)
-        major_parties = ["Democratic Party", "Republican Party"]
+        # Check how many major parties are present
+        major_parties_present = major_parties.intersection(parties)
+        num_major_parties = len(major_parties_present)
 
-        # Calculate distribution
-        dem_count = party_counts.get("Democratic Party", 0)
-        rep_count = party_counts.get("Republican Party", 0) 
-        ind_count = total_candidates - dem_count - rep_count
-        major_count = dem_count + rep_count
-
-        if ind_count == 0:
-            # Just Dem vs Rep: 50-50
+        # Calculate baseline percentages based on exact specifications
+        if num_parties == 1:
+            return 100.0  # Uncontested
+        elif num_parties == 2:
+            # 50-50 split (Democrat + Republican)
             return 50.0
-        elif ind_count == 1:
-            # Dem-Rep-Ind: 40-40-20
-            if major_count == 2:
-                return 40.0  # Major parties get 40%
+        elif num_parties == 3:
+            # 40-40-20 split (Democrat + Republican + Independent)
+            if num_major_parties == 2:
+                if candidate_party in major_parties:
+                    return 40.0  # Democrat or Republican gets 40%
+                else:
+                    return 20.0  # Independent gets 20%
             else:
-                return 20.0  # Independent gets 20%
+                # If not standard Dem-Rep-Ind, split evenly
+                return 100.0 / 3
+        elif num_parties == 4:
+            # 40-40-10-10 split (Democrat + Republican + Independent + Independent)
+            if num_major_parties == 2:
+                if candidate_party in major_parties:
+                    return 40.0  # Democrat or Republican gets 40%
+                else:
+                    return 10.0  # Each Independent gets 10%
+            else:
+                # If not standard setup, split evenly
+                return 25.0
         else:
-            # Multiple independents: majors get 40% each, independents split remainder
-            if major_count > 0:
-                # Major parties present
-                remaining_percentage = 100.0 - (major_count * 40.0)
-                return 40.0 if dem_count > 0 or rep_count > 0 else remaining_percentage / ind_count
-            else:
-                # All independents, split evenly
-                return 100.0 / total_candidates
+            # For 5+ parties, split evenly
+            return 100.0 / num_parties
 
 
     class SpeechModal(discord.ui.Modal, title='Campaign Speech'):
@@ -938,56 +1016,111 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Get current year
+        # Get current year and phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_year = time_config["current_rp_date"].year if time_config else 2024
-
-        # Get all candidates for same seat
-        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
-        seat_candidates = [
-            c for c in signups_config["candidates"] 
-            if c["seat_id"] == candidate["seat_id"] and c["year"] == current_year
-        ]
+        current_phase = time_config.get("current_phase", "") if time_config else ""
 
         embed = discord.Embed(
             title=f"📊 Polling Standings - {candidate['seat_id']}",
-            description=f"{candidate['office']} • {candidate['region']}",
+            description=f"{candidate.get('office', 'Office')} • {candidate.get('region', candidate.get('state', 'Region'))} • Phase: {current_phase}",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
 
         standings = []
-        for c in seat_candidates:
-            baseline = c.get("baseline_percentage", 50.0)
-            campaign_points = c.get("points", 0.0)
-            total_percentage = baseline + campaign_points
 
-            standings.append({
-                "name": c["name"],
-                "party": c["party"],
-                "baseline": baseline,
-                "campaign_points": campaign_points,
-                "total": total_percentage,
-                "stamina": c.get("stamina", 100),
-                "corruption": c.get("corruption", 0)
-            })
+        if current_phase == "General Campaign":
+            # Get all general election candidates for same seat
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+
+            if winners_config:
+                seat_candidates = [
+                    w for w in winners_config["winners"] 
+                    if w["seat_id"] == candidate["seat_id"] and w["year"] == current_year and w.get("primary_winner", False)
+                ]
+
+                # Calculate current polling with baseline + campaign adjustments
+                for c in seat_candidates:
+                    baseline = self._calculate_baseline_percentage(interaction.guild.id, candidate["seat_id"], c["party"])
+                    campaign_points = c.get("points", 0.0)
+
+                    standings.append({
+                        "name": c["candidate"],
+                        "party": c["party"],
+                        "baseline": baseline,
+                        "campaign_points": campaign_points,
+                        "stamina": c.get("stamina", 100),
+                        "corruption": c.get("corruption", 0)
+                    })
+
+                # Calculate adjusted percentages maintaining 100% total
+                if standings:
+                    total_adjustment = sum(s["campaign_points"] for s in standings)
+                    total_baseline = sum(s["baseline"] for s in standings)
+
+                    for s in standings:
+                        # Calculate adjusted percentage
+                        raw_percentage = s["baseline"] + s["campaign_points"]
+                        s["total"] = max(0.1, raw_percentage)  # Minimum 0.1%
+
+                    # Normalize to 100%
+                    current_total = sum(s["total"] for s in standings)
+                    if current_total > 0:
+                        for s in standings:
+                            s["total"] = (s["total"] / current_total) * 100.0
+
+        else:
+            # Primary phase - use existing logic
+            signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+            if signups_config:
+                seat_candidates = [
+                    c for c in signups_config["candidates"] 
+                    if c["seat_id"] == candidate["seat_id"] and c["year"] == current_year
+                ]
+
+                for c in seat_candidates:
+                    standings.append({
+                        "name": c["name"],
+                        "party": c["party"],
+                        "baseline": None,  # No baseline in primary
+                        "campaign_points": c.get("points", 0.0),
+                        "total": c.get("points", 0.0),
+                        "stamina": c.get("stamina", 100),
+                        "corruption": c.get("corruption", 0)
+                    })
 
         # Sort by total percentage
         standings.sort(key=lambda x: x["total"], reverse=True)
 
         standings_text = ""
         for i, s in enumerate(standings, 1):
-            standings_text += (
-                f"**{i}. {s['name']}** ({s['party']})\n"
-                f"   └ {s['baseline']:.1f}% (base) + {s['campaign_points']:.1f}% (campaign) = **{s['total']:.1f}%**\n"
-                f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
-            )
+            if current_phase == "General Campaign":
+                standings_text += (
+                    f"**{i}. {s['name']}** ({s['party']})\n"
+                    f"   └ {s['baseline']:.1f}% (baseline) + {s['campaign_points']:.1f}% (campaign) = **{s['total']:.1f}%**\n"
+                    f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
+                )
+            else:
+                standings_text += (
+                    f"**{i}. {s['name']}** ({s['party']})\n"
+                    f"   └ Campaign Points: **{s['total']:.1f}**\n"
+                    f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
+                )
 
         embed.add_field(
             name="🏆 Current Standings",
             value=standings_text,
             inline=False
         )
+
+        if current_phase == "General Campaign":
+            embed.add_field(
+                name="ℹ️ General Election Info",
+                value="Baseline percentages determined by party distribution. Campaign points adjust these percentages while maintaining 100% total.",
+                inline=False
+            )
 
         await interaction.response.send_message(embed=embed)
 

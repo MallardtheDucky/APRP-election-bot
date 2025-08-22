@@ -1683,5 +1683,68 @@ class AllSignups(commands.Cog):
 
         await interaction.response.send_message(embed=success_embed, ephemeral=True)
 
+    @app_commands.command(
+        name="admin_reset_primary_election",
+        description="Reset primary election by clearing all candidate signups (Admin only - DESTRUCTIVE)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_reset_primary_election(
+        self,
+        interaction: discord.Interaction,
+        year: int = None,
+        confirm: bool = False
+    ):
+        """Reset primary election by clearing all signups"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
+
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        # Count signups for target year
+        year_signups = [c for c in signups_config["candidates"] if c["year"] == target_year]
+
+        if not year_signups:
+            await interaction.response.send_message(
+                f"❌ No candidate signups found for {target_year}.",
+                ephemeral=True
+            )
+            return
+
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **DANGER:** This will completely reset the {target_year} primary election!\n"
+                f"• Remove ALL {len(year_signups)} candidate signups\n"
+                f"• Clear all campaign points, stamina, and corruption data\n"
+                f"• Cannot be undone!\n\n"
+                f"To confirm this destructive action, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Remove all signups for target year
+        signups_config["candidates"] = [
+            c for c in signups_config["candidates"] if c["year"] != target_year
+        ]
+
+        signups_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"candidates": signups_config["candidates"]}}
+        )
+
+        await interaction.response.send_message(
+            f"✅ **Primary Election Reset Complete!**\n"
+            f"• Removed {len(year_signups)} candidate signups for {target_year}\n"
+            f"• All primary campaign data has been cleared\n"
+            f"• Candidates can now sign up again from scratch",
+            ephemeral=True
+        )
+
+
 async def setup(bot):
     await bot.add_cog(AllSignups(bot))
