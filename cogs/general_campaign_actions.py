@@ -189,14 +189,14 @@ class GeneralCampaignActions(commands.Cog):
 
         return remaining
 
-    def _calculate_baseline_percentage(self, guild_id: int, seat_id: str, candidate_party: str = None):
-        """Calculate baseline starting percentage based on party distribution for a seat"""
+    def _calculate_zero_sum_percentages(self, guild_id: int, seat_id: str):
+        """Calculate zero-sum redistribution percentages for general election candidates"""
         # Get general election candidates (primary winners) for this seat
         winners_col = self.bot.db["winners"]
         winners_config = winners_col.find_one({"guild_id": guild_id})
 
         if not winners_config:
-            return 50.0  # Default fallback
+            return {}
 
         # Get current year
         time_col, time_config = self._get_time_config(guild_id)
@@ -209,46 +209,98 @@ class GeneralCampaignActions(commands.Cog):
         ]
 
         if not seat_candidates:
-            return 50.0  # Default if no candidates
+            return {}
 
-        # Count unique parties
+        # Determine baseline percentages based on number of candidates and parties
+        num_candidates = len(seat_candidates)
         parties = set(candidate["party"] for candidate in seat_candidates)
         num_parties = len(parties)
-        major_parties = {"Democratic Party", "Republican Party"}
+        
+        # Count major parties (Democrat and Republican)
+        major_parties = {"Democrat", "Republican"}
+        major_parties_present = len([p for p in parties if p in major_parties])
 
-        # Check how many major parties are present
-        major_parties_present = major_parties.intersection(parties)
-        num_major_parties = len(major_parties_present)
-
-        # Calculate baseline percentages based on exact specifications
-        if num_parties == 1:
-            return 100.0  # Uncontested
-        elif num_parties == 2:
-            # 50-50 split (Democrat + Republican)
-            return 50.0
+        # Set baseline percentages based on number of parties
+        baseline_percentages = {}
+        
+        if num_parties == 2:
+            # Two parties: 50-50 split
+            for candidate in seat_candidates:
+                baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 50.0
         elif num_parties == 3:
-            # 40-40-20 split (Democrat + Republican + Independent)
-            if num_major_parties == 2:
-                if candidate_party in major_parties:
-                    return 40.0  # Democrat or Republican gets 40%
-                else:
-                    return 20.0  # Independent gets 20%
+            # Three parties: 40-40-20 (if Dem+Rep+other) or equal split
+            if major_parties_present == 2:
+                for candidate in seat_candidates:
+                    if candidate["party"] in major_parties:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 40.0
+                    else:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 20.0
             else:
-                # If not standard Dem-Rep-Ind, split evenly
-                return 100.0 / 3
+                # Equal split if not standard Dem-Rep-other
+                for candidate in seat_candidates:
+                    baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 100.0 / 3
         elif num_parties == 4:
-            # 40-40-10-10 split (Democrat + Republican + Independent + Independent)
-            if num_major_parties == 2:
-                if candidate_party in major_parties:
-                    return 40.0  # Democrat or Republican gets 40%
-                else:
-                    return 10.0  # Each Independent gets 10%
+            # Four parties: 40-40-10-10 (if Dem+Rep+two others) or equal split
+            if major_parties_present == 2:
+                for candidate in seat_candidates:
+                    if candidate["party"] in major_parties:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 40.0
+                    else:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 10.0
             else:
-                # If not standard setup, split evenly
-                return 25.0
+                # Equal split if not standard setup
+                for candidate in seat_candidates:
+                    baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 25.0
         else:
-            # For 5+ parties, split evenly
-            return 100.0 / num_parties
+            # 5+ parties: prioritize taking from other/independents
+            if major_parties_present == 2:
+                # Democrat + Republican + multiple others: 40-40 for major, split remainder among others
+                remaining_percentage = 20.0  # 100 - 40 - 40
+                other_parties_count = num_parties - 2
+                other_party_percentage = remaining_percentage / other_parties_count if other_parties_count > 0 else 0
+                
+                for candidate in seat_candidates:
+                    if candidate["party"] in major_parties:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 40.0
+                    else:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = other_party_percentage
+            else:
+                # No standard major party setup, split evenly
+                for candidate in seat_candidates:
+                    baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 100.0 / num_parties
+
+        # Apply zero-sum redistribution
+        final_percentages = {}
+        total_gains = sum(candidate.get('points', 0.0) for candidate in seat_candidates)
+
+        for candidate in seat_candidates:
+            candidate_name = candidate.get('candidate', candidate.get('name', ''))
+            baseline = baseline_percentages[candidate_name]
+            candidate_gain = candidate.get('points', 0.0)
+            
+            # Start with baseline
+            final_percentage = baseline
+            
+            # Add this candidate's gains
+            final_percentage += candidate_gain
+            
+            # Subtract proportional share of other candidates' gains
+            other_gains = total_gains - candidate_gain
+            if other_gains > 0:
+                # Each candidate loses proportionally to their baseline
+                proportional_loss = (baseline / 100.0) * other_gains
+                final_percentage -= proportional_loss
+            
+            # Ensure minimum percentage
+            final_percentages[candidate_name] = max(0.1, final_percentage)
+
+        # Normalize to exactly 100%
+        total = sum(final_percentages.values())
+        if total > 0:
+            for name in final_percentages:
+                final_percentages[name] = (final_percentages[name] / total) * 100.0
+
+        return final_percentages
 
 
     class SpeechModal(discord.ui.Modal, title='Campaign Speech'):
@@ -379,11 +431,26 @@ class GeneralCampaignActions(commands.Cog):
             inline=False
         )
 
-        embed.add_field(
-            name="📊 Impact",
-            value=f"**Target:** {target_name_display}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
-            inline=True
-        )
+        # For general campaign, get updated percentage after zero-sum redistribution
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        
+        if current_phase == "General Campaign":
+            zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, target_candidate["seat_id"])
+            target_name_for_calc = target_candidate.get('candidate') or target_candidate.get('name')
+            updated_percentage = zero_sum_percentages.get(target_name_for_calc, 50.0)
+            
+            embed.add_field(
+                name="📊 Impact",
+                value=f"**Target:** {target_name_display}\n**New Polling:** {updated_percentage:.1f}%\n**Campaign Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="📊 Impact",
+                value=f"**Target:** {target_name_display}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
+                inline=True
+            )
 
         embed.add_field(
             name="🗳️ Target Running For",
@@ -486,11 +553,26 @@ class GeneralCampaignActions(commands.Cog):
             inline=False
         )
 
-        embed.add_field(
-            name="📊 Impact",
-            value=f"**Target:** {target_display_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
-            inline=True
-        )
+        # For general campaign, get updated percentage after zero-sum redistribution
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        
+        if current_phase == "General Campaign":
+            zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, target_candidate["seat_id"])
+            target_name_for_calc = target_candidate.get('candidate') or target_candidate.get('name')
+            updated_percentage = zero_sum_percentages.get(target_name_for_calc, 50.0)
+            
+            embed.add_field(
+                name="📊 Impact",
+                value=f"**Target:** {target_display_name}\n**New Polling:** {updated_percentage:.1f}%\n**Campaign Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="📊 Impact",
+                value=f"**Target:** {target_display_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                inline=True
+            )
 
         embed.add_field(
             name="⚠️ Warning",
@@ -667,6 +749,16 @@ class GeneralCampaignActions(commands.Cog):
         self._update_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
                                    polling_boost=0.1, stamina_cost=1)
 
+        # For general campaign, get updated percentage after zero-sum redistribution
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        
+        updated_percentage = None
+        if current_phase == "General Campaign":
+            zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, target_candidate["seat_id"])
+            target_name_for_calc = target_candidate.get('candidate') or target_candidate.get('name')
+            updated_percentage = zero_sum_percentages.get(target_name_for_calc, 50.0)
+
         candidate_name = candidate.get('candidate') or candidate.get('name')
         target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         embed = discord.Embed(
@@ -682,11 +774,18 @@ class GeneralCampaignActions(commands.Cog):
             inline=False
         )
 
-        embed.add_field(
-            name="📊 Results",
-            value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +0.1%\n**Stamina Cost:** -1",
-            inline=True
-        )
+        if current_phase == "General Campaign" and updated_percentage is not None:
+            embed.add_field(
+                name="📊 Results",
+                value=f"**Target:** {target_candidate_name}\n**New Polling:** {updated_percentage:.1f}%\n**Campaign Points:** +0.1\n**Stamina Cost:** -1",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="📊 Results",
+                value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +0.1%\n**Stamina Cost:** -1",
+                inline=True
+            )
 
         embed.add_field(
             name="⚡ Target's Current Stamina",
@@ -881,11 +980,26 @@ class GeneralCampaignActions(commands.Cog):
                 timestamp=datetime.utcnow()
             )
 
-            embed.add_field(
-                name="📊 Ad Performance",
-                value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
-                inline=True
-            )
+            # For general campaign, get updated percentage after zero-sum redistribution
+            time_col, time_config = self._get_time_config(interaction.guild.id)
+            current_phase = time_config.get("current_phase", "") if time_config else ""
+            
+            if current_phase == "General Campaign":
+                zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, target_candidate["seat_id"])
+                target_name_for_calc = target_candidate.get('candidate') or target_candidate.get('name')
+                updated_percentage = zero_sum_percentages.get(target_name_for_calc, 50.0)
+                
+                embed.add_field(
+                    name="📊 Ad Performance",
+                    value=f"**Target:** {target_candidate_name}\n**New Polling:** {updated_percentage:.1f}%\n**Campaign Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="📊 Ad Performance",
+                    value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
+                    inline=True
+                )
 
             embed.add_field(
                 name="📱 Reach",
@@ -995,6 +1109,16 @@ class GeneralCampaignActions(commands.Cog):
         # Set cooldown
         self._set_cooldown(interaction.guild.id, interaction.user.id, "poster")
 
+        # For general campaign, recalculate zero-sum percentages for the entire seat
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        
+        if current_phase == "General Campaign":
+            # Get updated zero-sum percentages
+            zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, target_candidate["seat_id"])
+            target_name_for_calc = target_candidate.get('candidate') or target_candidate.get('name')
+            updated_percentage = zero_sum_percentages.get(target_name_for_calc, 50.0)
+
         candidate_name = candidate.get('candidate') or candidate.get('name')
         target_candidate_name = target_candidate.get('candidate') or target_candidate.get('name')
         embed = discord.Embed(
@@ -1004,11 +1128,19 @@ class GeneralCampaignActions(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
-        embed.add_field(
-            name="📊 Poster Impact",
-            value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
-            inline=True
-        )
+        # Show final percentage for general campaign, or just boost for primary
+        if current_phase == "General Campaign":
+            embed.add_field(
+                name="📊 Poster Impact",
+                value=f"**Target:** {target_candidate_name}\n**New Polling:** {updated_percentage:.1f}%\n**Campaign Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="📊 Poster Impact",
+                value=f"**Target:** {target_candidate_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
+                inline=True
+            )
 
         embed.add_field(
             name="📍 Distribution",
@@ -1068,35 +1200,22 @@ class GeneralCampaignActions(commands.Cog):
                     if w["seat_id"] == candidate["seat_id"] and w["year"] == current_year and w.get("primary_winner", False)
                 ]
 
-                # Calculate current polling with baseline + campaign adjustments
+                # Calculate zero-sum redistribution percentages
+                zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, candidate["seat_id"])
+
                 for c in seat_candidates:
-                    baseline = self._calculate_baseline_percentage(interaction.guild.id, candidate["seat_id"], c["party"])
+                    candidate_name = c.get("candidate", "")
+                    final_percentage = zero_sum_percentages.get(candidate_name, 50.0)
                     campaign_points = c.get("points", 0.0)
 
                     standings.append({
-                        "name": c["candidate"],
+                        "name": candidate_name,
                         "party": c["party"],
-                        "baseline": baseline,
                         "campaign_points": campaign_points,
+                        "total": final_percentage,
                         "stamina": c.get("stamina", 100),
                         "corruption": c.get("corruption", 0)
                     })
-
-                # Calculate adjusted percentages maintaining 100% total
-                if standings:
-                    total_adjustment = sum(s["campaign_points"] for s in standings)
-                    total_baseline = sum(s["baseline"] for s in standings)
-
-                    for s in standings:
-                        # Calculate adjusted percentage
-                        raw_percentage = s["baseline"] + s["campaign_points"]
-                        s["total"] = max(0.1, raw_percentage)  # Minimum 0.1%
-
-                    # Normalize to 100%
-                    current_total = sum(s["total"] for s in standings)
-                    if current_total > 0:
-                        for s in standings:
-                            s["total"] = (s["total"] / current_total) * 100.0
 
         else:
             # Primary phase - use existing logic
@@ -1126,7 +1245,7 @@ class GeneralCampaignActions(commands.Cog):
             if current_phase == "General Campaign":
                 standings_text += (
                     f"**{i}. {s['name']}** ({s['party']})\n"
-                    f"   └ {s['baseline']:.1f}% (baseline) + {s['campaign_points']:.1f}% (campaign) = **{s['total']:.1f}%**\n"
+                    f"   └ Polling: **{s['total']:.1f}%**\n"
                     f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
                 )
             else:
@@ -1145,7 +1264,7 @@ class GeneralCampaignActions(commands.Cog):
         if current_phase == "General Campaign":
             embed.add_field(
                 name="ℹ️ General Election Info",
-                value="Baseline percentages determined by party distribution. Campaign points adjust these percentages while maintaining 100% total.",
+                value="Zero-sum redistribution: When candidates gain campaign points, the percentage is redistributed from other candidates. Total always equals 100%.",
                 inline=False
             )
 
@@ -1182,14 +1301,15 @@ class GeneralCampaignActions(commands.Cog):
             inline=True
         )
 
-        baseline = candidate.get("baseline_percentage", 50.0)
-        total_percentage = baseline + candidate['points']
+        # Get zero-sum percentage for this candidate
+        zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, candidate["seat_id"])
+        candidate_name = candidate.get('candidate') or candidate.get('name')
+        current_percentage = zero_sum_percentages.get(candidate_name, 50.0)
 
         embed.add_field(
             name="📈 Current Stats",
-            value=f"**Baseline:** {baseline:.1f}%\n"
-                  f"**Campaign Points:** +{candidate['points']:.2f}%\n"
-                  f"**Total Polling:** {total_percentage:.1f}%\n"
+            value=f"**Campaign Points:** +{candidate['points']:.2f}\n"
+                  f"**Current Polling:** {current_percentage:.1f}%\n"
                   f"**Stamina:** {candidate['stamina']}/100\n"
                   f"**Corruption:** {candidate['corruption']}",
             inline=True
@@ -1337,6 +1457,145 @@ class GeneralCampaignActions(commands.Cog):
                 f"✅ Reset **{command}** timer for {user.mention}. ({result.deleted_count} records cleared)",
                 ephemeral=True
             )
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(
+        name="admin_view_general_points",
+        description="View all general campaign points and standings (Admin only)"
+    )
+    async def admin_view_general_points(self, interaction: discord.Interaction, seat_filter: Optional[str] = None):
+        # Check if we're in general campaign phase
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        if current_phase != "General Campaign":
+            await interaction.response.send_message(
+                "❌ This command only works during the General Campaign phase.",
+                ephemeral=True
+            )
+            return
+
+        # Get general election candidates (primary winners)
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+
+        if not winners_config:
+            await interaction.response.send_message(
+                "❌ No general election candidates found.",
+                ephemeral=True
+            )
+            return
+
+        # For general campaign, look for primary winners from the previous year if we're in an even year
+        # Or current year if odd year
+        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+        candidates = [
+            w for w in winners_config["winners"] 
+            if w.get("primary_winner", False) and w["year"] == primary_year
+        ]
+
+        if seat_filter:
+            candidates = [c for c in candidates if seat_filter.upper() in c["seat_id"].upper()]
+
+        if not candidates:
+            filter_text = f" for seat '{seat_filter}'" if seat_filter else ""
+            await interaction.response.send_message(
+                f"❌ No general campaign candidates found{filter_text}.",
+                ephemeral=True
+            )
+            return
+
+        # Group by seat for zero-sum calculations
+        seats = {}
+        for candidate in candidates:
+            seat_id = candidate["seat_id"]
+            if seat_id not in seats:
+                seats[seat_id] = []
+            seats[seat_id].append(candidate)
+
+        embed = discord.Embed(
+            title="🔍 Admin: General Campaign Points",
+            description=f"Detailed view of all campaign points and percentages",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        for seat_id, seat_candidates in sorted(seats.items()):
+            # Calculate zero-sum percentages for this seat
+            zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
+            
+            # Sort by campaign points
+            seat_candidates.sort(key=lambda x: x.get("points", 0), reverse=True)
+            
+            seat_text = ""
+            for candidate in seat_candidates:
+                candidate_name = candidate.get('candidate', candidate.get('name', ''))
+                final_percentage = zero_sum_percentages.get(candidate_name, 50.0)
+                
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else candidate_name
+                
+                seat_text += (
+                    f"**{candidate_name}** ({candidate['party']})\n"
+                    f"└ Points: {candidate.get('points', 0):.2f} → **{final_percentage:.1f}%**\n"
+                    f"└ Stamina: {candidate.get('stamina', 100)} | Corruption: {candidate.get('corruption', 0)}\n"
+                    f"└ {user_mention}\n\n"
+                )
+
+            # Handle long field values
+            if len(seat_text) > 1024:
+                # Split into multiple fields if too long
+                parts = seat_text.split('\n\n')
+                current_part = ""
+                part_num = 1
+
+                for part in parts:
+                    if len(current_part + part + '\n\n') > 1024:
+                        embed.add_field(
+                            name=f"🏛️ {seat_id} (Part {part_num})",
+                            value=current_part,
+                            inline=False
+                        )
+                        current_part = part + '\n\n'
+                        part_num += 1
+                    else:
+                        current_part += part + '\n\n'
+
+                if current_part:
+                    embed.add_field(
+                        name=f"🏛️ {seat_id} (Part {part_num})" if part_num > 1 else f"🏛️ {seat_id}",
+                        value=current_part,
+                        inline=False
+                    )
+            else:
+                embed.add_field(
+                    name=f"🏛️ {seat_id}",
+                    value=seat_text,
+                    inline=False
+                )
+
+        # Add summary statistics
+        total_candidates = len(candidates)
+        total_points = sum(c.get('points', 0) for c in candidates)
+        avg_corruption = sum(c.get('corruption', 0) for c in candidates) / total_candidates if total_candidates else 0
+
+        embed.add_field(
+            name="📊 Summary",
+            value=f"**Total Candidates:** {total_candidates}\n"
+                  f"**Total Campaign Points:** {total_points:.2f}\n"
+                  f"**Average Corruption:** {avg_corruption:.1f}\n"
+                  f"**Seats in Competition:** {len(seats)}",
+            inline=False
+        )
+
+        if seat_filter:
+            embed.set_footer(text=f"Filtered by: {seat_filter}")
+        else:
+            embed.set_footer(text="All general campaign candidates")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(

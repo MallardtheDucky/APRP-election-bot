@@ -839,11 +839,11 @@ class AllWinners(commands.Cog):
         await interaction.response.send_message(response, ephemeral=True)
 
     @app_commands.command(
-        name="admin_view_general_points",
+        name="admin_view_all_campaign_points",
         description="View all candidate points in general campaign phase (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def admin_view_general_points(
+    async def admin_view_all_campaign_points(
         self,
         interaction: discord.Interaction,
         sort_by: str = "points",
@@ -1342,7 +1342,7 @@ class AllWinners(commands.Cog):
                     candidate_list += (
                         f"{candidate.get('candidate', 'N/A')} ({candidate.get('party', 'N/A')})\n"
                         f"└ {candidate.get('seat_id', 'N/A')} - {candidate.get('office', 'N/A')}\n"
-                        f"└ Polling: {normalized_percentage:.1f}% ({baseline:.1f}% base + {campaign_points:.1f}% campaign)\n"
+                        f"└ Polling: **{normalized_percentage:.1f}%**\n"
                         f"└ Stamina: {candidate.get('stamina', 100)} | Corruption: {candidate.get('corruption', 0)}\n"
                         f"└ {user_mention}\n\n"
                     )
