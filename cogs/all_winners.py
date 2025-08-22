@@ -89,8 +89,19 @@ class AllWinners(commands.Cog):
             # For other offices (President, VP, etc.), default baseline
             return 25.0
 
-    def _calculate_seat_percentages(self, seat_candidates):
+    def _calculate_zero_sum_percentages(self, guild_id: int, seat_id: str):
         """Calculate final percentages for candidates in a seat with zero-sum redistribution"""
+        winners_col, winners_config = self._get_winners_config(guild_id)
+        
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year
+
+        # Find all primary winners for this seat for the current year
+        seat_candidates = [
+            w for w in winners_config.get("winners", [])
+            if w["seat_id"] == seat_id and w["year"] == current_year and w.get("primary_winner", False)
+        ]
+
         if not seat_candidates:
             return {}
 
@@ -188,7 +199,7 @@ class AllWinners(commands.Cog):
 
     def _calculate_baseline_percentage(self, guild_id: int, seat_id: str, candidate_party: str):
         """Calculate baseline starting percentage for general election based on party distribution"""
-        # Get all primary winners for this seat to determine party distribution
+        # Get all primary winners for this seat
         winners_col, winners_config = self._get_winners_config(guild_id)
 
         if not winners_config:
@@ -216,7 +227,7 @@ class AllWinners(commands.Cog):
         major_parties_present = major_parties.intersection(parties)
         num_major_parties = len(major_parties_present)
 
-        # Calculate baseline percentages based on exact specifications
+        # Calculate baseline percentages based on party specifications
         if num_parties == 1:
             return 100.0  # Uncontested
         elif num_parties == 2:
@@ -519,7 +530,7 @@ class AllWinners(commands.Cog):
         ]
 
         # Recalculate percentages for the entire seat
-        percentages = self._calculate_seat_percentages(seat_candidates)
+        percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
 
         # Update all candidates in this seat with new percentages
         for candidate_name_key, percentage in percentages.items():
@@ -598,7 +609,7 @@ class AllWinners(commands.Cog):
 
         for seat_id, candidates in seats.items():
             # Calculate final percentages for this seat
-            percentages = self._calculate_seat_percentages(candidates)
+            percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
 
             # Find candidate with highest percentage
             if percentages:
@@ -802,7 +813,7 @@ class AllWinners(commands.Cog):
                         w for w in winners_config.get("winners", [])
                         if w["seat_id"] == seat_id and w["year"] == target_year and w.get("primary_winner", False)
                     ]
-                    percentages = self._calculate_seat_percentages(seat_candidates)
+                    percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
 
                     # Update all candidates in this seat with new percentages
                     for candidate_name_key, percentage in percentages.items():
@@ -917,18 +928,40 @@ class AllWinners(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
-        # Show top 15 candidates
+        # Show top 15 candidates with zero-sum calculations
         top_candidates = candidates[:15]
         candidate_list = ""
+
+        # Group candidates by seat for zero-sum calculations
+        seats_processed = set()
 
         for i, candidate in enumerate(top_candidates, 1):
             user = interaction.guild.get_member(candidate["user_id"])
             user_mention = user.mention if user else candidate["candidate"]
 
+            # Calculate zero-sum percentage for this candidate's seat
+            seat_id = candidate.get('seat_id', 'N/A')
+            candidate_name = candidate.get('candidate', 'N/A')
+
+            # Get zero-sum percentage if we haven't calculated for this seat yet
+            if seat_id not in seats_processed:
+                # Import the method from general_campaign_actions
+                # Assuming GeneralCampaignActions is another cog loaded with the bot
+                general_cog = self.bot.get_cog('GeneralCampaignActions')
+                if general_cog:
+                    zero_sum_percentages = general_cog._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
+                    # Store calculated percentages for this seat
+                    for seat_candidate in candidates:
+                        if seat_candidate.get('seat_id') == seat_id:
+                            seat_candidate_name = seat_candidate.get('candidate', '')
+                            seat_candidate['calculated_percentage'] = zero_sum_percentages.get(seat_candidate_name, 50.0)
+                    seats_processed.add(seat_id)
+
+            calculated_percentage = candidate.get('calculated_percentage', 50.0)
+
             candidate_list += (
-                f"**{i}.** {candidate.get('candidate', 'N/A')} ({candidate.get('party', 'N/A')})\n"
-                f"   └ {candidate.get('seat_id', 'N/A')} • Points: {candidate.get('points', 0):.2f} • "
-                f"Votes: {candidate.get('votes', 0):,} • %: {candidate.get('final_percentage', 0):.2f}%\n"
+                f"**{i}.** {candidate_name} ({candidate.get('party', 'N/A')})\n"
+                f"   └ {seat_id} • Points: {candidate.get('points', 0):.2f} • Votes: {candidate.get('votes', 0)} • %: {calculated_percentage:.1f}%\n"
                 f"   └ Stamina: {candidate.get('stamina', 100)} • Corruption: {candidate.get('corruption', 0)} • {user_mention}\n\n"
             )
 
@@ -938,11 +971,13 @@ class AllWinners(commands.Cog):
             inline=False
         )
 
-        # Summary stats
-        total_points = sum(c.get('points', 0) for c in candidates)
-        total_votes = sum(c.get('votes', 0) for c in candidates)
-        avg_corruption = sum(c.get('corruption', 0) for c in candidates) / len(candidates) if candidates else 0
-        total_percentage = sum(c.get('final_percentage', 0) for c in candidates)
+        # Summary statistics with calculated percentages
+        total_votes = sum(c.get("votes", 0) for c in candidates)
+        total_points = sum(c.get("points", 0) for c in candidates)
+        avg_corruption = sum(c.get("corruption", 0) for c in candidates) / len(candidates) if candidates else 0
+
+        # Calculate total of zero-sum percentages
+        total_calculated_percentage = sum(c.get("calculated_percentage", 50.0) for c in top_candidates)
 
         embed.add_field(
             name="📈 Summary Statistics",
@@ -950,8 +985,8 @@ class AllWinners(commands.Cog):
                   f"**Total Points:** {total_points:.2f}\n"
                   f"**Total Votes:** {total_votes:,}\n"
                   f"**Avg Corruption:** {avg_corruption:.1f}\n"
-                  f"**Total %:** {total_percentage:.2f}%",
-            inline=True
+                  f"**Calculated %:** {total_calculated_percentage:.1f}% (top {len(top_candidates)})",
+            inline=False
         )
 
         # Show filter info if applied
@@ -1326,13 +1361,13 @@ class AllWinners(commands.Cog):
             candidate_list = ""
             for seat_id, seat_candidates in seats_in_region.items():
                 # Calculate normalized percentages for this seat
-                seat_percentages = self._calculate_seat_percentages(seat_candidates)
+                seat_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
                 
                 for candidate in seat_candidates:
                     baseline = candidate.get("baseline_percentage", 50.0)
                     campaign_points = candidate.get('points', 0)
                     
-                    # Use the normalized percentage from _calculate_seat_percentages
+                    # Use the normalized percentage from _calculate_zero_sum_percentages
                     candidate_name = candidate.get('candidate', 'N/A')
                     normalized_percentage = seat_percentages.get(candidate_name, baseline + campaign_points)
 
@@ -1342,7 +1377,6 @@ class AllWinners(commands.Cog):
                     candidate_list += (
                         f"{candidate.get('candidate', 'N/A')} ({candidate.get('party', 'N/A')})\n"
                         f"└ {candidate.get('seat_id', 'N/A')} - {candidate.get('office', 'N/A')}\n"
-                        f"└ Polling: **{normalized_percentage:.1f}%**\n"
                         f"└ Stamina: {candidate.get('stamina', 100)} | Corruption: {candidate.get('corruption', 0)}\n"
                         f"└ {user_mention}\n\n"
                     )

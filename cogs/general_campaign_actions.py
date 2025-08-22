@@ -203,13 +203,29 @@ class GeneralCampaignActions(commands.Cog):
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
         # Find all primary winners (general election candidates) for this seat
+        # For general campaign, look for primary winners from the previous year if we're in an even year
+        # Or current year if odd year
+        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
         seat_candidates = [
             w for w in winners_config["winners"] 
-            if w["seat_id"] == seat_id and w["year"] == current_year and w.get("primary_winner", False)
+            if w["seat_id"] == seat_id and w["year"] == primary_year and w.get("primary_winner", False)
         ]
+
+        # If no primary winners found, fall back to all candidates for this seat in the current year
+        if not seat_candidates:
+            seat_candidates = [
+                w for w in winners_config["winners"] 
+                if w["seat_id"] == seat_id and w["year"] == current_year
+            ]
 
         if not seat_candidates:
             return {}
+
+        # Special case: if only one candidate, they get 100%
+        if len(seat_candidates) == 1:
+            candidate_name = seat_candidates[0].get('candidate', seat_candidates[0].get('name', ''))
+            return {candidate_name: 100.0}
 
         # Determine baseline percentages based on number of candidates and parties
         num_candidates = len(seat_candidates)
@@ -267,33 +283,43 @@ class GeneralCampaignActions(commands.Cog):
             else:
                 # No standard major party setup, split evenly
                 for candidate in seat_candidates:
-                    baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 100.0 / num_parties
+                    baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 100.0 / num_candidates
 
         # Apply zero-sum redistribution
         final_percentages = {}
-        total_gains = sum(candidate.get('points', 0.0) for candidate in seat_candidates)
-
-        for candidate in seat_candidates:
-            candidate_name = candidate.get('candidate', candidate.get('name', ''))
-            baseline = baseline_percentages[candidate_name]
-            candidate_gain = candidate.get('points', 0.0)
-            
-            # Start with baseline
-            final_percentage = baseline
-            
-            # Add this candidate's gains
-            final_percentage += candidate_gain
-            
-            # Subtract proportional share of other candidates' gains
-            other_gains = total_gains - candidate_gain
-            if other_gains > 0:
-                # Each candidate loses proportionally to their baseline
-                proportional_loss = (baseline / 100.0) * other_gains
-                final_percentage -= proportional_loss
-            
-            # Ensure minimum percentage
-            final_percentages[candidate_name] = max(0.1, final_percentage)
-
+        
+        # Calculate total campaign points across all candidates in this seat
+        total_campaign_points = sum(candidate.get('points', 0.0) for candidate in seat_candidates)
+        
+        # If no campaign points exist, use baseline percentages
+        if total_campaign_points == 0:
+            final_percentages = baseline_percentages.copy()
+        else:
+            # Calculate the adjustment factor - how much total percentage change from campaign points
+            # Each campaign point = 1% change potential, but we need to redistribute
+            for candidate in seat_candidates:
+                candidate_name = candidate.get('candidate', candidate.get('name', ''))
+                baseline = baseline_percentages[candidate_name]
+                candidate_points = candidate.get('points', 0.0)
+                
+                # Start with baseline percentage
+                percentage = baseline
+                
+                # Add this candidate's campaign points as direct percentage gains
+                percentage += candidate_points
+                
+                # Subtract a proportional share of OTHER candidates' gains
+                # Each candidate loses percentage proportional to their baseline when others gain
+                other_candidates_points = total_campaign_points - candidate_points
+                if other_candidates_points > 0:
+                    # Calculate proportional loss based on baseline share
+                    total_baseline = sum(baseline_percentages.values())
+                    proportional_loss = (baseline / total_baseline) * other_candidates_points
+                    percentage -= proportional_loss
+                
+                # Ensure minimum percentage and store
+                final_percentages[candidate_name] = max(0.1, percentage)
+        
         # Normalize to exactly 100%
         total = sum(final_percentages.values())
         if total > 0:
@@ -1296,7 +1322,7 @@ class GeneralCampaignActions(commands.Cog):
         embed.add_field(
             name="🗳️ Campaign Info",
             value=f"**Running For:** {candidate['seat_id']}\n"
-                  f"**Region:** {candidate['region']}\n"
+                  f"**Region:** {candidate.get('region') or candidate.get('state', 'Unknown')}\n"
                   f"**Office:** {candidate['office']}",
             inline=True
         )
