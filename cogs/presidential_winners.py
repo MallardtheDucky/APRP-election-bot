@@ -1,5 +1,3 @@
-
-
 # Presidential election state data
 # Data shows Republican/Democrat/Other percentages for each state
 # Numbers copied from STATE_DATA in ideology.py
@@ -58,10 +56,43 @@ PRESIDENTIAL_STATE_DATA = {
     "WYOMING": {"republican": 66, "democrat": 25, "other": 9}
 }
 
-def get_state_percentages(state_name: str) -> dict:
-    """Get the Republican/Democrat/Other percentages for a specific state"""
-    state_key = state_name.upper()
-    return PRESIDENTIAL_STATE_DATA.get(state_key, {"republican": 0, "democrat": 0, "other": 0})
+def get_state_percentages(state_name: str, candidate_ideologies=None) -> dict:
+        """Get the Republican/Democrat/Other percentages for a specific state with ideology bonuses"""
+        state_key = state_name.upper()
+        base_data = PRESIDENTIAL_STATE_DATA.get(state_key, {"republican": 0, "democrat": 0, "other": 0})
+
+        if not candidate_ideologies:
+            return base_data
+
+        # Import ideology data
+        try:
+            from cogs.ideology import STATE_DATA
+            state_ideology_data = STATE_DATA.get(state_key, {})
+        except ImportError:
+            return base_data
+
+        # Calculate bonuses for each party
+        result = base_data.copy()
+
+        for party, candidate_ideology in candidate_ideologies.items():
+            bonus = _calculate_ideology_bonus(candidate_ideology, state_ideology_data)
+
+            # Apply bonus to appropriate party
+            if party.lower() in ["democrats", "democratic party"]:
+                result["democrat"] += bonus
+            elif party.lower() in ["republicans", "republican party"]:
+                result["republican"] += bonus
+            else:
+                result["other"] += bonus
+
+        # Normalize to ensure percentages don't exceed realistic bounds
+        total = sum(result.values())
+        if total > 120:  # If total exceeds 120%, normalize proportionally
+            factor = 120 / total
+            for key in result:
+                result[key] *= factor
+
+        return result
 
 def get_all_states() -> list:
     """Get a list of all available states"""
@@ -176,12 +207,6 @@ class PresidentialWinners(commands.Cog):
             )
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @admin_view_pres_state_data.autocomplete("state_name")
-    async def state_autocomplete(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
 
     @app_commands.command(
         name="show_primary_winners",
@@ -345,21 +370,39 @@ class PresidentialWinners(commands.Cog):
                 )
                 return
 
-            data = PRESIDENTIAL_STATE_DATA[state_name]
+            # Get candidate ideologies for bonus calculation
+            candidate_ideologies = {}
+            signups_col = self.bot.db["presidential_signups"]
+            signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+
+            if signups_config:
+                for party, winner_name in winners.items():
+                    for candidate in signups_config.get("candidates", []):
+                        if candidate.get("name") == winner_name and candidate.get("office") == "President":
+                            candidate_ideologies[party] = {
+                                "ideology": candidate.get("ideology"),
+                                "economic": candidate.get("economic"),
+                                "social": candidate.get("social"),
+                                "government": candidate.get("government"),
+                                "axis": candidate.get("axis")
+                            }
+                            break
+
+            data = get_state_percentages(state_name, candidate_ideologies)
             embed = discord.Embed(
                 title=f"📊 {state_name} General Election Projection",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
 
-            # Map winners to percentages
+            # Map winners to percentages (with ideology bonuses applied)
             projection_text = ""
             if "Democrats" in winners:
-                projection_text += f"**{winners['Democrats']} (D):** {data['democrat']}%\n"
+                projection_text += f"**{winners['Democrats']} (D):** {data['democrat']:.1f}%\n"
             if "Republican" in winners:
-                projection_text += f"**{winners['Republican']} (R):** {data['republican']}%\n"
+                projection_text += f"**{winners['Republican']} (R):** {data['republican']:.1f}%\n"
             if "Others" in winners:
-                projection_text += f"**{winners['Others']} (I):** {data['other']}%\n"
+                projection_text += f"**{winners['Others']} (I):** {data['other']:.1f}%\n"
 
             embed.add_field(
                 name="🗳️ Projected Results",
@@ -377,12 +420,36 @@ class PresidentialWinners(commands.Cog):
                 timestamp=datetime.utcnow()
             )
 
-            # Calculate national averages
-            total_dem = sum(data['democrat'] for data in PRESIDENTIAL_STATE_DATA.values())
-            total_rep = sum(data['republican'] for data in PRESIDENTIAL_STATE_DATA.values())
-            total_other = sum(data['other'] for data in PRESIDENTIAL_STATE_DATA.values())
+            # Get candidate ideologies for bonus calculation
+            candidate_ideologies = {}
+            signups_col = self.bot.db["presidential_signups"]
+            signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+
+            if signups_config:
+                for party, winner_name in winners.items():
+                    for candidate in signups_config.get("candidates", []):
+                        if candidate.get("name") == winner_name and candidate.get("office") == "President":
+                            candidate_ideologies[party] = {
+                                "ideology": candidate.get("ideology"),
+                                "economic": candidate.get("economic"),
+                                "social": candidate.get("social"),
+                                "government": candidate.get("government"),
+                                "axis": candidate.get("axis")
+                            }
+                            break
+
+            # Calculate national averages with ideology bonuses
+            total_dem = 0
+            total_rep = 0 
+            total_other = 0
             state_count = len(PRESIDENTIAL_STATE_DATA)
-            
+
+            for state_name in PRESIDENTIAL_STATE_DATA.keys():
+                state_data = get_state_percentages(state_name, candidate_ideologies)
+                total_dem += state_data['democrat']
+                total_rep += state_data['republican']
+                total_other += state_data['other']
+
             avg_dem = total_dem / state_count
             avg_rep = total_rep / state_count
             avg_other = total_other / state_count
@@ -409,10 +476,51 @@ class PresidentialWinners(commands.Cog):
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    def _get_presidential_candidates(self, guild_id: int, party: str, year: int):
+        """Get presidential candidates for a specific party and year"""
+        col = self.bot.db["presidential_signups"]
+        config = col.find_one({"guild_id": guild_id})
+
+        if not config:
+            return []
+
+        candidates = []
+        for candidate in config.get("candidates", []):
+            if (candidate.get("party", "").lower() == party.lower() and 
+                candidate.get("year", 0) == year):
+                candidates.append(candidate)
+
+        return candidates
+
+    def _calculate_ideology_bonus(self, candidate_ideology, state_data):
+        """Calculate ideology-based bonus (1-3%) when candidate ideology aligns with state"""
+        bonus = 0.0
+
+        if not candidate_ideology or not state_data:
+            return bonus
+
+        # Check ideology alignment
+        if candidate_ideology.get("ideology") == state_data.get("ideology"):
+            bonus += 1.0
+
+        if candidate_ideology.get("economic") == state_data.get("economic"):
+            bonus += 0.5
+
+        if candidate_ideology.get("social") == state_data.get("social"):
+            bonus += 0.5
+
+        if candidate_ideology.get("government") == state_data.get("government"):
+            bonus += 0.5
+
+        if candidate_ideology.get("axis") == state_data.get("axis"):
+            bonus += 0.5
+
+        # Cap bonus at 3%
+        return min(bonus, 3.0)
+
 async def setup(bot):
     await bot.add_cog(PresidentialWinners(bot))
 
 # Main execution for testing
 if __name__ == "__main__":
     print_state_data()
-
