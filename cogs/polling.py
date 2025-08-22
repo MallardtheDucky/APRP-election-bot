@@ -4,6 +4,7 @@ from discord import app_commands
 from datetime import datetime
 import random
 from typing import Optional, List
+from .ideology import STATE_DATA
 
 class Polling(commands.Cog):
     def __init__(self, bot):
@@ -238,8 +239,16 @@ class Polling(commands.Cog):
         # Normalize to exactly 100%
         total = sum(final_percentages.values())
         if total > 0:
+            # First normalize
             for name in final_percentages:
                 final_percentages[name] = (final_percentages[name] / total) * 100.0
+
+            # Handle rounding to ensure exact 100% total
+            new_total = sum(final_percentages.values())
+            if abs(new_total - 100.0) > 0.01:  # If rounding errors exist
+                # Adjust the largest percentage to make total exactly 100%
+                largest_name = max(final_percentages.keys(), key=lambda k: final_percentages[k])
+                final_percentages[largest_name] += (100.0 - new_total)
 
         return final_percentages
 
@@ -363,11 +372,22 @@ class Polling(commands.Cog):
             inline=True
         )
 
+        # Create visual progress bar
+        def create_progress_bar(percentage, width=20):
+            filled = int((percentage / 100) * width)
+            empty = width - filled
+            return "█" * filled + "░" * empty
+
+        # Get party abbreviation
+        party_abbrev = candidate['party'][0] if candidate['party'] else "I"
+
+        progress_bar = create_progress_bar(poll_result)
+
         embed.add_field(
             name="📈 Poll Results",
-            value=f"**Support: {poll_result:.1f}%**\n"
-                  f"Phase: {current_phase}\n"
-                  f"Campaign Points: {candidate.get('points', 0):.2f}",
+            value=f"**{party_abbrev} - {candidate['party']}**\n"
+                  f"{progress_bar} **{poll_result:.1f}%**\n"
+                  f"Phase: {current_phase}",
             inline=True
         )
 
@@ -422,7 +442,7 @@ class Polling(commands.Cog):
 
     @app_commands.command(
         name="state_poll",
-        description="Conduct an NPC poll for all candidates in a specific state, broken down by ideology."
+        description="Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support."
     )
     @app_commands.describe(state="The state to poll (e.g., 'California', 'NY')")
     async def state_poll(self, interaction: discord.Interaction, state: str):
@@ -438,107 +458,35 @@ class Polling(commands.Cog):
         current_phase = time_config.get("current_phase", "")
         current_year = time_config["current_rp_date"].year
 
-        # Get all candidates in the specified state
-        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
-        if not signups_config:
+        # Use STATE_DATA to get base percentages for Republican, Democrat, and Independent
+        state_info = STATE_DATA.get(state.upper())  # STATE_DATA uses uppercase keys
+
+        if not state_info:
             await interaction.response.send_message(
-                "❌ No candidate data found.",
+                f"❌ State data not found for '{state}'. Cannot determine party base percentages.",
                 ephemeral=True
             )
             return
 
-        state_candidates = [
-            c for c in signups_config["candidates"]
-            if c["state"].lower() == state.lower() and c["year"] == current_year
-        ]
+        # Get base party percentages from STATE_DATA
+        republican_base = state_info.get("republican", 33.0)
+        democrat_base = state_info.get("democrat", 33.0) 
+        independent_base = state_info.get("other", 34.0)
 
-        if not state_candidates:
-            await interaction.response.send_message(
-                f"❌ No candidates found for state '{state}' in {current_year}.",
-                ephemeral=True
-            )
-            return
-
-        # Group candidates by party and ideology
-        ideology_data = {
-            "Democrat": {"liberal": [], "moderate": [], "conservative": []},
-            "Republican": {"liberal": [], "moderate": [], "conservative": []},
-            "Independent": {"liberal": [], "moderate": [], "conservative": []}
+        # Calculate poll results with margin of error
+        poll_results = {
+            "Republican": self._calculate_poll_result(republican_base),
+            "Democrat": self._calculate_poll_result(democrat_base),
+            "Independent": self._calculate_poll_result(independent_base)
         }
 
-        for candidate in state_candidates:
-            party = candidate.get("party")
-            ideology = candidate.get("ideology")
-            
-            if party in ideology_data and ideology in ideology_data[party]:
-                ideology_data[party][ideology].append(candidate)
-
-        # Calculate poll results for each ideology group
-        poll_results_by_ideology = {}
-
-        for party, ideologies in ideology_data.items():
-            for ideology, candidates_in_group in ideologies.items():
-                if not candidates_in_group:
-                    continue
-
-                group_key = f"{party} ({ideology})"
-                
-                if current_phase == "General Campaign":
-                    # For general campaign, we need to consider their seat and then use zero-sum
-                    # This is more complex as a state can have multiple seats.
-                    # For simplicity here, let's aggregate by state and then try to infer.
-                    # A more robust implementation would poll per seat.
-                    
-                    # For state-level polling by ideology, we'll approximate based on overall party strength and ideology distribution.
-                    # This is a simplification; ideally, we'd poll for each seat in the state.
-                    
-                    # Let's assign a base percentage and then a variation.
-                    # Base percentages could be influenced by party strength in the state.
-                    
-                    # A simplified approach: assign a base percentage to each party/ideology combination
-                    # and then introduce variation.
-                    
-                    # Example base percentages (can be adjusted):
-                    # Corrected base percentages
-                    base_percentages = {
-                        "Democrat (liberal)": 40,
-                        "Democrat (moderate)": 30,
-                        "Democrat (conservative)": 10,
-                        "Republican (liberal)": 5,
-                        "Republican (moderate)": 30,
-                        "Republican (conservative)": 40,
-                        "Independent (liberal)": 10,
-                        "Independent (moderate)": 20,
-                        "Independent (conservative)": 15
-                        }
-                    
-                    actual_percentage = base_percentages.get(group_key, 20) # Default if not found
-                    poll_result = self._calculate_poll_result(actual_percentage)
-                    poll_results_by_ideology[group_key] = poll_result
-
-                else: # Primary Campaign
-                    # In primaries, poll within party and ideology.
-                    # Calculate relative strength based on campaign points within this ideological group.
-                    total_points = sum(c.get('points', 0) for c in candidates_in_group)
-                    
-                    if total_points == 0:
-                        actual_percentage = 100.0 / len(candidates_in_group)
-                    else:
-                        # For simplicity, we'll take the average points of the group and poll that.
-                        # A more detailed approach would poll each candidate in the group.
-                        avg_points = total_points / len(candidates_in_group)
-                        actual_percentage = max(15.0, avg_points) # Minimum 15%
-
-                    poll_result = self._calculate_poll_result(actual_percentage)
-                    poll_results_by_ideology[group_key] = poll_result
-
         # Sort results for display
-        sorted_results = sorted(poll_results_by_ideology.items(), key=lambda item: item[1], reverse=True)
+        sorted_results = sorted(poll_results.items(), key=lambda item: item[1], reverse=True)
 
         # Generate polling details
         polling_orgs = [
-            "Statewide Polling Inc.", "Ideology Analytics", "Voter Insight Group",
-            "Political Compass Research", "Demographic Pulse"
+            "Statewide Polling Inc.", "Political Analytics", "Voter Insight Group",
+            "State University Poll", "Regional Polling Institute"
         ]
         polling_org = random.choice(polling_orgs)
         sample_size = random.randint(800, 2500)
@@ -546,27 +494,33 @@ class Polling(commands.Cog):
 
         embed = discord.Embed(
             title=f"📊 State Poll: {state}",
-            description=f"**Ideological Breakdown** • {current_phase} ({current_year})",
+            description=f"**Party Support Breakdown** • {current_phase} ({current_year})",
             color=discord.Color.green(),
             timestamp=datetime.utcnow()
         )
 
-        if not sorted_results:
-            embed.add_field(
-                name="No data available",
-                value="No candidates found for the specified state and criteria.",
-                inline=False
-            )
-        else:
-            results_text = ""
-            for group, poll in sorted_results:
-                results_text += f"**{group}:** **{poll:.1f}%**\n"
+        # Create visual progress bar function
+        def create_progress_bar(percentage, width=20):
+            filled = int((percentage / 100) * width)
+            empty = width - filled
+            return "█" * filled + "░" * empty
+
+        results_text = ""
+        for party, poll_percentage in sorted_results:
+            # Party abbreviations
+            party_abbrev = "R" if party == "Republican" else ("D" if party == "Democrat" else "I")
             
-            embed.add_field(
-                name="📈 Ideological Support",
-                value=results_text,
-                inline=False
-            )
+            progress_bar = create_progress_bar(poll_percentage)
+            results_text += f"**{party_abbrev} - {party}**\n"
+            results_text += f"{progress_bar} **{poll_percentage:.1f}%**\n\n"
+
+        embed.add_field(
+            name="📈 Party Support",
+            value=results_text,
+            inline=False
+        )
+
+        
 
         embed.add_field(
             name="📋 Poll Details",
@@ -618,7 +572,7 @@ class Polling(commands.Cog):
 
         # Get all candidates for the specified seat
         seat_candidates = []
-        
+
         if current_phase == "General Campaign":
             # Look in winners collection for general campaign
             winners_col = self.bot.db["winners"]
@@ -673,12 +627,12 @@ class Polling(commands.Cog):
         if current_phase == "General Campaign":
             # For general campaign, use zero-sum percentages
             zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
-            
+
             for candidate in seat_candidates:
                 candidate_name = candidate.get('candidate') or candidate.get('name')
                 actual_percentage = zero_sum_percentages.get(candidate_name, 50.0)
                 poll_result = self._calculate_poll_result(actual_percentage)
-                
+
                 poll_results.append({
                     "candidate": candidate,
                     "name": candidate_name,
@@ -703,7 +657,7 @@ class Polling(commands.Cog):
                     candidate_name = candidate.get('candidate') or candidate.get('name')
                     actual_percentage = 85.0
                     poll_result = self._calculate_poll_result(actual_percentage)
-                    
+
                     poll_results.append({
                         "candidate": candidate,
                         "name": candidate_name,
@@ -715,10 +669,10 @@ class Polling(commands.Cog):
                 else:
                     # Calculate relative position based on points
                     total_points = sum(c.get('points', 0) for c in party_candidates)
-                    
+
                     for candidate in party_candidates:
                         candidate_name = candidate.get('candidate') or candidate.get('name')
-                        
+
                         if total_points == 0:
                             actual_percentage = 100.0 / len(party_candidates)  # Even split
                         else:
@@ -726,9 +680,9 @@ class Polling(commands.Cog):
                             actual_percentage = (candidate_points / total_points) * 100.0
                             # Ensure minimum viable percentage
                             actual_percentage = max(15.0, actual_percentage)
-                        
+
                         poll_result = self._calculate_poll_result(actual_percentage)
-                        
+
                         poll_results.append({
                             "candidate": candidate,
                             "name": candidate_name,
@@ -762,15 +716,24 @@ class Polling(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
+        # Create visual progress bar function
+        def create_progress_bar(percentage, width=20):
+            filled = int((percentage / 100) * width)
+            empty = width - filled
+            return "█" * filled + "░" * empty
+
         # Add poll results
         if current_phase == "General Campaign":
             # General election - show all candidates together
             results_text = ""
             for i, result in enumerate(poll_results, 1):
                 highlight = "👑 " if result["is_highlighted"] else ""
-                results_text += f"**{i}. {highlight}{result['name']}** ({result['candidate']['party']})\n"
-                results_text += f"└ **{result['poll']:.1f}%** (MoE ±7%)\n"
-                results_text += f"└ Campaign Points: {result['candidate'].get('points', 0):.2f}\n\n"
+                party_abbrev = result['candidate']['party'][0] if result['candidate']['party'] else "I"
+                progress_bar = create_progress_bar(result['poll'])
+
+                results_text += f"**{i}. {highlight}{result['name']}**\n"
+                results_text += f"**{party_abbrev} - {result['candidate']['party']}**\n"
+                results_text += f"{progress_bar} **{result['poll']:.1f}%**\n\n"
 
             embed.add_field(
                 name="🗳️ General Election Results",
@@ -788,11 +751,15 @@ class Polling(commands.Cog):
 
             for party, party_results in parties_displayed.items():
                 party_text = ""
+                party_abbrev = party[0] if party else "I"
+
                 for i, result in enumerate(party_results, 1):
                     highlight = "👑 " if result["is_highlighted"] else ""
+                    progress_bar = create_progress_bar(result['poll'])
+
                     party_text += f"**{i}. {highlight}{result['name']}**\n"
-                    party_text += f"└ **{result['poll']:.1f}%** (MoE ±7%)\n"
-                    party_text += f"└ Campaign Points: {result['candidate'].get('points', 0):.2f}\n\n"
+                    party_text += f"**{party_abbrev} - {party}**\n"
+                    party_text += f"{progress_bar} **{result['poll']:.1f}%**\n\n"
 
                 embed.add_field(
                     name=f"🎗️ {party} Primary",

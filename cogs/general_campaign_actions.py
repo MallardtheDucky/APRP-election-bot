@@ -1186,206 +1186,6 @@ class GeneralCampaignActions(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="polling_standings",
-        description="View current polling standings for your seat"
-    )
-    async def polling_standings(self, interaction: discord.Interaction):
-        # Check if user is a candidate
-        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
-
-        if not candidate:
-            await interaction.response.send_message(
-                "❌ You must be a registered candidate to view standings. Use `/signup` first.",
-                ephemeral=True
-            )
-            return
-
-        # Get current year and phase
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_year = time_config["current_rp_date"].year if time_config else 2024
-        current_phase = time_config.get("current_phase", "") if time_config else ""
-
-        embed = discord.Embed(
-            title=f"📊 Polling Standings - {candidate['seat_id']}",
-            description=f"{candidate.get('office', 'Office')} • {candidate.get('region', candidate.get('state', 'Region'))} • Phase: {current_phase}",
-            color=discord.Color.gold(),
-            timestamp=datetime.utcnow()
-        )
-
-        standings = []
-
-        if current_phase == "General Campaign":
-            # Get all general election candidates for same seat
-            winners_col = self.bot.db["winners"]
-            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
-
-            if winners_config:
-                seat_candidates = [
-                    w for w in winners_config["winners"] 
-                    if w["seat_id"] == candidate["seat_id"] and w["year"] == current_year and w.get("primary_winner", False)
-                ]
-
-                # Calculate zero-sum redistribution percentages
-                zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, candidate["seat_id"])
-
-                for c in seat_candidates:
-                    candidate_name = c.get("candidate", "")
-                    final_percentage = zero_sum_percentages.get(candidate_name, 50.0)
-                    campaign_points = c.get("points", 0.0)
-
-                    standings.append({
-                        "name": candidate_name,
-                        "party": c["party"],
-                        "campaign_points": campaign_points,
-                        "total": final_percentage,
-                        "stamina": c.get("stamina", 100),
-                        "corruption": c.get("corruption", 0)
-                    })
-
-        else:
-            # Primary phase - use existing logic
-            signups_col, signups_config = self._get_signups_config(interaction.guild.id)
-            if signups_config:
-                seat_candidates = [
-                    c for c in signups_config["candidates"] 
-                    if c["seat_id"] == candidate["seat_id"] and c["year"] == current_year
-                ]
-
-                for c in seat_candidates:
-                    standings.append({
-                        "name": c["name"],
-                        "party": c["party"],
-                        "baseline": None,  # No baseline in primary
-                        "campaign_points": c.get("points", 0.0),
-                        "total": c.get("points", 0.0),
-                        "stamina": c.get("stamina", 100),
-                        "corruption": c.get("corruption", 0)
-                    })
-
-        # Sort by total percentage
-        standings.sort(key=lambda x: x["total"], reverse=True)
-
-        standings_text = ""
-        for i, s in enumerate(standings, 1):
-            if current_phase == "General Campaign":
-                standings_text += (
-                    f"**{i}. {s['name']}** ({s['party']})\n"
-                    f"   └ Polling: **{s['total']:.1f}%**\n"
-                    f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
-                )
-            else:
-                standings_text += (
-                    f"**{i}. {s['name']}** ({s['party']})\n"
-                    f"   └ Campaign Points: **{s['total']:.1f}**\n"
-                    f"   └ Stamina: {s['stamina']} • Corruption: {s['corruption']}\n\n"
-                )
-
-        embed.add_field(
-            name="🏆 Current Standings",
-            value=standings_text,
-            inline=False
-        )
-
-        if current_phase == "General Campaign":
-            embed.add_field(
-                name="ℹ️ General Election Info",
-                value="Zero-sum redistribution: When candidates gain campaign points, the percentage is redistributed from other candidates. Total always equals 100%.",
-                inline=False
-            )
-
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(
-        name="campaign_status",
-        description="View your campaign statistics and available actions"
-    )
-    async def campaign_status(self, interaction: discord.Interaction):
-        # Check if user is a candidate
-        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
-
-        if not candidate:
-            await interaction.response.send_message(
-                "❌ You must be a registered candidate to view campaign status. Use `/signup` first.",
-                ephemeral=True
-            )
-            return
-
-        candidate_name = candidate.get('candidate') or candidate.get('name')
-        embed = discord.Embed(
-            title="📊 Campaign Status",
-            description=f"**{candidate_name}** ({candidate['party']})",
-            color=discord.Color.blue(),
-            timestamp=datetime.utcnow()
-        )
-
-        embed.add_field(
-            name="🗳️ Campaign Info",
-            value=f"**Running For:** {candidate['seat_id']}\n"
-                  f"**Region:** {candidate.get('region') or candidate.get('state', 'Unknown')}\n"
-                  f"**Office:** {candidate['office']}",
-            inline=True
-        )
-
-        # Get zero-sum percentage for this candidate
-        zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, candidate["seat_id"])
-        candidate_name = candidate.get('candidate') or candidate.get('name')
-        current_percentage = zero_sum_percentages.get(candidate_name, 50.0)
-
-        embed.add_field(
-            name="📈 Current Stats",
-            value=f"**Campaign Points:** +{candidate['points']:.2f}\n"
-                  f"**Current Polling:** {current_percentage:.1f}%\n"
-                  f"**Stamina:** {candidate['stamina']}/100\n"
-                  f"**Corruption:** {candidate['corruption']}",
-            inline=True
-        )
-
-        # Check cooldowns for all actions
-        cooldown_info = ""
-        actions = [
-            ("speech", 12),
-            ("donor", 24),
-            ("ad", 6),
-            ("poster", 6)
-        ]
-
-        for action, hours in actions:
-            if self._check_cooldown(interaction.guild.id, interaction.user.id, action, hours):
-                cooldown_info += f"✅ **{action.title()}:** Available\n"
-            else:
-                remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, action, hours)
-                hours_left = int(remaining.total_seconds() // 3600)
-                minutes_left = int((remaining.total_seconds() % 3600) // 60)
-                cooldown_info += f"⏰ **{action.title()}:** {hours_left}h {minutes_left}m\n"
-
-        # Canvassing has no cooldown, just note it's available
-        cooldown_info += "✅ **Canvassing:** Always available\n"
-
-        embed.add_field(
-            name="⏱️ Action Availability",
-            value=cooldown_info,
-            inline=False
-        )
-
-        # Add tips for improving campaign
-        tips = []
-        if candidate['stamina'] < 50:
-            tips.append("• Consider resting to restore stamina")
-        if candidate['corruption'] > 20:
-            tips.append("• High corruption may lead to scandals")
-        if candidate['points'] < 5:
-            tips.append("• Use speech and donor commands for the biggest polling boost")
-
-        if tips:
-            embed.add_field(
-                name="💡 Campaign Tips",
-                value="\n".join(tips),
-                inline=False
-            )
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="reset_cooldowns",
@@ -1648,6 +1448,98 @@ class GeneralCampaignActions(commands.Cog):
             f"✅ Reset **ALL** cooldowns for everyone in the server. ({result.deleted_count} records cleared)",
             ephemeral=True
         )
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(
+        name="campaign_status",
+        description="View your campaign statistics and available actions"
+    )
+    async def campaign_status(self, interaction: discord.Interaction):
+        # Check if user is a candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered candidate to view campaign status. Use `/signup` first.",
+                ephemeral=True
+            )
+            return
+
+        candidate_name = candidate.get('candidate') or candidate.get('name')
+        embed = discord.Embed(
+            title="📊 Campaign Status",
+            description=f"**{candidate_name}** ({candidate['party']})",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="🗳️ Campaign Info",
+            value=f"**Running For:** {candidate['seat_id']}\n"
+                  f"**Region:** {candidate.get('region') or candidate.get('state', 'Unknown')}\n"
+                  f"**Office:** {candidate['office']}",
+            inline=True
+        )
+
+        # Get zero-sum percentage for this candidate
+        zero_sum_percentages = self._calculate_zero_sum_percentages(interaction.guild.id, candidate["seat_id"])
+        candidate_name = candidate.get('candidate') or candidate.get('name')
+        current_percentage = zero_sum_percentages.get(candidate_name, 50.0)
+
+        embed.add_field(
+            name="📈 Current Stats",
+            value=f"**Campaign Points:** +{candidate['points']:.2f}\n"
+                  f"**Current Polling:** {current_percentage:.1f}%\n"
+                  f"**Stamina:** {candidate['stamina']}/100\n"
+                  f"**Corruption:** {candidate['corruption']}",
+            inline=True
+        )
+
+        # Check cooldowns for all actions
+        cooldown_info = ""
+        actions = [
+            ("speech", 12),
+            ("donor", 24),
+            ("ad", 6),
+            ("poster", 6)
+        ]
+
+        for action, hours in actions:
+            if self._check_cooldown(interaction.guild.id, interaction.user.id, action, hours):
+                cooldown_info += f"✅ **{action.title()}:** Available\n"
+            else:
+                remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, action, hours)
+                hours_left = int(remaining.total_seconds() // 3600)
+                minutes_left = int((remaining.total_seconds() % 3600) // 60)
+                cooldown_info += f"⏰ **{action.title()}:** {hours_left}h {minutes_left}m\n"
+
+        # Canvassing has no cooldown, just note it's available
+        cooldown_info += "✅ **Canvassing:** Always available\n"
+
+        embed.add_field(
+            name="⏱️ Action Availability",
+            value=cooldown_info,
+            inline=False
+        )
+
+        # Add tips for improving campaign
+        tips = []
+        if candidate['stamina'] < 50:
+            tips.append("• Consider resting to restore stamina")
+        if candidate['corruption'] > 20:
+            tips.append("• High corruption may lead to scandals")
+        if candidate['points'] < 5:
+            tips.append("• Use speech and donor commands for the biggest polling boost")
+
+        if tips:
+            embed.add_field(
+                name="💡 Campaign Tips",
+                value="\n".join(tips),
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(GeneralCampaignActions(bot))
