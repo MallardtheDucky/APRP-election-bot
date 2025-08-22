@@ -156,18 +156,41 @@ class Delegates(commands.Cog):
 
     def _get_presidential_candidates(self, guild_id: int, party: str, year: int):
         """Get presidential candidates for a specific party and year"""
-        col = self.bot.db["presidential_signups"]
-        config = col.find_one({"guild_id": guild_id})
-
-        if not config:
-            return []
-
         candidates = []
-        for candidate in config.get("candidates", []):
-            if (candidate.get("party", "").lower() == party.lower() and 
-                candidate.get("year", 0) == year):
-                candidates.append(candidate)
-
+        
+        print(f"Searching for candidates: party='{party}', year={year}, guild_id={guild_id}")
+        
+        # First check presidential_signups collection
+        pres_col = self.bot.db["presidential_signups"]
+        pres_config = pres_col.find_one({"guild_id": guild_id})
+        
+        if pres_config:
+            print(f"Found presidential_signups config with {len(pres_config.get('candidates', []))} total candidates")
+            for candidate in pres_config.get("candidates", []):
+                candidate_party = candidate.get("party", "").lower()
+                candidate_year = candidate.get("year", 0)
+                candidate_office = candidate.get("office", "")
+                
+                print(f"  Checking candidate: {candidate.get('name')}, party='{candidate_party}', year={candidate_year}, office='{candidate_office}'")
+                
+                # More flexible party matching
+                party_match = False
+                if party.lower() == "democrats" or party.lower() == "democratic":
+                    party_match = "democrat" in candidate_party
+                elif party.lower() == "republicans" or party.lower() == "republican":
+                    party_match = "republican" in candidate_party
+                else:
+                    party_match = candidate_party == party.lower()
+                
+                if (party_match and 
+                    candidate_year == year and
+                    candidate_office == "President"):
+                    print(f"    -> MATCH! Adding {candidate.get('name')}")
+                    candidates.append(candidate)
+        else:
+            print("No presidential_signups config found")
+        
+        print(f"Final result: Found {len(candidates)} presidential candidates")
         return candidates
 
     def _allocate_delegates(self, candidates: List[dict], total_delegates: int):
@@ -443,27 +466,38 @@ class Delegates(commands.Cog):
 
     async def _send_primary_winner_announcement(self, guild, winner: dict, party: str, year: int):
         """Send announcement when a primary winner is declared"""
-        # Find announcement channel - check both possible database locations
+        # Find announcement channel - check all possible database locations
         channel = None
-        
+
         # First check guild_configs (from setup.py)
         setup_col = self.bot.db["guild_configs"]
         setup_config = setup_col.find_one({"guild_id": guild.id})
-        if setup_config and setup_config.get("announcement_channel_id"):
-            channel = guild.get_channel(setup_config["announcement_channel_id"])
-        
-        # Also check direct announcement_channel field
-        if not channel and setup_config and setup_config.get("announcement_channel"):
-            channel = guild.get_channel(setup_config["announcement_channel"])
-        
+
+        if setup_config:
+            # Check announcement_channel_id first
+            if setup_config.get("announcement_channel_id"):
+                channel = guild.get_channel(setup_config["announcement_channel_id"])
+                print(f"Found channel via announcement_channel_id: {channel}")
+
+            # Then check announcement_channel
+            if not channel and setup_config.get("announcement_channel"):
+                channel = guild.get_channel(setup_config["announcement_channel"])
+                print(f"Found channel via announcement_channel: {channel}")
+
         # If no configured channel, try to find a general channel
         if not channel:
             channel = discord.utils.get(guild.channels, name="general")
+            if channel:
+                print(f"Using general channel: {channel}")
+
         if not channel:
             channel = guild.system_channel
+            if channel:
+                print(f"Using system channel: {channel}")
 
         if not channel:
             print(f"No announcement channel found for guild {guild.id}")
+            print(f"Setup config: {setup_config}")
             return
 
         # Create winner announcement embed
@@ -513,27 +547,38 @@ class Delegates(commands.Cog):
     async def _send_state_announcement(self, guild, state_name: str, party: str, 
                                      total_delegates: int, allocation: dict):
         """Send announcement when a state is called"""
-        # Find announcement channel - check both possible database locations
+        # Find announcement channel - check all possible database locations
         channel = None
-        
+
         # First check guild_configs (from setup.py)
         setup_col = self.bot.db["guild_configs"]
         setup_config = setup_col.find_one({"guild_id": guild.id})
-        if setup_config and setup_config.get("announcement_channel_id"):
-            channel = guild.get_channel(setup_config["announcement_channel_id"])
-        
-        # Also check direct announcement_channel field  
-        if not channel and setup_config and setup_config.get("announcement_channel"):
-            channel = guild.get_channel(setup_config["announcement_channel"])
-        
+
+        if setup_config:
+            # Check announcement_channel_id first
+            if setup_config.get("announcement_channel_id"):
+                channel = guild.get_channel(setup_config["announcement_channel_id"])
+                print(f"Found channel via announcement_channel_id: {channel}")
+
+            # Then check announcement_channel
+            if not channel and setup_config.get("announcement_channel"):
+                channel = guild.get_channel(setup_config["announcement_channel"])
+                print(f"Found channel via announcement_channel: {channel}")
+
         # If no configured channel, try to find a general channel
         if not channel:
             channel = discord.utils.get(guild.channels, name="general")
+            if channel:
+                print(f"Using general channel: {channel}")
+
         if not channel:
             channel = guild.system_channel
+            if channel:
+                print(f"Using system channel: {channel}")
 
         if not channel:
             print(f"No announcement channel found for guild {guild.id}")
+            print(f"Setup config: {setup_config}")
             return
 
         # Create announcement embed
@@ -604,7 +649,7 @@ class Delegates(commands.Cog):
         if not setup_config:
             setup_config = {"guild_id": interaction.guild.id}
 
-        setup_config["announcement_channel"] = channel.id
+        setup_config["announcement_channel_id"] = channel.id
 
         setup_col.replace_one(
             {"guild_id": interaction.guild.id},
