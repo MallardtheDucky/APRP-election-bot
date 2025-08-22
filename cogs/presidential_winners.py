@@ -75,7 +75,7 @@ def get_state_percentages(state_name: str, candidate_ideologies=None) -> dict:
         result = base_data.copy()
 
         for party, candidate_ideology in candidate_ideologies.items():
-            bonus = _calculate_ideology_bonus(candidate_ideology, state_ideology_data)
+            bonus = self._calculate_ideology_bonus(candidate_ideology, state_ideology_data)
 
             # Apply bonus to appropriate party
             if party.lower() in ["democrats", "democratic party"]:

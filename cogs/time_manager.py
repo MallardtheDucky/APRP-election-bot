@@ -8,6 +8,7 @@ import pytz
 class TimeManager(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.time_loop.start()  # Start the time loop
         print("Time Manager cog loaded successfully")
 
     # Create command groups
@@ -191,7 +192,7 @@ class TimeManager(commands.Cog):
                             pass
 
                 # Update voice channel if enabled and configured
-                if (config.get("update_voice_channels", False) and 
+                if (config.get("update_voice_channels", True) and 
                     config.get("voice_channel_id")):
                     date_string = current_rp_date.strftime("%B %d, %Y")
                     channel = guild.get_channel(config["voice_channel_id"])
@@ -200,7 +201,9 @@ class TimeManager(commands.Cog):
                             new_name = f"📅 {date_string}"
                             if channel.name != new_name:
                                 await channel.edit(name=new_name)
-                        except:
+                                print(f"Updated voice channel to: {new_name}")
+                        except Exception as e:
+                            print(f"Failed to update voice channel: {e}")
                             pass  # Ignore if can't edit channel
 
         except Exception as e:

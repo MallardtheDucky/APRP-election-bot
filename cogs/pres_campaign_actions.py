@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -1140,6 +1139,323 @@ class PresCampaignActions(commands.Cog):
 
         return [app_commands.Choice(name=name, value=name)
                 for name in candidates if current.lower() in name.lower()][:25]
+
+    @app_commands.command(
+        name="pres_campaign_status",
+        description="View your presidential campaign statistics and available actions"
+    )
+    async def pres_campaign_status(self, interaction: discord.Interaction):
+        # Check if user is a presidential candidate
+        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered presidential candidate to view campaign status. Use `/pres_signup` first.",
+                ephemeral=True
+            )
+            return
+
+        # Check current phase
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        candidate_name = candidate["name"]
+        embed = discord.Embed(
+            title="🎯 Presidential Campaign Status",
+            description=f"**{candidate_name}** ({candidate['party']})",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="🏛️ Campaign Info",
+            value=f"**Office:** {candidate['office']}\n"
+                  f"**Party:** {candidate['party']}\n"
+                  f"**Year:** {candidate['year']}\n"
+                  f"**Phase:** {current_phase}",
+            inline=True
+        )
+
+        # Show different stats based on phase
+        if current_phase == "General Campaign":
+            # Show state points and national polling
+            state_points = candidate.get("state_points", {})
+            total_points = candidate.get("total_points", 0)
+
+            # Calculate national polling percentage
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, candidate["office"])
+            national_polling = general_percentages.get(candidate_name, 50.0)
+
+            embed.add_field(
+                name="📊 General Election Stats",
+                value=f"**National Polling:** {national_polling:.1f}%\n"
+                      f"**Total State Points:** {total_points:.2f}\n"
+                      f"**States Campaigned:** {len([v for v in state_points.values() if v > 0])}",
+                inline=True
+            )
+
+            # Show top 5 states by points
+            top_states = sorted(state_points.items(), key=lambda x: x[1], reverse=True)[:5]
+            if top_states:
+                state_text = ""
+                for state, points in top_states:
+                    if points > 0:
+                        state_text += f"**{state}:** {points:.2f}\n"
+                if state_text:
+                    embed.add_field(
+                        name="🏆 Top Campaign States",
+                        value=state_text,
+                        inline=False
+                    )
+        else:
+            # Show primary points
+            primary_points = candidate.get("points", 0)
+            embed.add_field(
+                name="📈 Primary Campaign Stats",
+                value=f"**Campaign Points:** {primary_points:.2f}%\n"
+                      f"**Current Ranking:** Calculating...",
+                inline=True
+            )
+
+        embed.add_field(
+            name="⚡ Resources",
+            value=f"**Stamina:** {candidate.get('stamina', 200)}/200\n"
+                  f"**Corruption:** {candidate.get('corruption', 0)}",
+            inline=True
+        )
+
+        # Check cooldowns for all actions
+        cooldown_info = ""
+
+        # Check speech cooldown (12 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 12):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 12)
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            cooldown_info += f"🎤 **Speech:** {hours}h {minutes}m remaining\n"
+        else:
+            cooldown_info += "✅ **Speech:** Available\n"
+
+        # Check donor cooldown (24 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_donor", 24):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_donor", 24)
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            cooldown_info += f"💰 **Donor Appeal:** {hours}h {minutes}m remaining\n"
+        else:
+            cooldown_info += "✅ **Donor Appeal:** Available\n"
+
+        # Check ad cooldown (6 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_ad", 6):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_ad", 6)
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            cooldown_info += f"📺 **Video Ad:** {hours}h {minutes}m remaining\n"
+        else:
+            cooldown_info += "✅ **Video Ad:** Available\n"
+
+        # Check poster cooldown (6 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_poster", 6):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_poster", 6)
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            cooldown_info += f"🖼️ **Poster:** {hours}h {minutes}m remaining\n"
+        else:
+            cooldown_info += "✅ **Poster:** Available\n"
+
+        # Canvassing has no cooldown, just note it's available
+        cooldown_info += "✅ **Canvassing:** Always available\n"
+
+        embed.add_field(
+            name="⏱️ Action Availability",
+            value=cooldown_info,
+            inline=False
+        )
+
+        # Add tips for improving campaign
+        tips = []
+        if candidate['stamina'] < 50:
+            tips.append("• Consider resting to restore stamina")
+        if candidate.get('corruption', 0) > 20:
+            tips.append("• High corruption may lead to scandals")
+        if current_phase == "Primary Campaign" and candidate.get('points', 0) < 5:
+            tips.append("• Use speech and donor commands for the biggest polling boost")
+        elif current_phase == "General Campaign" and candidate.get('total_points', 0) < 10:
+            tips.append("• Campaign in swing states for maximum impact")
+
+        if tips:
+            embed.add_field(
+                name="💡 Campaign Tips",
+                value="\n".join(tips),
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_pres_campaign_points",
+        description="View all presidential candidate points (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_pres_campaign_points(
+        self,
+        interaction: discord.Interaction,
+        filter_party: str = None,
+        filter_office: str = None
+    ):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        current_phase = time_config.get("current_phase", "")
+
+        embed = discord.Embed(
+            title="🔍 Admin: Presidential Campaign Points",
+            description=f"Detailed view of all presidential campaign points",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        candidates = []
+
+        if current_phase == "General Campaign":
+            # Get from presidential winners
+            winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+            if winners_config:
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                candidates = [
+                    w for w in winners_config.get("winners", [])
+                    if w.get("primary_winner", False) and w["year"] == primary_year and w["office"] in ["President", "Vice President"]
+                ]
+        else:
+            # Get from presidential signups
+            signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+            if signups_config:
+                candidates = [
+                    c for c in signups_config.get("candidates", [])
+                    if c["year"] == current_year and c["office"] in ["President", "Vice President"]
+                ]
+
+        # Apply filters
+        if filter_party:
+            candidates = [c for c in candidates if filter_party.lower() in c["party"].lower()]
+        if filter_office:
+            candidates = [c for c in candidates if filter_office.lower() in c["office"].lower()]
+
+        if not candidates:
+            await interaction.response.send_message("❌ No presidential candidates found.", ephemeral=True)
+            return
+
+        # Group by office
+        presidents = [c for c in candidates if c["office"] == "President"]
+        vice_presidents = [c for c in candidates if c["office"] == "Vice President"]
+
+        # Sort by points/total points
+        if current_phase == "General Campaign":
+            presidents.sort(key=lambda x: x.get("total_points", 0), reverse=True)
+            vice_presidents.sort(key=lambda x: x.get("total_points", 0), reverse=True)
+        else:
+            presidents.sort(key=lambda x: x.get("points", 0), reverse=True)
+            vice_presidents.sort(key=lambda x: x.get("points", 0), reverse=True)
+
+        # Display Presidential candidates
+        if presidents:
+            pres_text = ""
+            for candidate in presidents:
+                candidate_name = candidate["name"]
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else candidate_name
+
+                if current_phase == "General Campaign":
+                    general_percentages = self._calculate_general_election_percentages(interaction.guild.id, "President")
+                    polling = general_percentages.get(candidate_name, 50.0)
+                    total_points = candidate.get("total_points", 0)
+                    pres_text += (
+                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"└ User: {user_mention}\n"
+                        f"└ National Polling: **{polling:.1f}%**\n"
+                        f"└ Total Points: {total_points:.2f}\n"
+                        f"└ Stamina: {candidate.get('stamina', 200)}/200\n"
+                        f"└ Corruption: {candidate.get('corruption', 0)}\n\n"
+                    )
+                else:
+                    points = candidate.get("points", 0)
+                    pres_text += (
+                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"└ User: {user_mention}\n"
+                        f"└ Primary Points: **{points:.2f}%**\n"
+                        f"└ Stamina: {candidate.get('stamina', 200)}/200\n"
+                        f"└ Corruption: {candidate.get('corruption', 0)}\n\n"
+                    )
+
+            embed.add_field(
+                name="🏛️ Presidential Candidates",
+                value=pres_text,
+                inline=False
+            )
+
+        # Display Vice Presidential candidates
+        if vice_presidents:
+            vp_text = ""
+            for candidate in vice_presidents:
+                candidate_name = candidate["name"]
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else candidate_name
+
+                if current_phase == "General Campaign":
+                    general_percentages = self._calculate_general_election_percentages(interaction.guild.id, "Vice President")
+                    polling = general_percentages.get(candidate_name, 50.0)
+                    total_points = candidate.get("total_points", 0)
+                    vp_text += (
+                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"└ User: {user_mention}\n"
+                        f"└ National Polling: **{polling:.1f}%**\n"
+                        f"└ Total Points: {total_points:.2f}\n"
+                        f"└ Stamina: {candidate.get('stamina', 200)}/200\n"
+                        f"└ Corruption: {candidate.get('corruption', 0)}\n\n"
+                    )
+                else:
+                    points = candidate.get("points", 0)
+                    vp_text += (
+                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"└ User: {user_mention}\n"
+                        f"└ Primary Points: **{points:.2f}%**\n"
+                        f"└ Stamina: {candidate.get('stamina', 200)}/200\n"
+                        f"└ Corruption: {candidate.get('corruption', 0)}\n\n"
+                    )
+
+            embed.add_field(
+                name="🎖️ Vice Presidential Candidates",
+                value=vp_text,
+                inline=False
+            )
+
+        # Add summary statistics
+        all_candidates = presidents + vice_presidents
+        if current_phase == "General Campaign":
+            total_points = sum(c.get("total_points", 0) for c in all_candidates)
+            avg_points = total_points / len(all_candidates) if all_candidates else 0
+            max_points = max(c.get("total_points", 0) for c in all_candidates) if all_candidates else 0
+        else:
+            total_points = sum(c.get("points", 0) for c in all_candidates)
+            avg_points = total_points / len(all_candidates) if all_candidates else 0
+            max_points = max(c.get("points", 0) for c in all_candidates) if all_candidates else 0
+
+        embed.add_field(
+            name="📈 Statistics",
+            value=f"**Total Candidates:** {len(all_candidates)}\n"
+                  f"**Presidents:** {len(presidents)}\n"
+                  f"**Vice Presidents:** {len(vice_presidents)}\n"
+                  f"**Average Points:** {avg_points:.2f}\n"
+                  f"**Highest Points:** {max_points:.2f}",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(PresCampaignActions(bot))
