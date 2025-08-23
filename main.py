@@ -96,7 +96,7 @@ async def main():
             print("✓ Loaded demographics")
             print("All cogs loaded successfully!")
             await bot.load_extension("cogs.momentum")
-            print("✓ Loaded momentum")
+            
         except Exception as e:
             print(f"Error loading cogs: {e}")
             import traceback

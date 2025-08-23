@@ -1,4 +1,5 @@
 
+
 🎮 Basic Commands
 /commands - Show this help menu with pagination
 /credits - Lists the people that made this bot
@@ -31,8 +32,6 @@
 /poll info state - Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support
 /poll admin bulk_set_votes - Set vote counts for multiple candidates (Admin only)
 /poll admin set_winner_votes - Set election winner and vote counts for general elections (Admin only)
-/poll vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
-/poll vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)
 
 🗳️ Election Management
 /election admin set_seats - Set up election seats for the guild (Admin only)
