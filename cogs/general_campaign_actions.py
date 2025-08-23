@@ -197,6 +197,45 @@ class PresCampaignActions(commands.Cog):
 
         return remaining
 
+    def _apply_buff_debuff_multiplier(self, base_value: float, user_id: int, guild_id: int, action_type: str) -> float:
+        """Apply buff/debuff multipliers to a base value"""
+        # Placeholder for buff/debuff logic. In a real scenario, you'd fetch user-specific buffs/debuffs
+        # and apply them to the base_value.
+        # For now, we'll use a simplified approach or return the base value.
+        # Example: If user has a "Strong Speech" buff, multiplier might be 1.2
+        # If user has a "Tired" debuff, multiplier might be 0.8
+        
+        # Fetch user's active buffs/debuffs from a database or cache
+        # For demonstration, let's assume a simple lookup
+        
+        buffs_debuffs_col = self.bot.db["buffs_debuffs"]
+        user_effects = buffs_debuffs_col.find_one({"guild_id": guild_id, "user_id": user_id})
+        
+        multiplier = 1.0
+        
+        if user_effects:
+            # Example: Check for specific buffs/debuffs related to campaign actions
+            # This part would need to be more robust and tailored to your game's mechanics
+            if action_type == "pres_speech":
+                if "eloquent_speaker" in user_effects.get("active_buffs", []):
+                    multiplier *= 1.2  # 20% boost for speeches
+                if "stage_fright" in user_effects.get("active_debuffs", []):
+                    multiplier *= 0.8  # 20% reduction for speeches
+            elif action_type == "pres_donor":
+                if "generous_appeal" in user_effects.get("active_buffs", []):
+                    multiplier *= 1.15 # 15% boost for donor appeals
+            elif action_type == "pres_canvassing":
+                if "neighborhood_expert" in user_effects.get("active_buffs", []):
+                    multiplier *= 1.1 # 10% boost for canvassing
+            elif action_type == "pres_ad":
+                if "viral_marketing" in user_effects.get("active_buffs", []):
+                    multiplier *= 1.15 # 15% boost for ads
+            elif action_type == "pres_poster":
+                if "eye_catching_design" in user_effects.get("active_buffs", []):
+                    multiplier *= 1.1 # 10% boost for posters
+
+        return base_value * multiplier
+
     def _calculate_general_election_percentages(self, guild_id: int, office: str):
         """Calculate general election percentages using state-based distribution"""
         time_col, time_config = self._get_time_config(guild_id)
@@ -351,6 +390,9 @@ class PresCampaignActions(commands.Cog):
         polling_boost = (char_count / 1200) * 1.0
         polling_boost = min(polling_boost, 2.5)
 
+        # Apply buff/debuff multipliers
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, target_candidate["user_id"], interaction.guild.id, "pres_speech")
+
         # Update target candidate stats
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
                                                  state_name, polling_boost=polling_boost, stamina_cost=estimated_stamina)
@@ -418,6 +460,9 @@ class PresCampaignActions(commands.Cog):
         char_count = len(donor_appeal)
         polling_boost = (char_count / 1000) * 1.0
         polling_boost = min(polling_boost, 2.0)
+
+        # Apply buff/debuff multipliers
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, target_candidate["user_id"], interaction.guild.id, "pres_donor")
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target_name)
@@ -548,9 +593,12 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
+        # Apply buff/debuff multipliers to canvassing points
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(0.1, target_candidate["user_id"], interaction.guild.id, "pres_canvassing")
+
         # Update target candidate stats
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-                                                 state_upper, polling_boost=0.1, stamina_cost=1)
+                                                 state_upper, polling_boost=polling_boost, stamina_cost=1)
 
         embed = discord.Embed(
             title="🚪 Presidential Door-to-Door Canvassing",
@@ -575,13 +623,13 @@ class PresCampaignActions(commands.Cog):
             
             embed.add_field(
                 name="📊 Results",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +0.1\n**Stamina Cost:** -1",
+                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
                 inline=True
             )
         else:
             embed.add_field(
                 name="📊 Results",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +0.1%\n**Stamina Cost:** -1",
+                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
                 inline=True
             )
 
@@ -779,6 +827,9 @@ class PresCampaignActions(commands.Cog):
             # Random polling boost between 0.3% and 0.5%
             polling_boost = random.uniform(0.3, 0.5)
 
+            # Apply buff/debuff multipliers
+            polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, target_candidate["user_id"], interaction.guild.id, "pres_ad")
+
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
                                                      state_upper, polling_boost=polling_boost, stamina_cost=1.5)
@@ -928,6 +979,9 @@ class PresCampaignActions(commands.Cog):
 
         # Random polling boost between 0.2% and 0.4%
         polling_boost = random.uniform(0.2, 0.4)
+
+        # Apply buff/debuff multipliers
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, target_candidate["user_id"], interaction.guild.id, "pres_poster")
 
         # Update target candidate stats
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
@@ -1198,6 +1252,567 @@ class PresCampaignActions(commands.Cog):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
         return [app_commands.Choice(name=state, value=state)
                 for state in states if current.upper() in state][:25]
+
+    # --- Buff/Debuff Management Functions ---
+
+    def _get_buffs_debuffs_config(self, guild_id: int):
+        """Get or create campaign buffs/debuffs configuration"""
+        col = self.bot.db["campaign_buffs_debuffs"]
+        config = col.find_one({"guild_id": guild_id})
+        if not config:
+            config = {
+                "guild_id": guild_id,
+                "active_effects": {}  # effect_id -> {effect_type, target_user_id, effect_name, multiplier, expires_at}
+            }
+            col.insert_one(config)
+        return col, config
+
+    def _apply_buff_debuff_multiplier_enhanced(self, base_points: float, user_id: int, guild_id: int, action_type: str) -> float:
+        """Apply any active buffs or debuffs to the points gained with announcements"""
+        buffs_col, buffs_config = self._get_buffs_debuffs_config(guild_id)
+
+        active_effects = buffs_config.get("active_effects", {})
+        multiplier = 1.0
+        current_time = datetime.utcnow()
+
+        # Clean up expired effects
+        expired_effects = []
+        for effect_id, effect in active_effects.items():
+            if effect.get("expires_at", current_time) <= current_time:
+                expired_effects.append(effect_id)
+
+        if expired_effects:
+            for effect_id in expired_effects:
+                buffs_col.update_one(
+                    {"guild_id": guild_id},
+                    {"$unset": {f"active_effects.{effect_id}": ""}}
+                )
+
+        for effect_id, effect in active_effects.items():
+            # Check if effect applies to this user and action
+            if (effect.get("target_user_id") == user_id and 
+                effect.get("expires_at") > current_time and
+                (not effect.get("action_types") or action_type in effect.get("action_types", []))):
+
+                effect_multiplier = effect.get("multiplier", 1.0)
+                if effect.get("effect_type") == "buff":
+                    multiplier += (effect_multiplier - 1.0)
+                elif effect.get("effect_type") == "debuff":
+                    multiplier *= effect_multiplier
+
+        return base_points * max(0.1, multiplier)  # Minimum 10% effectiveness
+
+    @app_commands.command(
+        name="admin_campaign_buff",
+        description="Apply a temporary buff to a candidate's campaign actions (Admin only)"
+    )
+    @app_commands.describe(
+        target="The user to buff",
+        effect_name="Name of the buff effect",
+        multiplier="Multiplier for campaign points (e.g., 1.5 for +50%)",
+        duration_hours="Duration in hours",
+        action_types="Comma-separated action types to affect (empty = all actions)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_campaign_buff(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        effect_name: str,
+        multiplier: float,
+        duration_hours: int,
+        action_types: str = ""
+    ):
+        if multiplier <= 0:
+            await interaction.response.send_message(
+                "❌ Multiplier must be greater than 0.",
+                ephemeral=True
+            )
+            return
+
+        if duration_hours <= 0 or duration_hours > 168:  # Max 1 week
+            await interaction.response.send_message(
+                "❌ Duration must be between 1-168 hours (1 week max).",
+                ephemeral=True
+            )
+            return
+
+        buffs_col, buffs_config = self._get_buffs_debuffs_config(interaction.guild.id)
+
+        # Parse action types
+        parsed_action_types = []
+        if action_types.strip():
+            parsed_action_types = [action.strip() for action in action_types.split(",")]
+
+        effect_id = f"{target.id}_{effect_name}_{datetime.utcnow().timestamp()}"
+        expires_at = datetime.utcnow() + timedelta(hours=duration_hours)
+
+        effect = {
+            "effect_type": "buff",
+            "target_user_id": target.id,
+            "effect_name": effect_name,
+            "multiplier": multiplier,
+            "expires_at": expires_at,
+            "action_types": parsed_action_types,
+            "applied_by": interaction.user.id,
+            "applied_at": datetime.utcnow()
+        }
+
+        buffs_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {f"active_effects.{effect_id}": effect}},
+            upsert=True
+        )
+
+        # Create announcement embed
+        embed = discord.Embed(
+            title="✨ Campaign Buff Applied",
+            description=f"**{effect_name}** has been applied to {target.mention}!",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📊 Effect Details",
+            value=f"**Multiplier:** {multiplier:.1f}x ({(multiplier-1)*100:+.0f}%)\n"
+                  f"**Duration:** {duration_hours} hours\n"
+                  f"**Expires:** <t:{int(expires_at.timestamp())}:R>",
+            inline=True
+        )
+
+        if parsed_action_types:
+            embed.add_field(
+                name="🎯 Affected Actions",
+                value=", ".join(parsed_action_types),
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="🎯 Affected Actions",
+                value="All campaign actions",
+                inline=True
+            )
+
+        embed.add_field(
+            name="👤 Applied By",
+            value=interaction.user.mention,
+            inline=True
+        )
+
+        # Public announcement
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="admin_campaign_debuff",
+        description="Apply a temporary debuff to a candidate's campaign actions (Admin only)"
+    )
+    @app_commands.describe(
+        target="The user to debuff",
+        effect_name="Name of the debuff effect",
+        multiplier="Multiplier for campaign points (e.g., 0.5 for -50%)",
+        duration_hours="Duration in hours",
+        action_types="Comma-separated action types to affect (empty = all actions)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_campaign_debuff(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        effect_name: str,
+        multiplier: float,
+        duration_hours: int,
+        action_types: str = ""
+    ):
+        if multiplier <= 0 or multiplier >= 1.0:
+            await interaction.response.send_message(
+                "❌ Debuff multiplier must be between 0 and 1.0.",
+                ephemeral=True
+            )
+            return
+
+        if duration_hours <= 0 or duration_hours > 168:  # Max 1 week
+            await interaction.response.send_message(
+                "❌ Duration must be between 1-168 hours (1 week max).",
+                ephemeral=True
+            )
+            return
+
+        buffs_col, buffs_config = self._get_buffs_debuffs_config(interaction.guild.id)
+
+        # Parse action types
+        parsed_action_types = []
+        if action_types.strip():
+            parsed_action_types = [action.strip() for action in action_types.split(",")]
+
+        effect_id = f"{target.id}_{effect_name}_{datetime.utcnow().timestamp()}"
+        expires_at = datetime.utcnow() + timedelta(hours=duration_hours)
+
+        effect = {
+            "effect_type": "debuff",
+            "target_user_id": target.id,
+            "effect_name": effect_name,
+            "multiplier": multiplier,
+            "expires_at": expires_at,
+            "action_types": parsed_action_types,
+            "applied_by": interaction.user.id,
+            "applied_at": datetime.utcnow()
+        }
+
+        buffs_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {f"active_effects.{effect_id}": effect}},
+            upsert=True
+        )
+
+        # Create announcement embed
+        embed = discord.Embed(
+            title="💀 Campaign Debuff Applied",
+            description=f"**{effect_name}** has been applied to {target.mention}!",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📊 Effect Details",
+            value=f"**Multiplier:** {multiplier:.1f}x ({(multiplier-1)*100:+.0f}%)\n"
+                  f"**Duration:** {duration_hours} hours\n"
+                  f"**Expires:** <t:{int(expires_at.timestamp())}:R>",
+            inline=True
+        )
+
+        if parsed_action_types:
+            embed.add_field(
+                name="🎯 Affected Actions",
+                value=", ".join(parsed_action_types),
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="🎯 Affected Actions",
+                value="All campaign actions",
+                inline=True
+            )
+
+        embed.add_field(
+            name="👤 Applied By",
+            value=interaction.user.mention,
+            inline=True
+        )
+
+        # Public announcement
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="admin_remove_campaign_effect",
+        description="Remove a specific campaign buff or debuff (Admin only)"
+    )
+    @app_commands.describe(
+        target="The user whose effects to remove",
+        effect_name="Name of the effect to remove (empty = remove all effects for user)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_remove_campaign_effect(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        effect_name: str = ""
+    ):
+        buffs_col, buffs_config = self._get_buffs_debuffs_config(interaction.guild.id)
+
+        active_effects = buffs_config.get("active_effects", {})
+        effects_to_remove = []
+
+        for effect_id, effect in active_effects.items():
+            if effect.get("target_user_id") == target.id:
+                if not effect_name or effect.get("effect_name") == effect_name:
+                    effects_to_remove.append(effect_id)
+
+        if not effects_to_remove:
+            await interaction.response.send_message(
+                f"❌ No matching effects found for {target.mention}.",
+                ephemeral=True
+            )
+            return
+
+        # Remove effects
+        for effect_id in effects_to_remove:
+            buffs_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$unset": {f"active_effects.{effect_id}": ""}}
+            )
+
+        effect_word = "effect" if len(effects_to_remove) == 1 else "effects"
+        await interaction.response.send_message(
+            f"✅ Removed {len(effects_to_remove)} {effect_word} from {target.mention}.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="view_campaign_effects",
+        description="View all active campaign buffs and debuffs"
+    )
+    async def view_campaign_effects(self, interaction: discord.Interaction):
+        buffs_col, buffs_config = self._get_buffs_debuffs_config(interaction.guild.id)
+
+        active_effects = buffs_config.get("active_effects", {})
+        current_time = datetime.utcnow()
+
+        # Filter out expired effects
+        valid_effects = {}
+        for effect_id, effect in active_effects.items():
+            if effect.get("expires_at", current_time) > current_time:
+                valid_effects[effect_id] = effect
+
+        if not valid_effects:
+            await interaction.response.send_message(
+                "📋 No active campaign effects currently.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="🎭 Active Campaign Effects",
+            description="Current buffs and debuffs affecting candidates",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        buffs_text = ""
+        debuffs_text = ""
+
+        for effect_id, effect in valid_effects.items():
+            target_user = interaction.guild.get_member(effect.get("target_user_id"))
+            target_name = target_user.display_name if target_user else "Unknown User"
+
+            effect_info = (f"**{effect.get('effect_name')}**\n"
+                          f"└ Target: {target_name}\n"
+                          f"└ Multiplier: {effect.get('multiplier', 1.0):.1f}x\n"
+                          f"└ Expires: <t:{int(effect.get('expires_at').timestamp())}:R>\n\n")
+
+            if effect.get("effect_type") == "buff":
+                buffs_text += effect_info
+            else:
+                debuffs_text += effect_info
+
+        if buffs_text:
+            embed.add_field(
+                name="✨ Active Buffs",
+                value=buffs_text,
+                inline=False
+            )
+
+        if debuffs_text:
+            embed.add_field(
+                name="💀 Active Debuffs",
+                value=debuffs_text,
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_add_pres_points",
+        description="Directly add campaign points to a presidential candidate (Admin only)"
+    )
+    @app_commands.describe(
+        candidate_name="Name of the presidential candidate",
+        state="State to add points to (for General Campaign)",
+        points="Points to add (can be negative to subtract)",
+        reason="Reason for the point adjustment"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_add_pres_points(
+        self,
+        interaction: discord.Interaction,
+        candidate_name: str,
+        points: float,
+        state: str = None,
+        reason: str = "Admin adjustment"
+    ):
+        # Get target candidate
+        target_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
+        if not target_candidate:
+            await interaction.response.send_message(
+                f"❌ Presidential candidate '{candidate_name}' not found.",
+                ephemeral=True
+            )
+            return
+
+        # Check current phase to determine how to add points
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+
+        if current_phase == "General Campaign":
+            if not state:
+                await interaction.response.send_message(
+                    "❌ State parameter is required for General Campaign point additions.",
+                    ephemeral=True
+                )
+                return
+
+            state_upper = state.upper()
+            if state_upper not in PRESIDENTIAL_STATE_DATA:
+                await interaction.response.send_message(
+                    f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
+                    ephemeral=True
+                )
+                return
+
+            # Update state points and total points
+            target_col.update_one(
+                {"guild_id": interaction.guild.id, "winners.user_id": target_candidate["user_id"]},
+                {
+                    "$inc": {
+                        f"winners.$.state_points.{state_upper}": points,
+                        "winners.$.total_points": points
+                    }
+                }
+            )
+
+            # Calculate new percentages
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+            updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+
+            embed = discord.Embed(
+                title="⚙️ Presidential Points Added",
+                description=f"Admin point adjustment for **{target_candidate['name']}**",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="📊 General Campaign Adjustment",
+                value=f"**Candidate:** {target_candidate['name']}\n"
+                      f"**State:** {state_upper}\n"
+                      f"**Points Added:** {points:+.2f}\n"
+                      f"**New National Polling:** {updated_percentage:.1f}%\n"
+                      f"**Reason:** {reason}",
+                inline=False
+            )
+
+        else:
+            # Primary campaign - add to general points
+            target_col.update_one(
+                {"guild_id": interaction.guild.id, "candidates.user_id": target_candidate["user_id"]},
+                {"$inc": {"candidates.$.points": points}}
+            )
+
+            new_points = target_candidate.get("points", 0) + points
+
+            embed = discord.Embed(
+                title="⚙️ Presidential Points Added",
+                description=f"Admin point adjustment for **{target_candidate['name']}**",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="📊 Primary Campaign Adjustment",
+                value=f"**Candidate:** {target_candidate['name']}\n"
+                      f"**Points Added:** {points:+.2f}%\n"
+                      f"**New Total:** {new_points:.2f}%\n"
+                      f"**Reason:** {reason}",
+                inline=False
+            )
+
+        embed.add_field(
+            name="👤 Applied By",
+            value=interaction.user.mention,
+            inline=True
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="admin_add_general_points",
+        description="Directly add campaign points to a general election candidate (Admin only)"
+    )
+    @app_commands.describe(
+        candidate_name="Name of the candidate",
+        office="Office the candidate is running for",
+        points="Points to add (can be negative to subtract)",
+        reason="Reason for the point adjustment"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_add_general_points(
+        self,
+        interaction: discord.Interaction,
+        candidate_name: str,
+        office: str,
+        points: float,
+        reason: str = "Admin adjustment"
+    ):
+        # Get winners configuration
+        winners_col, winners_config = self._get_winners_config(interaction.guild.id)
+        if not winners_config:
+            await interaction.response.send_message(
+                "❌ No general election configuration found.",
+                ephemeral=True
+            )
+            return
+
+        # Find the candidate
+        candidate_found = None
+        candidate_index = None
+        
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        for idx, candidate in enumerate(winners_config.get("winners", [])):
+            if (candidate["name"].lower() == candidate_name.lower() and 
+                candidate["office"].lower() == office.lower() and
+                candidate["year"] == current_year):
+                candidate_found = candidate
+                candidate_index = idx
+                break
+
+        if not candidate_found:
+            await interaction.response.send_message(
+                f"❌ General election candidate '{candidate_name}' running for {office} not found.",
+                ephemeral=True
+            )
+            return
+
+        # Update points
+        old_points = candidate_found.get("points", 0)
+        new_points = old_points + points
+
+        winners_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {f"winners.{candidate_index}.points": new_points}}
+        )
+
+        embed = discord.Embed(
+            title="⚙️ General Election Points Added",
+            description=f"Admin point adjustment for **{candidate_found['name']}**",
+            color=discord.Color.purple(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📊 General Election Adjustment",
+            value=f"**Candidate:** {candidate_found['name']}\n"
+                  f"**Office:** {candidate_found['office']}\n"
+                  f"**Previous Points:** {old_points:.2f}\n"
+                  f"**Points Added:** {points:+.2f}\n"
+                  f"**New Total:** {new_points:.2f}\n"
+                  f"**Reason:** {reason}",
+            inline=False
+        )
+
+        embed.add_field(
+            name="👤 Applied By",
+            value=interaction.user.mention,
+            inline=True
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    def _get_winners_config(self, guild_id: int):
+        """Get general election winners configuration"""
+        col = self.bot.db["all_winners"]
+        config = col.find_one({"guild_id": guild_id})
+        return col, config
 
     # Target autocomplete for all commands
     @pres_canvassing.autocomplete("target")
@@ -1627,6 +2242,22 @@ class PresCampaignActions(commands.Cog):
         actions = ["all", "pres_speech", "pres_donor", "pres_ad", "pres_poster"]
         return [app_commands.Choice(name=action, value=action)
                 for action in actions if current.lower() in action.lower()][:25]
+
+    @admin_add_pres_points.autocomplete("candidate_name")
+    async def pres_points_candidate_autocomplete(self, interaction: discord.Interaction, current: str):
+        return await self._get_presidential_candidate_choices(interaction, current)
+
+    @admin_add_pres_points.autocomplete("state")
+    async def pres_points_state_autocomplete(self, interaction: discord.Interaction, current: str):
+        states = list(PRESIDENTIAL_STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
+
+    @admin_add_general_points.autocomplete("office")
+    async def general_points_office_autocomplete(self, interaction: discord.Interaction, current: str):
+        offices = ["Governor", "Lieutenant Governor", "Attorney General", "Secretary of State", "Senator", "Representative"]
+        return [app_commands.Choice(name=office, value=office)
+                for office in offices if current.lower() in office.lower()][:25]
 
 async def setup(bot):
     await bot.add_cog(PresCampaignActions(bot))
