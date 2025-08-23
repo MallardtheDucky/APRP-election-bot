@@ -1174,7 +1174,6 @@ class Delegates(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
         name="force_call_state",
         description="Manually call a specific state primary (Admin only)"
@@ -1283,6 +1282,145 @@ class Delegates(commands.Cog):
 
         return [app_commands.Choice(name=state, value=state)
                 for state in sorted(all_states) if current.lower() in state.lower()][:25]
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(
+        name="transfer_delegates",
+        description="Transfer delegates from one candidate to another (Admin only)"
+    )
+    @app_commands.describe(
+        from_candidate="Candidate to transfer delegates from",
+        to_candidate="Candidate to transfer delegates to",
+        delegate_count="Number of delegates to transfer",
+        reason="Reason for the transfer (optional)"
+    )
+    async def transfer_delegates(
+        self,
+        interaction: discord.Interaction,
+        from_candidate: str,
+        to_candidate: str,
+        delegate_count: int,
+        reason: str = "Admin transfer"
+    ):
+        """Transfer delegates between candidates"""
+        if delegate_count <= 0:
+            await interaction.response.send_message(
+                "❌ Delegate count must be positive.",
+                ephemeral=True
+            )
+            return
+
+        delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
+        delegate_totals = delegates_config.get("delegate_totals", {})
+
+        # Check if from_candidate exists and has enough delegates
+        if from_candidate not in delegate_totals:
+            await interaction.response.send_message(
+                f"❌ Candidate '{from_candidate}' not found in delegate totals.",
+                ephemeral=True
+            )
+            return
+
+        current_delegates = delegate_totals[from_candidate]
+        if current_delegates < delegate_count:
+            await interaction.response.send_message(
+                f"❌ {from_candidate} only has {current_delegates} delegates. Cannot transfer {delegate_count}.",
+                ephemeral=True
+            )
+            return
+
+        # Perform the transfer
+        delegate_totals[from_candidate] -= delegate_count
+
+        # Initialize to_candidate if they don't exist
+        if to_candidate not in delegate_totals:
+            delegate_totals[to_candidate] = 0
+
+        delegate_totals[to_candidate] += delegate_count
+
+        # Remove candidates with 0 delegates
+        if delegate_totals[from_candidate] == 0:
+            del delegate_totals[from_candidate]
+
+        # Update database
+        delegates_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"delegate_totals": delegate_totals}}
+        )
+
+        # Create response embed
+        embed = discord.Embed(
+            title="🔄 Delegates Transferred",
+            description=f"Successfully transferred {delegate_count} delegates",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📤 From",
+            value=f"**{from_candidate}**\n{current_delegates} → {current_delegates - delegate_count} delegates",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📥 To", 
+            value=f"**{to_candidate}**\n{delegate_totals.get(to_candidate, 0) - delegate_count} → {delegate_totals.get(to_candidate, 0)} delegates",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📋 Details",
+            value=f"**Transferred:** {delegate_count} delegates\n**Reason:** {reason}",
+            inline=False
+        )
+
+        embed.set_footer(text=f"Transfer executed by {interaction.user.display_name}")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Check if this transfer affects any primary winners
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if time_config:
+            current_year = time_config["current_rp_date"].year
+
+            # Check both parties for potential new winners
+            for party in ["Democrats", "Republican"]:
+                await self._check_primary_winners(
+                    interaction.guild, interaction.guild.id, party, current_year, delegates_config
+                )
+
+    @transfer_delegates.autocomplete("from_candidate")
+    async def from_candidate_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for from_candidate parameter"""
+        delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
+        delegate_totals = delegates_config.get("delegate_totals", {})
+
+        candidates = [name for name in delegate_totals.keys() if delegate_totals[name] > 0]
+        return [app_commands.Choice(name=candidate, value=candidate)
+                for candidate in candidates if current.lower() in candidate.lower()][:25]
+
+    @transfer_delegates.autocomplete("to_candidate")
+    async def to_candidate_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for to_candidate parameter - show all presidential candidates"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year
+
+        # Get all presidential candidates for current year
+        signups_col = self.bot.db["presidential_signups"]
+        signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+
+        candidates = []
+        if signups_config:
+            for candidate in signups_config.get("candidates", []):
+                if (candidate.get("year") == current_year and 
+                    candidate.get("office") == "President"):
+                    candidates.append(candidate["name"])
+
+        return [app_commands.Choice(name=candidate, value=candidate)
+                for candidate in candidates if current.lower() in candidate.lower()][:25]
 
 async def setup(bot):
     await bot.add_cog(Delegates(bot))

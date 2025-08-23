@@ -126,6 +126,7 @@ class Polling(commands.Cog):
         # Get current year
         time_col, time_config = self._get_time_config(guild_id)
         current_year = time_config["current_rp_date"].year if time_config else 2024
+        current_phase = time_config.get("current_phase", "") if time_config else ""
 
         # Find all primary winners (general election candidates) for this seat
         # For general campaign, look for primary winners from the previous year if we're in an even year
@@ -147,10 +148,14 @@ class Polling(commands.Cog):
         if not seat_candidates:
             return {}
 
-        # Special case: if only one candidate, they get 100%
-        if len(seat_candidates) == 1:
-            candidate_name = seat_candidates[0].get('candidate', seat_candidates[0].get('name', ''))
-            return {candidate_name: 100.0}
+        # Get momentum effects if in General Campaign phase and this is a presidential race
+        momentum_effects = {}
+        if (current_phase == "General Campaign" and 
+            any(c.get("office") in ["President", "Vice President"] for c in seat_candidates)):
+            momentum_effects = self._get_momentum_effects_for_candidates(guild_id, seat_candidates)
+
+        # Get state name from seat_id for momentum calculation
+        state_name = self._extract_state_from_seat_id(seat_id)
 
         # Determine baseline percentages based on number of candidates and parties
         num_candidates = len(seat_candidates)
@@ -242,6 +247,10 @@ class Polling(commands.Cog):
                     proportional_loss = (baseline / total_baseline) * other_candidates_points
                     percentage -= proportional_loss
 
+                # Apply momentum effects if available
+                momentum_effect = momentum_effects.get(candidate_name, 0.0)
+                percentage += momentum_effect
+
                 # Ensure minimum percentage and store
                 final_percentages[candidate_name] = max(0.1, percentage)
 
@@ -260,6 +269,103 @@ class Polling(commands.Cog):
                 final_percentages[largest_name] += (100.0 - new_total)
 
         return final_percentages
+
+    def _get_momentum_effects_for_candidates(self, guild_id: int, candidates: list) -> dict:
+        """Get momentum effects for presidential candidates"""
+        try:
+            momentum_col = self.bot.db["momentum_config"]
+            momentum_config = momentum_col.find_one({"guild_id": guild_id})
+
+            if not momentum_config:
+                return {}
+
+            momentum_effects = {}
+
+            for candidate in candidates:
+                candidate_name = candidate.get('candidate', candidate.get('name', ''))
+                candidate_party = candidate.get('party', '')
+
+                # Convert party name to standard format
+                if "republican" in candidate_party.lower():
+                    party_key = "Republican"
+                elif "democrat" in candidate_party.lower():
+                    party_key = "Democrat"
+                else:
+                    party_key = "Independent"
+
+                # Calculate national momentum effect (average across all states where they're campaigning)
+                total_momentum = 0.0
+                state_count = 0
+
+                # Get candidate's state points to determine which states they've campaigned in
+                state_points = candidate.get("state_points", {})
+                if state_points:
+                    for state_name, points in state_points.items():
+                        if points > 0:  # Only count states where they've campaigned
+                            state_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
+                            momentum_effect = self._calculate_momentum_effect_on_polling(state_name, party_key, momentum_config)
+                            total_momentum += momentum_effect
+                            state_count += 1
+
+                if state_count > 0:
+                    avg_momentum_effect = total_momentum / state_count
+                else:
+                    avg_momentum_effect = 0.0
+
+                momentum_effects[candidate_name] = avg_momentum_effect
+
+            return momentum_effects
+
+        except Exception as e:
+            print(f"Error calculating momentum effects: {e}")
+            return {}
+
+    def _extract_state_from_seat_id(self, seat_id: str) -> str:
+        """Extract state name from seat ID for momentum calculations"""
+        # For presidential races, we need to handle them differently
+        if seat_id in ["US-PRES", "US-VP"]:
+            return "NATIONAL"  # Special handling for national races
+
+        # For other seats, extract state code (e.g., "SEN-CA-1" -> "CA")
+        parts = seat_id.split("-")
+        if len(parts) >= 2:
+            state_code = parts[1]
+            # Map state codes to full names if needed
+            state_code_to_name = {
+                "CA": "CALIFORNIA", "TX": "TEXAS", "NY": "NEW YORK",
+                "FL": "FLORIDA", "PA": "PENNSYLVANIA", "IL": "ILLINOIS",
+                "OH": "OHIO", "GA": "GEORGIA", "NC": "NORTH CAROLINA",
+                "MI": "MICHIGAN", "NJ": "NEW JERSEY", "VA": "VIRGINIA",
+                "WA": "WASHINGTON", "AZ": "ARIZONA", "MA": "MASSACHUSETTS",
+                "TN": "TENNESSEE", "IN": "INDIANA", "MO": "MISSOURI",
+                "MD": "MARYLAND", "WI": "WISCONSIN", "CO": "COLORADO",
+                "MN": "MINNESOTA", "SC": "SOUTH CAROLINA", "AL": "ALABAMA",
+                "LA": "LOUISIANA", "KY": "KENTUCKY", "OR": "OREGON",
+                "OK": "OKLAHOMA", "CT": "CONNECTICUT", "IA": "IOWA",
+                "MS": "MISSISSIPPI", "AR": "ARKANSAS", "KS": "KANSAS",
+                "UT": "UTAH", "NV": "NEVADA", "NM": "NEW MEXICO",
+                "WV": "WEST VIRGINIA", "NE": "NEBRASKA", "ID": "IDAHO",
+                "HI": "HAWAII", "ME": "MAINE", "NH": "NEW HAMPSHIRE",
+                "RI": "RHODE ISLAND", "MT": "MONTANA", "DE": "DELAWARE",
+                "SD": "SOUTH DAKOTA", "ND": "NORTH DAKOTA", "AK": "ALASKA",
+                "VT": "VERMONT", "WY": "WYOMING"
+            }
+            return state_code_to_name.get(state_code, state_code)
+
+        return "UNKNOWN"
+
+    def _calculate_momentum_effect_on_polling(self, state: str, party: str, momentum_config: dict) -> float:
+        """Calculate how momentum affects polling percentages"""
+        state_momentum = momentum_config["state_momentum"].get(state, {})
+        party_momentum = state_momentum.get(party, 0.0)
+
+        # Convert momentum to polling percentage change
+        # Each 10 points of momentum = ~1% polling change
+        polling_effect = party_momentum / 10.0
+
+        # Cap the effect to prevent extreme swings
+        return max(-15.0, min(15.0, polling_effect))
+
 
     def _calculate_poll_result(self, actual_percentage: float, margin_of_error: float = 7.0) -> float:
         """Calculate poll result with margin of error"""

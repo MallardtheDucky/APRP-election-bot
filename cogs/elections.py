@@ -3,6 +3,164 @@ import discord
 from discord import app_commands
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+import math
+
+class SeatsUpDropdown(discord.ui.Select):
+    def __init__(self, office_groups, current_year):
+        self.office_groups = office_groups
+        self.current_year = current_year
+
+        options = []
+        for i, (office_type, seats) in enumerate(office_groups.items()):
+            options.append(discord.SelectOption(
+                label=f"🏛️ {office_type}",
+                description=f"{len(seats)} seats up for election",
+                value=str(i)
+            ))
+
+        super().__init__(placeholder="Select office type to view seats...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        office_type = list(self.office_groups.keys())[int(self.values[0])]
+        seats = self.office_groups[office_type]
+
+        embed = discord.Embed(
+            title=f"🗳️ {office_type} Seats Up for Election ({self.current_year})",
+            color=discord.Color.gold(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Handle House seats with potential pagination due to high count
+        if office_type == "House" and len(seats) > 15:
+            # Group House seats by state for better organization
+            state_groups = {}
+            for seat in seats:
+                state = seat["state"]
+                if state not in state_groups:
+                    state_groups[state] = []
+                state_groups[state].append(seat)
+
+            # Add fields for each state
+            for state_name, state_seats in state_groups.items():
+                seat_list = ""
+                for seat in state_seats:
+                    incumbent = seat.get("current_holder", "Open Seat")
+                    seat_list += f"• **{seat['seat_id']}** - Current: {incumbent}\n"
+                
+                # Ensure we don't exceed field value limit (1024 chars)
+                if len(seat_list) > 1000:
+                    seat_list = seat_list[:1000] + "...\n[More seats in this state]"
+                
+                embed.add_field(
+                    name=f"📍 {state_name} ({len(state_seats)} seats)",
+                    value=seat_list,
+                    inline=True
+                )
+        else:
+            # For other office types or smaller House lists, use original format
+            seat_list = ""
+            for seat in seats:
+                incumbent = seat.get("current_holder", "Open Seat")
+                seat_entry = f"• **{seat['seat_id']}** ({seat['state']})\n  Current: {incumbent}\n"
+                
+                # Check if adding this entry would exceed the limit
+                if len(seat_list + seat_entry) > 1000:
+                    seat_list += "...\n[Additional seats truncated]"
+                    break
+                seat_list += seat_entry
+
+            embed.add_field(
+                name=f"🏛️ {office_type} ({len(seats)} seats)",
+                value=seat_list or "No seats to display",
+                inline=False
+            )
+
+        await interaction.response.edit_message(embed=embed, view=self.view)
+
+class SeatsUpView(discord.ui.View):
+    def __init__(self, office_groups, current_year):
+        super().__init__(timeout=300)
+        self.office_groups = office_groups
+        self.current_year = current_year
+        self.add_item(SeatsUpDropdown(office_groups, current_year))
+
+class SeatTermsDropdown(discord.ui.Select):
+    def __init__(self, state_groups):
+        self.state_groups = state_groups
+
+        options = []
+        for i, (state_name, seats) in enumerate(list(state_groups.items())[:25]):  # Discord limit
+            options.append(discord.SelectOption(
+                label=f"📍 {state_name}",
+                description=f"{len(seats)} seats",
+                value=str(i)
+            ))
+
+        super().__init__(placeholder="Select state to view seat terms...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        state_name = list(self.state_groups.keys())[int(self.values[0])]
+        seats = self.state_groups[state_name]
+
+        embed = discord.Embed(
+            title=f"📅 Seat Terms: {state_name}",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Sort seats by term end year
+        seats_with_terms = []
+        seats_without_terms = []
+
+        for seat in seats:
+            if seat.get("term_end"):
+                seats_with_terms.append((seat, seat["term_end"].year))
+            else:
+                seats_without_terms.append(seat)
+
+        seats_with_terms.sort(key=lambda x: x[1])
+
+        if seats_with_terms:
+            term_text = ""
+            for seat, year in seats_with_terms:
+                holder = seat.get("current_holder", "Vacant")
+                up_indicator = " 🗳️" if seat.get("up_for_election") else ""
+                term_text += f"**{seat['seat_id']}** - {year}{up_indicator}\n"
+                term_text += f"  {seat['office']} ({holder})\n\n"
+
+            embed.add_field(
+                name="🗓️ Seats with Set Terms",
+                value=term_text[:1024],
+                inline=False
+            )
+
+        if seats_without_terms:
+            no_term_text = ""
+            for seat in seats_without_terms:
+                holder = seat.get("current_holder", "Vacant")
+                up_indicator = " 🗳️" if seat.get("up_for_election") else ""
+                no_term_text += f"**{seat['seat_id']}**{up_indicator} - {seat['office']} ({holder})\n"
+
+            if no_term_text:
+                embed.add_field(
+                    name="❓ Seats without Set Terms",
+                    value=no_term_text[:1024],
+                    inline=False
+                )
+
+        embed.add_field(
+            name="Legend",
+            value="🗳️ = Up for election this cycle",
+            inline=False
+        )
+
+        await interaction.response.edit_message(embed=embed, view=self.view)
+
+class SeatTermsView(discord.ui.View):
+    def __init__(self, state_groups):
+        super().__init__(timeout=300)
+        self.state_groups = state_groups
+        self.add_item(SeatTermsDropdown(state_groups))
 
 class Elections(commands.Cog):
     def __init__(self, bot):
@@ -646,6 +804,156 @@ class Elections(commands.Cog):
             await interaction.followup.send(f"❌ Error loading seats: {str(e)}", ephemeral=True)
 
 
+    @election_admin_group.command(
+        name="fill_vacant_seat",
+        description="Fill a vacant seat with a user (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_fill_vacant_seat(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        seat_id: str = None,
+        term_start_year: int = None
+    ):
+        """Admin command to fill a vacant seat"""
+        col, config = self._get_elections_config(interaction.guild.id)
+
+        # If no seat_id provided, show available vacant seats
+        if not seat_id:
+            vacant_seats = [
+                seat for seat in config["seats"] 
+                if not seat.get("current_holder")
+            ]
+
+            if not vacant_seats:
+                await interaction.response.send_message(
+                    "❌ No vacant seats available to fill.",
+                    ephemeral=True
+                )
+                return
+
+            # Create embed showing vacant seats
+            embed = discord.Embed(
+                title="🏛️ Available Vacant Seats",
+                description=f"Use this command again with a specific seat_id to assign **{user.display_name}** to a seat.",
+                color=discord.Color.orange(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Group by state for better organization
+            state_groups = {}
+            for seat in vacant_seats:
+                state = seat["state"]
+                if state not in state_groups:
+                    state_groups[state] = []
+                state_groups[state].append(seat)
+
+            for state_name, state_seats in state_groups.items():
+                seat_list = ""
+                for seat in state_seats:
+                    up_indicator = " 🗳️" if seat.get("up_for_election") else ""
+                    seat_list += f"• **{seat['seat_id']}** - {seat['office']}{up_indicator}\n"
+
+                embed.add_field(
+                    name=f"📍 {state_name}",
+                    value=seat_list,
+                    inline=True
+                )
+
+            embed.add_field(
+                name="📝 Usage",
+                value=f"Use: `/election admin fill_vacant_seat user:{user.mention} seat_id:<SEAT_ID>`",
+                inline=False
+            )
+
+            embed.add_field(
+                name="Legend",
+                value="🗳️ = Currently up for election",
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Find the specific seat
+        seat_found = None
+        for i, seat in enumerate(config["seats"]):
+            if seat["seat_id"].upper() == seat_id.upper():
+                seat_found = i
+                break
+
+        if seat_found is None:
+            await interaction.response.send_message(
+                f"❌ Seat '{seat_id}' not found.",
+                ephemeral=True
+            )
+            return
+
+        seat = config["seats"][seat_found]
+
+        # Check if seat is actually vacant
+        if seat.get("current_holder"):
+            await interaction.response.send_message(
+                f"❌ Seat **{seat_id}** is not vacant. Current holder: {seat['current_holder']}",
+                ephemeral=True
+            )
+            return
+
+        # Calculate term dates
+        if term_start_year is None:
+            # Get current RP year from time manager
+            time_col = self.bot.db["time_configs"]
+            time_config = time_col.find_one({"guild_id": interaction.guild.id})
+            if time_config:
+                term_start_year = time_config["current_rp_date"].year
+            else:
+                term_start_year = 2024  # Default fallback
+
+        term_start = datetime(term_start_year, 1, 1)
+        term_end = datetime(term_start_year + seat["term_years"], 1, 1)
+
+        # Update seat
+        config["seats"][seat_found].update({
+            "current_holder": user.display_name,
+            "current_holder_id": user.id,
+            "term_start": term_start,
+            "term_end": term_end,
+            "up_for_election": False
+        })
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"seats": config["seats"]}}
+        )
+
+        # Create success embed
+        embed = discord.Embed(
+            title="✅ Vacant Seat Filled",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="👤 Appointed Official",
+            value=user.mention,
+            inline=True
+        )
+
+        embed.add_field(
+            name="🏛️ Seat Details",
+            value=f"**Seat ID:** {seat_id}\n**Office:** {seat['office']}\n**State/Region:** {seat['state']}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📅 Term Information",
+            value=f"**Start:** {term_start_year}\n**End:** {term_start_year + seat['term_years']}\n**Length:** {seat['term_years']} years",
+            inline=True
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @election_seat_group.command(
         name="assign",
         description="Assign a user to an election seat"
@@ -752,31 +1060,33 @@ class Elections(commands.Cog):
                 office_groups[office_type] = []
             office_groups[office_type].append(seat)
 
+        # Create main overview embed
         embed = discord.Embed(
             title=f"🗳️ Seats Up for Election ({current_year})",
+            description="Use the dropdown below to view detailed information for each office type.",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
 
+        # Add summary information
+        summary_text = ""
         for office_type, seats in office_groups.items():
-            seat_list = ""
-            for seat in seats:
-                incumbent = seat.get("current_holder", "Open Seat")
-                seat_list += f"• **{seat['seat_id']}** ({seat['state']})\n  Current: {incumbent}\n"
-
-            embed.add_field(
-                name=f"🏛️ {office_type}",
-                value=seat_list,
-                inline=False
-            )
+            summary_text += f"**{office_type}:** {len(seats)} seats\n"
 
         embed.add_field(
-            name="ℹ️ Information",
-            value=f"Total seats up for election: **{len(up_for_election)}**",
-            inline=False
+            name="📊 Summary",
+            value=summary_text,
+            inline=True
         )
 
-        await interaction.response.send_message(embed=embed)
+        embed.add_field(
+            name="ℹ️ Total",
+            value=f"**{len(up_for_election)}** seats up for election",
+            inline=True
+        )
+
+        view = SeatsUpView(office_groups, current_year)
+        await interaction.response.send_message(embed=embed, view=view)
 
     @election_seat_group.command(
         name="toggle_election",
@@ -1509,6 +1819,124 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
+    @election_admin_group.command(
+        name="announce_seats_up",
+        description="Announce which seats are up for election this cycle (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def announce_seats_up(self, interaction: discord.Interaction):
+        """Announce seats up for election in the configured announcement channel"""
+        col, config = self._get_elections_config(interaction.guild.id)
+
+        # Get current RP year
+        time_col = self.bot.db["time_configs"]
+        time_config = time_col.find_one({"guild_id": interaction.guild.id})
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        # Get announcement channel
+        setup_col = self.bot.db["guild_configs"]
+        setup_config = setup_col.find_one({"guild_id": interaction.guild.id})
+        announcement_channel_id = setup_config.get("announcement_channel") if setup_config else None
+
+        if not announcement_channel_id:
+            await interaction.response.send_message(
+                "❌ No announcement channel configured. Use `/setup announcement_channel` first.",
+                ephemeral=True
+            )
+            return
+
+        channel = interaction.guild.get_channel(announcement_channel_id)
+        if not channel:
+            await interaction.response.send_message(
+                "❌ Announcement channel not found. Please reconfigure it.",
+                ephemeral=True
+            )
+            return
+
+        # Get seats up for election
+        up_for_election = []
+        for seat in config["seats"]:
+            should_be_up = False
+
+            if seat.get("up_for_election"):
+                should_be_up = True
+            elif seat.get("term_end"):
+                election_year = current_year + 1 if current_year % 2 == 1 else current_year
+                if seat["term_end"].year == election_year:
+                    should_be_up = True
+            elif not seat.get("current_holder"):
+                should_be_up = self._should_seat_be_up_for_election(seat, current_year)
+            else:
+                should_be_up = self._should_seat_be_up_for_election(seat, current_year)
+
+            if should_be_up:
+                up_for_election.append(seat)
+
+        if not up_for_election:
+            await interaction.response.send_message("🗳️ No seats are currently up for election to announce.", ephemeral=True)
+            return
+
+        # Group by office type
+        office_groups = {}
+        for seat in up_for_election:
+            office_type = seat["office"] if seat["office"] in ["Senate", "Governor", "President", "Vice President"] else "House"
+            if office_type not in office_groups:
+                office_groups[office_type] = []
+            office_groups[office_type].append(seat)
+
+        # Create main overview embed with dropdown navigation
+        embed = discord.Embed(
+            title="🗳️ ELECTION ANNOUNCEMENT",
+            description=f"**{len(up_for_election)} seats** are now up for election in the **{current_year}** election cycle!\n\nUse the dropdown below to view detailed information for each office type.",
+            color=discord.Color.gold(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Add summary information
+        summary_text = ""
+        for office_type, seats in office_groups.items():
+            summary_text += f"**{office_type}:** {len(seats)} seats\n"
+
+        embed.add_field(
+            name="📊 Summary",
+            value=summary_text,
+            inline=True
+        )
+
+        embed.add_field(
+            name="ℹ️ Total",
+            value=f"**{len(up_for_election)}** seats up for election",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📝 Next Steps",
+            value="Candidates can now register for these positions during the signup phase!\nUse `/signup` to enter the race.",
+            inline=False
+        )
+
+        embed.set_footer(text="Good luck to all potential candidates!")
+
+        # Create the dropdown view for detailed seat information
+        view = SeatsUpView(office_groups, current_year)
+
+        try:
+            await channel.send(embed=embed, view=view)
+            await interaction.response.send_message(
+                f"✅ Announced {len(up_for_election)} seats up for election in {channel.mention}",
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I don't have permission to send messages in the announcement channel.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to send announcement: {str(e)}",
+                ephemeral=True
+            )
+
     @election_info_group.command(
         name="show_seat_terms",
         description="Show term end years for all seats or filter by state/office"
@@ -1541,52 +1969,42 @@ class Elections(commands.Cog):
             await interaction.response.send_message("No seats found with those criteria.", ephemeral=True)
             return
 
-        # Sort by term end year
-        seats_with_terms = []
-        seats_without_terms = []
-
+        # Group seats by state for pagination
+        state_groups = {}
         for seat in seats:
-            if seat.get("term_end"):
-                seats_with_terms.append((seat, seat["term_end"].year))
-            else:
-                seats_without_terms.append(seat)
+            if seat["state"] not in state_groups:
+                state_groups[seat["state"]] = []
+            state_groups[seat["state"]].append(seat)
 
-        seats_with_terms.sort(key=lambda x: x[1])  # Sort by year
-
+        # Create main overview embed
         embed = discord.Embed(
             title="📅 Seat Term End Years",
+            description="Use the dropdown below to view detailed term information for each state.",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
 
-        # Show seats with specific term end years
-        if seats_with_terms:
-            term_text = ""
-            for seat, year in seats_with_terms:
-                holder = seat.get("current_holder", "Vacant")
-                up_indicator = " 🗳️" if seat.get("up_for_election") else ""
-                term_text += f"**{seat['seat_id']}** - {year}{up_indicator}\n"
-                term_text += f"  {seat['office']}, {seat['state']} ({holder})\n\n"
+        # Add summary information
+        summary_text = ""
+        total_seats = 0
+        seats_with_terms = 0
 
-            embed.add_field(
-                name="🗓️ Seats with Set Term End Years",
-                value=term_text[:1024],  # Discord field limit
-                inline=False
-            )
+        for state_name, state_seats in state_groups.items():
+            total_seats += len(state_seats)
+            seats_with_terms += len([s for s in state_seats if s.get("term_end")])
+            summary_text += f"**{state_name}:** {len(state_seats)} seats\n"
 
-        # Show seats without specific terms
-        if seats_without_terms:
-            no_term_text = ""
-            for seat in seats_without_terms:
-                holder = seat.get("current_holder", "Vacant")
-                up_indicator = " 🗳️" if seat.get("up_for_election") else ""
-                no_term_text += f"**{seat['seat_id']}**{up_indicator} - {seat['office']}, {seat['state']} ({holder})\n"
+        embed.add_field(
+            name="📊 Summary by State",
+            value=summary_text[:1024],
+            inline=True
+        )
 
-            embed.add_field(
-                name="❓ Seats without Set Term Years",
-                value=no_term_text[:1024],
-                inline=False
-            )
+        embed.add_field(
+            name="ℹ️ Statistics",
+            value=f"**Total Seats:** {total_seats}\n**With Set Terms:** {seats_with_terms}\n**Without Terms:** {total_seats - seats_with_terms}",
+            inline=True
+        )
 
         embed.add_field(
             name="Legend",
@@ -1594,7 +2012,8 @@ class Elections(commands.Cog):
             inline=False
         )
 
-        await interaction.response.send_message(embed=embed)
+        view = SeatTermsView(state_groups)
+        await interaction.response.send_message(embed=embed, view=view)
 
     @election_info_group.command(
         name="list_states",
@@ -1653,7 +2072,7 @@ class Elections(commands.Cog):
 
     @election_admin_group.command(
         name="import_seat_term_years",
-        description="Import specific term end years for seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR,...)"
+        description="Import term end years for specific seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR,...)"
     )
     async def import_seat_term_years(
         self,

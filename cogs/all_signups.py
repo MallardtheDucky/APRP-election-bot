@@ -595,14 +595,6 @@ class AllSignups(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
-        name="withdraw",
-        description="Withdraw your candidacy from the current election"
-    )
-    async def withdraw(self, interaction: discord.Interaction):
-        """Shorter alias for withdraw_signup"""
-        await self.withdraw_signup(interaction)
-
-    @app_commands.command(
         name="admin_remove_candidate",
         description="Remove a specific candidate from signups (Admin only)"
     )
@@ -684,6 +676,13 @@ class AllSignups(commands.Cog):
 
         # Count signups for target year
         year_signups = [c for c in signups_config["candidates"] if c["year"] == target_year]
+
+        if not year_signups:
+            await interaction.response.send_message(
+                f"❌ No signups found for {target_year}.",
+                ephemeral=True
+            )
+            return
 
         if not confirm:
             await interaction.response.send_message(

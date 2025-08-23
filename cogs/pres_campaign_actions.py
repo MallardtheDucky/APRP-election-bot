@@ -130,6 +130,9 @@ class PresCampaignActions(commands.Cog):
                     }
                 }
             )
+
+            # Add momentum effects during General Campaign
+            self._add_momentum_from_campaign_action(guild_id, user_id, state_name.upper(), polling_boost)
         else:
             # For primary campaign, update in presidential signups collection
             collection.update_one(
@@ -143,59 +146,52 @@ class PresCampaignActions(commands.Cog):
                 }
             )
 
-    def _check_cooldown(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
-        """Check if user is on cooldown for a specific action"""
-        cooldowns_col = self.bot.db["pres_action_cooldowns"]
-        cooldown_record = cooldowns_col.find_one({
-            "guild_id": guild_id,
-            "user_id": user_id,
-            "action_type": action_type
-        })
-
-        if not cooldown_record:
-            return True  # No cooldown record, user can proceed
-
-        last_action = cooldown_record["last_action"]
-        cooldown_end = last_action + timedelta(hours=cooldown_hours)
-
-        return datetime.utcnow() >= cooldown_end
-
-    def _set_cooldown(self, guild_id: int, user_id: int, action_type: str):
-        """Set cooldown for a specific action"""
-        cooldowns_col = self.bot.db["pres_action_cooldowns"]
-        cooldowns_col.update_one(
-            {"guild_id": guild_id, "user_id": user_id, "action_type": action_type},
+    def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float):
+        """Adds momentum to a state based on campaign actions."""
+        momentum_col = self.bot.db["presidential_momentum"]
+        
+        # Define momentum parameters
+        momentum_gain_factor = 0.1  # How much momentum is gained per point
+        max_momentum = 100.0
+        
+        # Calculate momentum gained
+        momentum_gained = points_gained * momentum_gain_factor
+        
+        # Update or insert momentum for the state
+        momentum_col.update_one(
+            {"guild_id": guild_id, "state": state_name},
             {
-                "$set": {
-                    "guild_id": guild_id,
-                    "user_id": user_id,
-                    "action_type": action_type,
-                    "last_action": datetime.utcnow()
-                }
+                "$inc": {"momentum": momentum_gained},
+                "$set": {"last_updated": datetime.utcnow()}
             },
             upsert=True
         )
+        
+        # Ensure momentum does not exceed max
+        momentum_col.update_one(
+            {"guild_id": guild_id, "state": state_name},
+            {"$min": {"momentum": max_momentum}}
+        )
 
-    def _get_cooldown_remaining(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
-        """Get remaining cooldown time"""
-        cooldowns_col = self.bot.db["pres_action_cooldowns"]
-        cooldown_record = cooldowns_col.find_one({
-            "guild_id": guild_id,
-            "user_id": user_id,
-            "action_type": action_type
-        })
+    def _get_state_lean_and_momentum(self, guild_id: int, state_name: str):
+        """Retrieves the lean and current momentum for a given state."""
+        state_data = PRESIDENTIAL_STATE_DATA.get(state_name.upper())
+        if not state_data:
+            return None, None, None # State not found
 
-        if not cooldown_record:
-            return None
+        # Default lean based on party alignment
+        lean_percentage = 0.0
+        if state_data["democrat"] > state_data["republican"]:
+            lean_percentage = state_data["democrat"] - 50
+        elif state_data["republican"] > state_data["democrat"]:
+            lean_percentage = state_data["republican"] - 50
+        
+        # Get momentum from database
+        momentum_col = self.bot.db["presidential_momentum"]
+        momentum_record = momentum_col.find_one({"guild_id": guild_id, "state": state_name.upper()})
+        current_momentum = momentum_record.get("momentum", 0.0) if momentum_record else 0.0
 
-        last_action = cooldown_record["last_action"]
-        cooldown_end = last_action + timedelta(hours=cooldown_hours)
-        remaining = cooldown_end - datetime.utcnow()
-
-        if remaining.total_seconds() <= 0:
-            return None
-
-        return remaining
+        return lean_percentage, current_momentum, state_data
 
     def _calculate_general_election_percentages(self, guild_id: int, office: str):
         """Calculate general election percentages using state-based distribution"""
@@ -234,6 +230,9 @@ class PresCampaignActions(commands.Cog):
                 # Get candidate's campaign points in this state
                 campaign_points = state_points.get(state_name, 0.0)
                 
+                # Get state lean and momentum
+                lean_percentage, current_momentum, _ = self._get_state_lean_and_momentum(guild_id, state_name)
+
                 # Determine party alignment bonus
                 party_bonus = 0.0
                 candidate_party = candidate["party"].lower()
@@ -243,15 +242,27 @@ class PresCampaignActions(commands.Cog):
                     party_bonus = state_data["republican"] / 100.0
                 else:
                     party_bonus = state_data["other"] / 100.0
+                
+                # Calculate effective percentage considering lean and momentum
+                # Lean adds a base advantage, momentum amplifies it (exponentially)
+                # The formula here is a simplified representation: base advantage + momentum effect
+                # A more complex formula could involve exponential growth of momentum's impact.
+                
+                # Example: lean_percentage + (current_momentum * 0.1) + (campaign_points * 0.01)
+                # For now, let's use a simpler approach where momentum boosts the base advantage.
+                
+                effective_state_advantage = (party_bonus * 100) + lean_percentage + current_momentum # Simplified: adding momentum directly
+                
+                # Add the campaign points bonus to the effective advantage
+                effective_state_advantage += (campaign_points * 0.01) * 100 # Convert campaign points to percentage
 
                 # Each state contributes equally (1/50th of total)
                 state_weight = 1.0 / len(PRESIDENTIAL_STATE_DATA)
                 
-                # Base percentage from party alignment + campaign point bonus
-                state_contribution = (party_bonus + (campaign_points * 0.01)) * state_weight
+                state_contribution = effective_state_advantage * state_weight
                 total_percentage += state_contribution
 
-            final_percentages[candidate_name] = max(0.01, total_percentage * 100)
+            final_percentages[candidate_name] = max(0.01, total_percentage) # Ensure at least 0.01%
 
         # Normalize to 100%
         total = sum(final_percentages.values())
