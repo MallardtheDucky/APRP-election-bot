@@ -6,59 +6,69 @@ class HelpDropdown(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(
-                label="🎮 Basic Campaign Commands",
-                description="Core campaign actions",
+                label="🎮 Basic Commands",
+                description="Core bot commands",
                 value="basic"
             ),
             discord.SelectOption(
-                label="🏛️ Presidential Commands",
-                description="Presidential campaign actions",
-                value="presidential"
+                label="🏛️ Setup Commands", 
+                description="Guild setup and configuration",
+                value="setup"
             ),
             discord.SelectOption(
-                label="🏛️ PAC Commands",
-                description="Political Action Committee commands",
-                value="pac"
+                label="🎉 Party Management",
+                description="Political party commands",
+                value="party"
             ),
             discord.SelectOption(
                 label="📊 Polling Commands",
-                description="Polling and survey commands",
+                description="Polling and survey commands", 
                 value="polling"
             ),
             discord.SelectOption(
-                label="⏰ Time & Phase Commands",
+                label="🗳️ Election Management",
+                description="Election seats and management",
+                value="election"
+            ),
+            discord.SelectOption(
+                label="⏰ Time Management",
                 description="Election timing and phases",
                 value="time"
             ),
             discord.SelectOption(
-                label="🏛️ Election Seat Management",
-                description="Managing election seats",
-                value="seats"
+                label="📋 Election Signups",
+                description="Candidate signup commands",
+                value="signups"
             ),
             discord.SelectOption(
-                label="🔧 Admin - Election Management",
-                description="Admin election tools",
-                value="admin_election"
+                label="🏛️ Presidential Elections",
+                description="Presidential campaign commands",
+                value="presidential"
             ),
             discord.SelectOption(
-                label="🔧 Admin - Time & Cycle Management",
-                description="Admin time controls",
-                value="admin_time"
+                label="🤝 Endorsements & Delegates",
+                description="Endorsement and delegate commands",
+                value="endorsements"
             ),
             discord.SelectOption(
-                label="🔧 Admin - Seat & State Management",
-                description="Admin seat/state tools",
-                value="admin_seats"
+                label="🗳️ Voting & Results",
+                description="Voting and election results",
+                value="voting"
             ),
             discord.SelectOption(
-                label="🔧 Admin - Setup & Configuration",
-                description="Admin setup commands",
-                value="admin_setup"
+                label="🎯 Campaign Actions",
+                description="Campaign and outreach actions",
+                value="campaign"
             ),
             discord.SelectOption(
-                label="ℹ️ General Info",
-                description="General information commands",
-                value="info"
+                label="🌊 Momentum & Demographics",
+                description="Momentum and demographic commands",
+                value="momentum"
+            ),
+            discord.SelectOption(
+                label="🔧 Admin Commands",
+                description="Administrator-only commands",
+                value="admin"
             )
         ]
         super().__init__(placeholder="Select a command category...", options=options)
@@ -75,108 +85,141 @@ class HelpView(discord.ui.View):
     def get_embed(self, category: str) -> discord.Embed:
         categories = {
             "basic": {
-                "title": "🎮 Basic Campaign Commands",
-                "content": """/signup - Sign up for an election
-/withdraw - Withdraw from an election
-/speech - Hold a speech to earn % points (1200 characters = 1%)
-/canvassing - Go door-to-door canvassing (0.1% points, 1 stamina)
-/donor - Accept donor funds (1000 characters = 1% points, 5 corruption)
-/ad - Submit a campaign video ad (0.3-0.5% points, 1.5 stamina)
-/poster - Submit a campaign poster image (0.2-0.4% points, 1 stamina)
-/endorse - Endorse another candidate (gives them points, no cost to you)"""
+                "title": "🎮 Basic Commands",
+                "content": """/commands - Show this help menu with pagination
+/credits - Lists the people that made this bot"""
             },
-            "presidential": {
-                "title": "🏛️ Presidential Commands",
-                "content": """/pres_signup - Sign up for President with detailed platform information
-/pres_canvassing - Presidential canvassing in a U.S. state (0.1% points, 1 stamina)
-/pres_donor - Presidential donor meeting in a U.S. state (1000 characters = 1% points, 5 corruption)
-/pres_ad - Presidential campaign video ad in a U.S. state (0.3-0.5% points, 1.5 stamina)
-/pres_poster - Presidential campaign poster in a U.S. state (0.2-0.4% points, 1 stamina)
-/pres_polling - Show presidential polling data for a specific U.S. state
-/pres_primary - Show current/upcoming primaries for a party"""
+            "setup": {
+                "title": "🏛️ Setup Commands", 
+                "content": """/setup add_region - Add a US state (by abbreviation) to this guild's election regions
+/setup remove_region - Remove a US state from this guild's regions
+/setup show_config - Show current election configuration
+/setup list_regions - List all the US states you've added as regions
+/setup set_start - Set the start date & time for your election (format: YYYY-MM-DD HH:MM)
+/setup set_announcement_channel - Set the channel for election announcements
+/setup remove_announcement_channel - Remove the announcement channel setting"""
             },
-            "pac": {
-                "title": "🏛️ PAC Commands",
-                "content": """/pac - Start PAC endorsement process for a candidate
-/speech_pac - Give a speech to a PAC for endorsement points
-/view_pac_progress - View PAC endorsement progress for all candidates
-/view_pacs - View all available PACs and their operating states"""
+            "party": {
+                "title": "🎉 Party Management Commands",
+                "content": """/party admin create - Create a new political party (Admin only)
+/party admin remove - Remove a political party (Admin only)
+/party admin edit - Edit an existing political party (Admin only)
+/party admin reset - Reset all parties to default (Admin only - DESTRUCTIVE)
+/party admin bulk_create - Create multiple parties at once (Admin only)
+/party admin remove_all_custom - Remove all custom parties (keep defaults) (Admin only)
+/party admin export - Export party configuration as text (Admin only)
+/party admin modify_color - Change the color of multiple parties at once (Admin only)
+/party info list - List all available political parties"""
             },
             "polling": {
                 "title": "📊 Polling Commands",
-                "content": """/regionpoll - Simulate a regional poll for Senate or Governor races
-/housepoll - Simulate a poll for House races in a U.S. state
-/region_poll - Show polling results for a specific region
-/poll_comparison - Compare polling between multiple regions or states
-/list_signups - List all candidates by phase, race, and party
-/show_primarywinners - Display all candidates who have won a primary election"""
+                "content": """/poll candidate - Conduct an NPC poll for a specific candidate (shows polling with 7% margin of error)
+/poll info state - Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support
+/poll admin bulk_set_votes - Set vote counts for multiple candidates (Admin only)
+/poll admin set_winner_votes - Set election winner and vote counts for general elections (Admin only)
+/poll vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
+/poll vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)"""
+            },
+            "election": {
+                "title": "🗳️ Election Management",
+                "content": """/election admin set_seats - Set up election seats for the guild (Admin only)
+/election admin reset_seats - Reset all election seats (Admin only)
+/election admin view_seats - View all configured election seats (Admin only)
+/election admin bulk_add_seats - Add multiple seats from formatted text (Admin only)
+/election admin fill_vacant_seat - Fill a vacant seat with a user (Admin only)
+/election seat view - View details of a specific election seat
+/election seat list - List all election seats
+/election seat assign - Assign a user to an election seat
+/election seat admin_update - Update a specific election seat (Admin only)
+/election seat admin_reset_term - Reset term for a specific seat (Admin only)
+/election info phases - Show current election phase information
+/election info winners - View election winners"""
             },
             "time": {
-                "title": "⏰ Time & Phase Commands",
-                "content": """/current_time - Show the current RP date and election phase
-/show_phases - Show all election phases and their timing
+                "title": "⏰ Time Management",
+                "content": """/time current_time - Show the current RP date and election phase
+/time set_current_time - Set the current RP date and time (Admin only)
+/time set_time_scale - Set how many real minutes equal one RP day (Admin only)
+/time reset_cycle - Reset the election cycle to the beginning (Admin only)
+/time set_voice_channel - Set which voice channel to update with RP date (Admin only)
+/time toggle_voice_updates - Toggle automatic voice channel name updates (Admin only)
+/time update_voice_channel - Manually update the configured voice channel with current RP date (Admin only)"""
+            },
+            "signups": {
+                "title": "📋 Election Signups",
+                "content": """/signup - Sign up as a candidate for election (only during signup phase)
+/view_signups - View all current candidate signups
+/withdraw_signup - Withdraw your candidacy from the current election
+/my_signup - View your current signup details"""
+            },
+            "presidential": {
+                "title": "🏛️ Presidential Elections",
+                "content": """/pres_signup - Sign up to run for President
+/vp_signup - Sign up to run for Vice President under a specific presidential candidate
+/accept_vp - Accept a VP candidate for your presidential campaign
+/decline_vp - Decline a VP candidate request
+/view_pres_signups - View all current presidential signups
+/my_pres_signup - View your current presidential signup details"""
+            },
+            "endorsements": {
+                "title": "🤝 Endorsements & Delegates",
+                "content": """/endorse - Endorse a candidate (value based on your Discord role)
+/admin_set_endorsement_role - Set Discord role for endorsement position (Admin only)
+/view_endorsement_roles - View current endorsement role mappings (Admin only)
+/view_endorsements - View all endorsements made in current cycle
+/my_endorsement - View your current endorsement status
+/view_delegates - View current delegate count for presidential candidates
+/admin_call_state - Manually call a state for delegate allocation (Admin only)"""
+            },
+            "voting": {
+                "title": "🗳️ Voting & Results",
+                "content": """/vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
+/vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)
+/view_primary_winners - View all primary election winners for the current year
+/admin_set_winner_votes - Set votes for a primary winner (Admin only)
+/admin_declare_general_winners - Declare general election winners based on final scores (Admin only)"""
+            },
+            "campaign": {
+                "title": "🎯 Campaign Actions",
+                "content": """/pres_speech - Give a presidential campaign speech
+/pres_donor - Make a presidential donor appeal
+/pres_canvassing - Conduct presidential canvassing in a state
+/pres_ad - Run a presidential campaign ad
+/pres_poster - Put up presidential campaign posters
+
+/speech - Give a campaign speech for any candidate
+/donor - Make a donor fundraising appeal
+/canvassing - Conduct door-to-door canvassing in a region
+/ad - Run a campaign advertisement
+/poster - Put up campaign posters
+
+/demographic_appeal - Target specific demographic groups with campaign appeals
+/voter_registration - Conduct voter registration drives
+/town_hall - Host town hall meetings
+/grassroots - Organize grassroots campaign events"""
+            },
+            "momentum": {
+                "title": "🌊 Momentum & State Dynamics",
+                "content": """/momentum status - View momentum status for a specific state
+/momentum overview - View momentum overview for all states
+/momentum trigger_collapse - Attempt to trigger momentum collapse for a vulnerable party
+/momentum admin add_momentum - Add momentum to a party in a state (Admin only)
+/momentum admin set_lean - Set or change a state's political lean (Admin only)
+/momentum admin settings - View or modify momentum system settings (Admin only)
+
 /show_regions - Show all available election regions
-/time - Display the current game time (year, month, cycle, and phase)
-/current_date - Display the current RP date
-/current_phase - Display the current election phase with detailed schedule"""
+/show_phases - Show all election phases and their timing
+/admin_view_pres_state_data - View PRESIDENTIAL_STATE_DATA as a formatted table (Admin only)
+/show_primary_winners - Show current presidential primary winners
+/admin_update_winner - Manually update a primary winner (Admin only)
+/admin_reset_winners - Reset all primary winners (Admin only)
+/admin_view_state_percentages - View state-by-state voting percentages for general election (Admin only)"""
             },
-            "seats": {
-                "title": "🏛️ Election Seat Management",
-                "content": """/show_seats - Show all election seats by state or office type
-/seats_up_for_election - Show all seats that are up for election this cycle
-/assign_seat - Assign a user to an election seat
-/vacant_seat - Mark a seat as vacant (remove current holder)
-/toggle_seat_election - Toggle whether a seat is up for election
-/bulk_assign_election - Mark all seats of a specific type or state as up for election
-/election_stats - Show statistics about current elections and seats
-/show_seat_terms - Show term end years for all seats or filter by state/office
-/list_states - List all states/regions and their seat counts"""
-            },
-            "admin_election": {
-                "title": "🔧 Admin - Election Management",
-                "content": """/tally_primarywinners - Tally up points and determine primary winners
-/tally_generalwinners - Tally general election winners based on Points + Votes
-/transfer_winners - Transfer declared winners to All Winners sheet
-/pres_delegate_tally - Process delegate allocation for a primary state
-/pres_delegate - Complete presidential primary: winners, transfer, ideology"""
-            },
-            "admin_time": {
-                "title": "🔧 Admin - Time & Cycle Management",
-                "content": """/set_current_time - Set the current RP date and time
-/set_time_scale - Set how many real minutes equal one RP day
-/reset_cycle - Reset the election cycle to the beginning (Signups phase)
-/set_voice_channel - Set which voice channel to update with RP date
-/toggle_voice_updates - Toggle automatic voice channel name updates
-/update_voice_channel - Manually update the configured voice channel with current RP date
-/pause - Pause or resume the cycle timer
-/change_date - Change the current year, cycle, or month
-/set_date - Set the current RP date manually
-/time_ticker - Manually advance time by one month
-/cycle - Advance the election cycle (1→2, 2→3, 3→1)
-/reversecycle - Reverse the election cycle (1→3, 2→1, 3→2)"""
-            },
-            "admin_seats": {
-                "title": "🔧 Admin - Seat & State Management",
-                "content": """/add_state - Add a new state/region with configurable seats
-/add_districts - Add additional house districts to an existing state
-/add_senate_seats - Add additional senate seats to an existing state
-/remove_seat - Remove a specific seat from the election system
-/remove_state - Remove an entire state/region and all its seats
-/modify_seat_term - Modify the term length for a specific seat type
-/set_seat_term_year - Set a specific term end year for a seat
-/bulk_set_term_years - Bulk set term end years for multiple seats
-/shift_all_term_years_negative - Shift all seat term end years by subtracting years
-/advance_all_terms - Manually advance all seat terms that were up for election"""
-            },
-            "admin_setup": {
-                "title": "🔧 Admin - Setup & Configuration",
-                "content": """/setup_announcement_channel - Set the channel for election announcements
-/show_config - Show current election configuration"""
-            },
-            "info": {
-                "title": "ℹ️ General Info",
-                "content": """/commands - Show this help menu
-/credits - Lists the people that made this bot"""
+            "admin": {
+                "title": "🔧 Admin Commands",
+                "content": """/admin reset_campaign_cooldowns - Reset general campaign action cooldowns for a user (Admin only)
+
+All admin commands from other categories are also available with admin permissions."""
             }
         }
 

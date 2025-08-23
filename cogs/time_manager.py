@@ -11,9 +11,11 @@ class TimeManager(commands.Cog):
         self.time_loop.start()  # Start the time loop
         print("Time Manager cog loaded successfully")
 
-    # Create command groups
+    # Create main time group
     time_group = app_commands.Group(name="time", description="Time management commands")
-    schedule_group = app_commands.Group(name="schedule", description="Schedule management commands")
+
+    # Create admin subgroup for time commands
+    time_admin_group = app_commands.Group(name="admin", description="Admin time commands", parent=time_group)
 
     def cog_unload(self):
         self.time_loop.cancel()
@@ -209,8 +211,133 @@ class TimeManager(commands.Cog):
         except Exception as e:
             print(f"Error in time loop: {e}")
 
-    @time_loop.before_loop
-    async def before_time_loop(self):
+    @tasks.loop(minutes=1)
+    async def time_ticker(self): # Renamed from time_loop to time_ticker to avoid conflict
+        """Update RP time every minute"""
+        try:
+            col = self.bot.db["time_configs"]
+            configs = col.find({})
+
+            for config in configs:
+                current_rp_date, current_phase = self._calculate_current_rp_time(config)
+                guild = self.bot.get_guild(config["guild_id"])
+
+                if not guild:
+                    continue
+
+                # Check if phase changed
+                if current_phase != config["current_phase"]:
+                    # Phase transition occurred
+                    old_phase = config["current_phase"]
+
+                    # Dispatch event to elections cog for automatic handling
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Find a general channel to announce phase change
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🗳️ Election Phase Change",
+                            description=f"We have entered the **{current_phase}** phase!",
+                            color=discord.Color.green(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="Current RP Date", 
+                            value=current_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass  # Ignore if can't send message
+
+                # Update database
+                col.update_one(
+                    {"guild_id": config["guild_id"]},
+                    {
+                        "$set": {
+                            "current_rp_date": current_rp_date,
+                            "current_phase": current_phase,
+                            "last_real_update": datetime.utcnow()
+                        }
+                    }
+                )
+
+                # Check if we need to auto-reset cycle (after General Election ends)
+                if (current_phase == "General Election" and 
+                    current_rp_date.month == 12 and current_rp_date.day >= 31):
+                    # Auto-reset to next cycle (next odd year for signups)
+                    next_year = current_rp_date.year + 1
+                    new_rp_date = datetime(next_year, 2, 1)
+
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {
+                            "$set": {
+                                "current_rp_date": new_rp_date,
+                                "current_phase": "Signups",
+                                "last_real_update": datetime.utcnow()
+                            }
+                        }
+                    )
+
+                    # Dispatch event to elections cog for new cycle automation
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Announce new cycle
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🔄 New Election Cycle Started!",
+                            description=f"The {next_year} election cycle has begun! We are now in the **Signups** phase.",
+                            color=discord.Color.gold(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="New RP Date", 
+                            value=new_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass
+
+                # Update voice channel if enabled and configured
+                if (config.get("update_voice_channels", True) and 
+                    config.get("voice_channel_id")):
+                    date_string = current_rp_date.strftime("%B %d, %Y")
+                    channel = guild.get_channel(config["voice_channel_id"])
+                    if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
+                        try:
+                            new_name = f"📅 {date_string}"
+                            if channel.name != new_name:
+                                await channel.edit(name=new_name)
+                                print(f"Updated voice channel to: {new_name}")
+                        except Exception as e:
+                            print(f"Failed to update voice channel: {e}")
+                            pass  # Ignore if can't edit channel
+
+        except Exception as e:
+            print(f"Error in time loop: {e}")
+
+    @time_ticker.before_loop
+    async def before_time_ticker(self):
         await self.bot.wait_until_ready()
 
     @time_group.command(
@@ -247,7 +374,7 @@ class TimeManager(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.checks.has_permissions(administrator=True)
-    @time_group.command(
+    @time_admin_group.command( # Changed to time_admin_group
         name="set_current_time",
         description="Set the current RP date and time"
     )
@@ -315,7 +442,7 @@ class TimeManager(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
-    @time_group.command(
+    @time_admin_group.command( # Changed to time_admin_group
         name="set_time_scale",
         description="Set how many real minutes equal one RP day"
     )
@@ -355,7 +482,7 @@ class TimeManager(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(administrator=True)
-    @time_group.command(
+    @time_admin_group.command( # Changed to time_admin_group
         name="reset_cycle",
         description="Reset the election cycle to the beginning (Signups phase)"
     )
@@ -494,7 +621,7 @@ class TimeManager(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.checks.has_permissions(administrator=True)
-    @time_group.command(
+    @time_admin_group.command( # Changed to time_admin_group
         name="set_voice_channel",
         description="Set which voice channel to update with RP date"
     )
@@ -517,7 +644,7 @@ class TimeManager(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(administrator=True)
-    @time_group.command(
+    @time_admin_group.command( # Changed to time_admin_group
         name="toggle_voice_updates",
         description="Toggle automatic voice channel name updates with current RP date"
     )
@@ -540,7 +667,7 @@ class TimeManager(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(administrator=True)
-    @time_group.command(
+    @time_admin_group.command( # Changed to time_admin_group
         name="update_voice_channel",
         description="Manually update the configured voice channel with current RP date"
     )

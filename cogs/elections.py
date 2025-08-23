@@ -177,10 +177,10 @@ class Elections(commands.Cog):
     election_seat_group = app_commands.Group(name="seat", description="Seat management commands", parent=election_group)
     election_state_group = app_commands.Group(name="state", description="State management commands", parent=election_group)
     
-    # Create separate vote group (not under election to reduce nesting)
-    vote_group = app_commands.Group(name="vote", description="Voting commands")
+    # Create vote subgroup under election to consolidate commands
+    election_vote_group = app_commands.Group(name="vote", description="Voting commands", parent=election_group)
 
-    @vote_group.command(
+    @election_vote_group.command(
         name="admin_bulk_set_votes",
         description="Set vote counts for multiple candidates (Admin only)"
     )
@@ -248,7 +248,7 @@ class Elections(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @vote_group.command(
+    @election_vote_group.command(
         name="admin_set_winner_votes",
         description="Set election winner and vote counts for general elections (Admin only)"
     )
@@ -2072,7 +2072,7 @@ class Elections(commands.Cog):
 
     @election_admin_group.command(
         name="import_seat_term_years",
-        description="Import term end years for specific seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR,...)"
+        description="Import term end years for specific seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR)"
     )
     async def import_seat_term_years(
         self,
