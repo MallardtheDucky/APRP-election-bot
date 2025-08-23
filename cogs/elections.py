@@ -10,9 +10,215 @@ class Elections(commands.Cog):
         self.seats_data = self._initialize_seats()
         print("Elections cog loaded successfully")
 
-    # Create command groups
+    # Create main command group
     election_group = app_commands.Group(name="election", description="Election management commands")
+    
+    # Create subgroups under election
+    election_admin_group = app_commands.Group(name="admin", description="Election admin commands", parent=election_group)
+    election_info_group = app_commands.Group(name="info", description="Election information commands", parent=election_group)
+    election_seat_group = app_commands.Group(name="seat", description="Seat management commands", parent=election_group)
+    election_state_group = app_commands.Group(name="state", description="State management commands", parent=election_group)
+    
+    # Create separate vote group (not under election to reduce nesting)
     vote_group = app_commands.Group(name="vote", description="Voting commands")
+
+    @vote_group.command(
+        name="admin_bulk_set_votes",
+        description="Set vote counts for multiple candidates (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_bulk_set_votes(
+        self,
+        interaction: discord.Interaction,
+        seat_id: str,
+        vote_data: str
+    ):
+        """Set vote counts for candidates in format: candidate1:votes,candidate2:votes"""
+        votes_col = self.bot.db["votes"]
+        
+        # Clear existing votes for this seat
+        votes_col.delete_many({
+            "guild_id": interaction.guild.id,
+            "seat_id": seat_id.upper()
+        })
+        
+        # Parse vote data
+        vote_pairs = vote_data.split(",")
+        total_votes = 0
+        added_candidates = []
+        
+        for pair in vote_pairs:
+            try:
+                candidate, vote_count_str = pair.strip().split(":")
+                vote_count = int(vote_count_str)
+                
+                # Create fake votes for this candidate
+                for i in range(vote_count):
+                    vote_record = {
+                        "guild_id": interaction.guild.id,
+                        "user_id": f"fake_voter_{seat_id}_{candidate}_{i}",  # Fake user ID
+                        "seat_id": seat_id.upper(),
+                        "candidate": candidate.strip(),
+                        "timestamp": datetime.utcnow()
+                    }
+                    votes_col.insert_one(vote_record)
+                
+                total_votes += vote_count
+                added_candidates.append(f"{candidate.strip()}: {vote_count}")
+                
+            except (ValueError, IndexError):
+                await interaction.response.send_message(f"❌ Invalid format in: {pair}", ephemeral=True)
+                return
+        
+        embed = discord.Embed(
+            title=f"✅ Votes Set for {seat_id}",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+        
+        embed.add_field(
+            name="Vote Counts",
+            value="\n".join(added_candidates),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Total Votes",
+            value=str(total_votes),
+            inline=True
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @vote_group.command(
+        name="admin_set_winner_votes",
+        description="Set election winner and vote counts for general elections (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_set_winner_votes(
+        self,
+        interaction: discord.Interaction,
+        seat_id: str,
+        winner_candidate: str,
+        vote_data: str
+    ):
+        """Set election winner and vote counts for general elections"""
+        # Check if we're in general election phase
+        time_col = self.bot.db["time_configs"]
+        time_config = time_col.find_one({"guild_id": interaction.guild.id})
+        
+        if time_config:
+            current_phase = time_config.get("current_phase", "")
+            if "General" not in current_phase:
+                await interaction.response.send_message(
+                    "⚠️ This command is intended for general elections only.",
+                    ephemeral=True
+                )
+        
+        # Set the votes using the bulk vote function
+        votes_col = self.bot.db["votes"]
+        
+        # Clear existing votes for this seat
+        votes_col.delete_many({
+            "guild_id": interaction.guild.id,
+            "seat_id": seat_id.upper()
+        })
+        
+        # Parse vote data
+        vote_pairs = vote_data.split(",")
+        total_votes = 0
+        added_candidates = []
+        winner_votes = 0
+        
+        for pair in vote_pairs:
+            try:
+                candidate, vote_count_str = pair.strip().split(":")
+                vote_count = int(vote_count_str)
+                candidate = candidate.strip()
+                
+                # Track winner votes
+                if candidate.lower() == winner_candidate.lower():
+                    winner_votes = vote_count
+                
+                # Create fake votes for this candidate
+                for i in range(vote_count):
+                    vote_record = {
+                        "guild_id": interaction.guild.id,
+                        "user_id": f"fake_voter_{seat_id}_{candidate}_{i}",
+                        "seat_id": seat_id.upper(),
+                        "candidate": candidate,
+                        "timestamp": datetime.utcnow()
+                    }
+                    votes_col.insert_one(vote_record)
+                
+                total_votes += vote_count
+                added_candidates.append(f"{candidate}: {vote_count}")
+                
+            except (ValueError, IndexError):
+                await interaction.response.send_message(f"❌ Invalid format in: {pair}", ephemeral=True)
+                return
+        
+        # Update the seat with the winner
+        col, config = self._get_elections_config(interaction.guild.id)
+        
+        # Find and update the seat
+        seat_found = None
+        for i, seat in enumerate(config["seats"]):
+            if seat["seat_id"].upper() == seat_id.upper():
+                seat_found = i
+                break
+        
+        if seat_found is not None:
+            # Get current RP year for term calculation
+            current_year = time_config["current_rp_date"].year if time_config else 2024
+            term_start = datetime(current_year, 1, 1)
+            term_end = datetime(current_year + config["seats"][seat_found]["term_years"], 1, 1)
+            
+            config["seats"][seat_found].update({
+                "current_holder": winner_candidate,
+                "current_holder_id": None,  # No real user ID for admin-set winners
+                "term_start": term_start,
+                "term_end": term_end,
+                "up_for_election": False
+            })
+            
+            col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"seats": config["seats"]}}
+            )
+        
+        embed = discord.Embed(
+            title=f"🏆 General Election Results: {seat_id}",
+            color=discord.Color.gold(),
+            timestamp=datetime.utcnow()
+        )
+        
+        embed.add_field(
+            name="🎉 Winner",
+            value=f"**{winner_candidate}** ({winner_votes:,} votes)",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 All Results",
+            value="\n".join(added_candidates),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📈 Total Votes Cast",
+            value=f"{total_votes:,}",
+            inline=True
+        )
+        
+        if seat_found is not None:
+            embed.add_field(
+                name="🏛️ Seat Assigned",
+                value=f"Winner has been assigned to {seat_id}",
+                inline=True
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.Cog.listener()
     async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
@@ -375,7 +581,7 @@ class Elections(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    @election_group.command(
+    @election_info_group.command(
         name="show_seats",
         description="Show all election seats by state or office type"
     )
@@ -440,8 +646,8 @@ class Elections(commands.Cog):
             await interaction.followup.send(f"❌ Error loading seats: {str(e)}", ephemeral=True)
 
 
-    @election_group.command(
-        name="assign_seat",
+    @election_seat_group.command(
+        name="assign",
         description="Assign a user to an election seat"
     )
     async def assign_seat(
@@ -499,7 +705,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
+    @election_info_group.command(
         name="seats_up_for_election",
         description="Show all seats that are up for election this cycle"
     )
@@ -572,8 +778,8 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @election_group.command(
-        name="toggle_seat_election",
+    @election_seat_group.command(
+        name="toggle_election",
         description="Toggle whether a seat is up for election"
     )
     async def toggle_seat_election(
@@ -611,8 +817,8 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
-        name="vacant_seat",
+    @election_seat_group.command(
+        name="vacant",
         description="Mark a seat as vacant (remove current holder)"
     )
     async def vacant_seat(
@@ -654,7 +860,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
+    @election_seat_group.command(
         name="bulk_assign_election",
         description="Mark all seats of a specific type or state as up for election"
     )
@@ -708,8 +914,8 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
-        name="modify_seat_term",
+    @election_seat_group.command(
+        name="modify_term",
         description="Modify the term length for a specific seat type"
     )
     async def modify_seat_term(
@@ -757,8 +963,8 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
-        name="election_stats",
+    @election_info_group.command(
+        name="stats",
         description="Show statistics about current elections and seats"
     )
     async def election_stats(self, interaction: discord.Interaction):
@@ -840,8 +1046,8 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @election_group.command(
-        name="add_state",
+    @election_state_group.command(
+        name="add",
         description="Add a new state/region with configurable seats"
     )
     async def add_state(
@@ -940,7 +1146,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
+    @election_state_group.command(
         name="add_districts",
         description="Add additional house districts to an existing state"
     )
@@ -1017,7 +1223,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
+    @election_state_group.command(
         name="add_senate_seats",
         description="Add additional senate seats to an existing state"
     )
@@ -1093,8 +1299,8 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
-        name="remove_seat",
+    @election_seat_group.command(
+        name="remove",
         description="Remove a specific seat from the election system"
     )
     async def remove_seat(
@@ -1128,8 +1334,8 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
-        name="remove_state",
+    @election_state_group.command(
+        name="remove",
         description="Remove an entire state/region and all its seats"
     )
     async def remove_state(
@@ -1179,8 +1385,8 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
-        name="set_seat_term_year",
+    @election_seat_group.command(
+        name="set_term_year",
         description="Set a specific term end year for a seat"
     )
     async def set_seat_term_year(
@@ -1222,7 +1428,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_group.command(
+    @election_admin_group.command(
         name="bulk_set_term_years",
         description="Bulk set term end years for multiple seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR)"
     )
@@ -1280,7 +1486,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @election_group.command(
+    @election_admin_group.command(
         name="advance_all_terms",
         description="Manually advance all seat terms that were up for election"
     )
@@ -1303,7 +1509,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @election_group.command(
+    @election_info_group.command(
         name="show_seat_terms",
         description="Show term end years for all seats or filter by state/office"
     )
@@ -1390,7 +1596,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @election_group.command(
+    @election_info_group.command(
         name="list_states",
         description="List all states/regions and their seat counts"
     )
@@ -1445,7 +1651,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @election_group.command(
+    @election_admin_group.command(
         name="import_seat_term_years",
         description="Import specific term end years for seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR,...)"
     )
@@ -1519,7 +1725,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @election_group.command(
+    @election_admin_group.command(
         name="shift_all_term_years_negative",
         description="Shift all seat term end years by a specified number of years (subtract)"
     )

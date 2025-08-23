@@ -1457,5 +1457,135 @@ class PresCampaignActions(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(
+        name="admin_add_pres_points",
+        description="Directly add campaign points to a presidential candidate (Admin only)"
+    )
+    @app_commands.describe(
+        candidate_name="Name of the presidential candidate",
+        points="Points to add (can be negative to subtract)",
+        state="State to add points to (required for General Campaign)",
+        reason="Reason for the point adjustment"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_add_pres_points(
+        self,
+        interaction: discord.Interaction,
+        candidate_name: str,
+        points: float,
+        state: str = None,
+        reason: str = "Admin adjustment"
+    ):
+        # Get target candidate
+        target_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
+        if not target_candidate:
+            await interaction.response.send_message(
+                f"❌ Presidential candidate '{candidate_name}' not found.",
+                ephemeral=True
+            )
+            return
+
+        # Check current phase to determine how to add points
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+
+        if current_phase == "General Campaign":
+            if not state:
+                await interaction.response.send_message(
+                    "❌ State parameter is required for General Campaign phase.",
+                    ephemeral=True
+                )
+                return
+
+            state_upper = state.upper()
+            if state_upper not in PRESIDENTIAL_STATE_DATA:
+                await interaction.response.send_message(
+                    f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
+                    ephemeral=True
+                )
+                return
+
+            # Update state points and total points for general campaign
+            target_col.update_one(
+                {"guild_id": interaction.guild.id, "winners.user_id": target_candidate["user_id"]},
+                {
+                    "$inc": {
+                        f"winners.$.state_points.{state_upper}": points,
+                        "winners.$.total_points": points
+                    }
+                }
+            )
+
+            # Calculate new percentages
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+            updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+
+            embed = discord.Embed(
+                title="⚙️ Presidential Points Added (General Campaign)",
+                description=f"Admin point adjustment for **{target_candidate['name']}**",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="📊 General Campaign Adjustment",
+                value=f"**Candidate:** {target_candidate['name']}\n"
+                      f"**State:** {state_upper}\n"
+                      f"**Points Added:** {points:+.2f}\n"
+                      f"**National Polling:** {updated_percentage:.1f}%\n"
+                      f"**Reason:** {reason}",
+                inline=False
+            )
+
+        else:
+            # For primary campaign, add to general points
+            target_col.update_one(
+                {"guild_id": interaction.guild.id, "candidates.user_id": target_candidate["user_id"]},
+                {
+                    "$inc": {
+                        "candidates.$.points": points
+                    }
+                }
+            )
+
+            # Get updated points
+            updated_candidate = target_col.find_one({"guild_id": interaction.guild.id})
+            updated_points = 0
+            for candidate in updated_candidate.get("candidates", []):
+                if candidate["user_id"] == target_candidate["user_id"]:
+                    updated_points = candidate.get("points", 0)
+                    break
+
+            embed = discord.Embed(
+                title="⚙️ Presidential Points Added (Primary Campaign)",
+                description=f"Admin point adjustment for **{target_candidate['name']}**",
+                color=discord.Color.orange(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="📊 Primary Campaign Adjustment",
+                value=f"**Candidate:** {target_candidate['name']}\n"
+                      f"**Points Added:** {points:+.2f}\n"
+                      f"**Total Points:** {updated_points:.2f}%\n"
+                      f"**Reason:** {reason}",
+                inline=False
+            )
+
+        embed.set_footer(text=f"Adjusted by {interaction.user.display_name}")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # Autocomplete for admin commands
+    @admin_add_pres_points.autocomplete("candidate_name")
+    async def candidate_autocomplete_admin(self, interaction: discord.Interaction, current: str):
+        return await self._get_presidential_candidate_choices(interaction, current)
+
+    @admin_add_pres_points.autocomplete("state")
+    async def state_autocomplete_admin(self, interaction: discord.Interaction, current: str):
+        states = list(PRESIDENTIAL_STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
+
 async def setup(bot):
     await bot.add_cog(PresCampaignActions(bot))

@@ -35,8 +35,11 @@ class Basics(commands.Cog):  # Capitalized as per style
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="admin_reset_campaign_cooldowns",
+    # Create admin command group
+    admin_group = app_commands.Group(name="admin", description="Admin-only commands")
+
+    @admin_group.command(
+        name="reset_campaign_cooldowns",
         description="Reset general campaign action cooldowns for a user (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)

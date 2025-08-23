@@ -11,9 +11,13 @@ class Polling(commands.Cog):
         self.bot = bot
         print("Polling cog loaded successfully")
 
-    # Create command groups
+    # Create main command groups
     poll_group = app_commands.Group(name="poll", description="Polling commands")
-    survey_group = app_commands.Group(name="survey", description="Survey commands")
+
+    # Create subgroups
+    poll_admin_group = app_commands.Group(name="admin", description="Poll admin commands", parent=poll_group)
+    poll_vote_group = app_commands.Group(name="vote", description="Poll voting commands", parent=poll_group)
+    poll_info_group = app_commands.Group(name="info", description="Poll information commands", parent=poll_group)
 
     def _get_signups_config(self, guild_id: int):
         """Get signups configuration"""
@@ -58,6 +62,7 @@ class Polling(commands.Cog):
                     return winners_col, winner
 
             return winners_col, None
+
         else:
             # Look in signups collection for primary campaign
             signups_col, signups_config = self._get_signups_config(guild_id)
@@ -267,6 +272,7 @@ class Polling(commands.Cog):
 
         return poll_result
 
+    # Commands under /poll group
     @poll_group.command(
         name="candidate",
         description="Conduct an NPC poll for a specific candidate (shows polling with 7% margin of error)"
@@ -444,7 +450,7 @@ class Polling(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @survey_group.command(
+    @poll_info_group.command(
         name="state",
         description="Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support."
     )
@@ -523,8 +529,6 @@ class Polling(commands.Cog):
             value=results_text,
             inline=False
         )
-
-        
 
         embed.add_field(
             name="📋 Poll Details",

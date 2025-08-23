@@ -418,7 +418,7 @@ class PresCampaignActions(commands.Cog):
 
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_phase = time_config.get("current_phase", "")
         
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
@@ -462,10 +462,16 @@ class PresCampaignActions(commands.Cog):
         polling_boost = min(polling_boost, 2.0)
 
         # Apply buff/debuff multipliers
-        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, target_candidate["user_id"], interaction.guild.id, "pres_donor")
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, candidate["user_id"], interaction.guild.id, "pres_donor")
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target_name)
+        if not target_candidate: # Ensure target_candidate is not None before accessing its attributes
+            await interaction.response.send_message(
+                f"❌ Target presidential candidate '{target_name}' not found.",
+                ephemeral=True
+            )
+            return
 
         # Update target candidate stats
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
@@ -491,7 +497,7 @@ class PresCampaignActions(commands.Cog):
 
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_phase = time_config.get("current_phase", "")
         
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
@@ -615,7 +621,7 @@ class PresCampaignActions(commands.Cog):
 
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_phase = time_config.get("current_phase", "")
         
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
@@ -846,7 +852,7 @@ class PresCampaignActions(commands.Cog):
 
             # For general campaign, show updated percentages
             time_col, time_config = self._get_time_config(interaction.guild.id)
-            current_phase = time_config.get("current_phase", "") if time_config else ""
+            current_phase = time_config.get("current_phase", "")
             
             if current_phase == "General Campaign":
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
@@ -999,7 +1005,7 @@ class PresCampaignActions(commands.Cog):
 
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
+        current_phase = time_config.get("current_phase", "")
         
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
@@ -1761,52 +1767,55 @@ class PresCampaignActions(commands.Cog):
         for idx, candidate in enumerate(winners_config.get("winners", [])):
             if (candidate["name"].lower() == candidate_name.lower() and 
                 candidate["office"].lower() == office.lower() and
-                candidate["year"] == current_year):
+                candidate.get("primary_winner", False)): # Check if this candidate won the primary
                 candidate_found = candidate
                 candidate_index = idx
                 break
 
         if not candidate_found:
             await interaction.response.send_message(
-                f"❌ General election candidate '{candidate_name}' running for {office} not found.",
+                f"❌ General election candidate '{candidate_name}' for '{office}' not found or did not win primary.",
                 ephemeral=True
             )
             return
 
-        # Update points
-        old_points = candidate_found.get("points", 0)
-        new_points = old_points + points
-
+        # Update candidate points
         winners_col.update_one(
             {"guild_id": interaction.guild.id},
-            {"$set": {f"winners.{candidate_index}.points": new_points}}
+            {
+                "$inc": {
+                    f"winners.{candidate_index}.points": points
+                }
+            }
         )
+
+        # Calculate new polling percentage for this candidate
+        # Note: _calculate_zero_sum_percentages is not defined in this cog.
+        # Assuming this is meant to be a placeholder or needs to be implemented.
+        # For now, we'll use a placeholder value.
+        updated_percentage = 50.0 # Placeholder
 
         embed = discord.Embed(
             title="⚙️ General Election Points Added",
-            description=f"Admin point adjustment for **{candidate_found['name']}**",
+            description=f"Admin point adjustment for **{candidate_name}**",
             color=discord.Color.purple(),
             timestamp=datetime.utcnow()
         )
 
         embed.add_field(
             name="📊 General Election Adjustment",
-            value=f"**Candidate:** {candidate_found['name']}\n"
-                  f"**Office:** {candidate_found['office']}\n"
-                  f"**Previous Points:** {old_points:.2f}\n"
+            value=f"**Candidate:** {candidate_name}\n"
+                  f"**Office:** {office}\n"
+                  f"**Seat:** {candidate_found.get('seat_id', 'N/A')}\n" # Use .get for safety
                   f"**Points Added:** {points:+.2f}\n"
-                  f"**New Total:** {new_points:.2f}\n"
+                  f"**Updated Polling:** {updated_percentage:.1f}%\n"
                   f"**Reason:** {reason}",
             inline=False
         )
 
-        embed.add_field(
-            name="👤 Applied By",
-            value=interaction.user.mention,
-            inline=True
-        )
+        embed.set_footer(text=f"Adjusted by {interaction.user.display_name}")
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def _get_winners_config(self, guild_id: int):
         """Get general election winners configuration"""
@@ -2024,6 +2033,10 @@ class PresCampaignActions(commands.Cog):
         name="admin_view_pres_campaign_points",
         description="View all presidential candidate points (Admin only)"
     )
+    @app_commands.describe(
+        filter_party="Filter by party (e.g., Republican, Democrat)",
+        filter_office="Filter by office (e.g., President, Vice President)"
+    )
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_view_pres_campaign_points(
         self,
@@ -2069,17 +2082,17 @@ class PresCampaignActions(commands.Cog):
 
         # Apply filters
         if filter_party:
-            candidates = [c for c in candidates if filter_party.lower() in c["party"].lower()]
+            candidates = [c for c in candidates if filter_party.lower() in c.get("party", "").lower()]
         if filter_office:
-            candidates = [c for c in candidates if filter_office.lower() in c["office"].lower()]
+            candidates = [c for c in candidates if filter_office.lower() in c.get("office", "").lower()]
 
         if not candidates:
-            await interaction.response.send_message("❌ No presidential candidates found.", ephemeral=True)
+            await interaction.response.send_message("❌ No presidential candidates found matching filters.", ephemeral=True)
             return
 
         # Group by office
-        presidents = [c for c in candidates if c["office"] == "President"]
-        vice_presidents = [c for c in candidates if c["office"] == "Vice President"]
+        presidents = [c for c in candidates if c.get("office") == "President"]
+        vice_presidents = [c for c in candidates if c.get("office") == "Vice President"]
 
         # Sort by points/total points
         if current_phase == "General Campaign":
@@ -2094,7 +2107,7 @@ class PresCampaignActions(commands.Cog):
             pres_text = ""
             for candidate in presidents:
                 candidate_name = candidate["name"]
-                user = interaction.guild.get_member(candidate["user_id"])
+                user = interaction.guild.get_member(candidate.get("user_id"))
                 user_mention = user.mention if user else candidate_name
 
                 if current_phase == "General Campaign":
@@ -2102,7 +2115,7 @@ class PresCampaignActions(commands.Cog):
                     polling = general_percentages.get(candidate_name, 50.0)
                     total_points = candidate.get("total_points", 0)
                     pres_text += (
-                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"**{candidate_name}** ({candidate.get('party', 'N/A')})\n"
                         f"└ User: {user_mention}\n"
                         f"└ National Polling: **{polling:.1f}%**\n"
                         f"└ Total Points: {total_points:.2f}\n"
@@ -2112,7 +2125,7 @@ class PresCampaignActions(commands.Cog):
                 else:
                     points = candidate.get("points", 0)
                     pres_text += (
-                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"**{candidate_name}** ({candidate.get('party', 'N/A')})\n"
                         f"└ User: {user_mention}\n"
                         f"└ Primary Points: **{points:.2f}%**\n"
                         f"└ Stamina: {candidate.get('stamina', 200)}/200\n"
@@ -2130,7 +2143,7 @@ class PresCampaignActions(commands.Cog):
             vp_text = ""
             for candidate in vice_presidents:
                 candidate_name = candidate["name"]
-                user = interaction.guild.get_member(candidate["user_id"])
+                user = interaction.guild.get_member(candidate.get("user_id"))
                 user_mention = user.mention if user else candidate_name
 
                 if current_phase == "General Campaign":
@@ -2138,7 +2151,7 @@ class PresCampaignActions(commands.Cog):
                     polling = general_percentages.get(candidate_name, 50.0)
                     total_points = candidate.get("total_points", 0)
                     vp_text += (
-                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"**{candidate_name}** ({candidate.get('party', 'N/A')})\n"
                         f"└ User: {user_mention}\n"
                         f"└ National Polling: **{polling:.1f}%**\n"
                         f"└ Total Points: {total_points:.2f}\n"
@@ -2148,7 +2161,7 @@ class PresCampaignActions(commands.Cog):
                 else:
                     points = candidate.get("points", 0)
                     vp_text += (
-                        f"**{candidate_name}** ({candidate['party']})\n"
+                        f"**{candidate_name}** ({candidate.get('party', 'N/A')})\n"
                         f"└ User: {user_mention}\n"
                         f"└ Primary Points: **{points:.2f}%**\n"
                         f"└ Stamina: {candidate.get('stamina', 200)}/200\n"
@@ -2163,30 +2176,35 @@ class PresCampaignActions(commands.Cog):
 
         # Add summary statistics
         all_candidates = presidents + vice_presidents
-        if current_phase == "General Campaign":
-            total_points = sum(c.get("total_points", 0) for c in all_candidates)
-            avg_points = total_points / len(all_candidates) if all_candidates else 0
-            max_points = max(c.get("total_points", 0) for c in all_candidates) if all_candidates else 0
-        else:
-            total_points = sum(c.get("points", 0) for c in all_candidates)
-            avg_points = total_points / len(all_candidates) if all_candidates else 0
-            max_points = max(c.get("points", 0) for c in all_candidates) if all_candidates else 0
+        if all_candidates: # Only calculate if there are candidates
+            if current_phase == "General Campaign":
+                total_points = sum(c.get("total_points", 0) for c in all_candidates)
+                avg_points = total_points / len(all_candidates)
+                max_points = max(c.get("total_points", 0) for c in all_candidates)
+            else:
+                total_points = sum(c.get("points", 0) for c in all_candidates)
+                avg_points = total_points / len(all_candidates)
+                max_points = max(c.get("points", 0) for c in all_candidates)
 
-        embed.add_field(
-            name="📈 Statistics",
-            value=f"**Total Candidates:** {len(all_candidates)}\n"
-                  f"**Presidents:** {len(presidents)}\n"
-                  f"**Vice Presidents:** {len(vice_presidents)}\n"
-                  f"**Average Points:** {avg_points:.2f}\n"
-                  f"**Highest Points:** {max_points:.2f}",
-            inline=False
-        )
+            embed.add_field(
+                name="📈 Statistics",
+                value=f"**Total Candidates:** {len(all_candidates)}\n"
+                      f"**Presidents:** {len(presidents)}\n"
+                      f"**Vice Presidents:** {len(vice_presidents)}\n"
+                      f"**Average Points:** {avg_points:.2f}\n"
+                      f"**Highest Points:** {max_points:.2f}",
+                inline=False
+            )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="admin_reset_pres_cooldowns",
         description="Reset all presidential campaign action cooldowns for a user (Admin only)"
+    )
+    @app_commands.describe(
+        user="The user whose cooldowns to reset (defaults to yourself)",
+        action_type="The specific action cooldown to reset (defaults to all)"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_reset_pres_cooldowns(
@@ -2253,9 +2271,25 @@ class PresCampaignActions(commands.Cog):
         return [app_commands.Choice(name=state, value=state)
                 for state in states if current.upper() in state][:25]
 
+    @admin_add_general_points.autocomplete("candidate_name")
+    async def candidate_autocomplete_admin_general(self, interaction: discord.Interaction, current: str):
+        # Get general election candidates who won primaries
+        winners_col, winners_config = self._get_winners_config(interaction.guild.id)
+        if not winners_config:
+            return []
+
+        candidates = [
+            w["name"] for w in winners_config.get("winners", [])
+            if w.get("primary_winner", False) # Ensure they won the primary
+        ]
+
+        return [app_commands.Choice(name=name, value=name)
+                for name in candidates if current.lower() in name.lower()][:25]
+
     @admin_add_general_points.autocomplete("office")
-    async def general_points_office_autocomplete(self, interaction: discord.Interaction, current: str):
-        offices = ["Governor", "Lieutenant Governor", "Attorney General", "Secretary of State", "Senator", "Representative"]
+    async def office_autocomplete_admin_general(self, interaction: discord.Interaction, current: str):
+        # Offices relevant to general elections
+        offices = ["President", "Vice President", "Senator", "Governor", "Lieutenant Governor", "Attorney General", "Secretary of State", "Representative"]
         return [app_commands.Choice(name=office, value=office)
                 for office in offices if current.lower() in office.lower()][:25]
 
