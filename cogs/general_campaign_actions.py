@@ -6,6 +6,7 @@ import random
 import asyncio
 from typing import Optional, List
 from .presidential_winners import PRESIDENTIAL_STATE_DATA
+from cogs.ideology import STATE_DATA
 
 class PresCampaignActions(commands.Cog):
     def __init__(self, bot):
@@ -1115,6 +1116,106 @@ class PresCampaignActions(commands.Cog):
         # Show modal for speech input
         modal = self.PresidentialSpeechModal(target, state_upper)
         await interaction.response.send_modal(modal)
+
+    @app_commands.command(
+        name="speech",
+        description="Give a speech in a specific state with ideology alignment bonus"
+    )
+    @app_commands.describe(
+        state="The state where you're giving the speech",
+        ideology="Your campaign's ideological stance"
+    )
+    async def speech(
+        self,
+        interaction: discord.Interaction,
+        state: str,
+        ideology: str
+    ):
+        """Give a speech with potential state and ideology bonus"""
+        state_key = state.upper()
+
+        # Check if state exists in STATE_DATA
+        if state_key not in STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ State '{state}' not found. Please enter a valid US state name.",
+                ephemeral=True
+            )
+            return
+
+        state_data = STATE_DATA[state_key]
+
+        # Check for ideology match
+        ideology_match = False
+        if state_data.get("ideology", "").lower() == ideology.lower():
+            ideology_match = True
+
+        # Calculate bonus
+        bonus = 0.0
+        if ideology_match:
+            bonus = 1.0  # 1% bonus for ideology match
+        else:
+            bonus = 0.5  # 0.5% base bonus for giving a speech
+
+        # Create response embed
+        embed = discord.Embed(
+            title=f"🎤 Speech in {state.title()}",
+            description=f"You delivered a speech in {state.title()}!",
+            color=discord.Color.blue() if ideology_match else discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📍 State Information",
+            value=f"**State:** {state.title()}\n"
+                  f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
+                  f"**Your Ideology:** {ideology}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="🎯 Speech Results",
+            value=f"**Ideology Match:** {'✅ Yes' if ideology_match else '❌ No'}\n"
+                  f"**Bonus Gained:** +{bonus}%\n"
+                  f"**Reason:** {'Perfect ideology alignment!' if ideology_match else 'Base speech bonus'}",
+            inline=True
+        )
+
+        if ideology_match:
+            embed.add_field(
+                name="🌟 Special Bonus",
+                value="Your ideology perfectly aligns with this state's political climate, "
+                      "resulting in maximum speech effectiveness!",
+                inline=False
+            )
+
+        embed.set_footer(text="Campaign Action: Speech")
+
+        await interaction.response.send_message(embed=embed)
+
+    @speech.autocomplete("state")
+    async def state_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for state names"""
+        states = list(STATE_DATA.keys())
+        return [
+            app_commands.Choice(name=state.title(), value=state)
+            for state in states 
+            if current.upper() in state
+        ][:25]
+
+    @speech.autocomplete("ideology")
+    async def ideology_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for ideology options"""
+        ideologies = set()
+        for state_data in STATE_DATA.values():
+            if "ideology" in state_data:
+                ideologies.add(state_data["ideology"])
+
+        ideology_list = sorted(list(ideologies))
+        return [
+            app_commands.Choice(name=ideology, value=ideology)
+            for ideology in ideology_list
+            if current.lower() in ideology.lower()
+        ][:25]
 
     # State autocomplete for all commands
     @pres_canvassing.autocomplete("state")

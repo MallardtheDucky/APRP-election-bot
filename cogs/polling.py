@@ -11,13 +11,11 @@ class Polling(commands.Cog):
         self.bot = bot
         print("Polling cog loaded successfully")
 
-    # Create main command groups
+    # Create main command group
     poll_group = app_commands.Group(name="poll", description="Polling commands")
-
-    # Create subgroups
-    poll_admin_group = app_commands.Group(name="admin", description="Poll admin commands", parent=poll_group)
-    poll_vote_group = app_commands.Group(name="vote", description="Poll voting commands", parent=poll_group)
-    poll_info_group = app_commands.Group(name="info", description="Poll information commands", parent=poll_group)
+    
+    # Create admin subgroup
+    poll_admin_group = app_commands.Group(name="admin", description="Admin polling commands", parent=poll_group)
 
     def _get_signups_config(self, guild_id: int):
         """Get signups configuration"""
@@ -56,8 +54,8 @@ class Polling(commands.Cog):
             primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
             for winner in winners_config["winners"]:
-                if (winner["user_id"] == user_id and 
-                    winner.get("primary_winner", False) and 
+                if (winner["user_id"] == user_id and
+                    winner.get("primary_winner", False) and
                     winner["year"] == primary_year):
                     return winners_col, winner
 
@@ -95,7 +93,7 @@ class Polling(commands.Cog):
             primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
             for winner in winners_config["winners"]:
-                if (winner["candidate"].lower() == candidate_name.lower() and 
+                if (winner["candidate"].lower() == candidate_name.lower() and
                     winner.get("primary_winner", False) and
                     winner["year"] == primary_year):
                     return winners_col, winner
@@ -134,14 +132,14 @@ class Polling(commands.Cog):
         primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
         seat_candidates = [
-            w for w in winners_config["winners"] 
+            w for w in winners_config["winners"]
             if w["seat_id"] == seat_id and w["year"] == primary_year and w.get("primary_winner", False)
         ]
 
         # If no primary winners found, fall back to all candidates for this seat in the current year
         if not seat_candidates:
             seat_candidates = [
-                w for w in winners_config["winners"] 
+                w for w in winners_config["winners"]
                 if w["seat_id"] == seat_id and w["year"] == current_year
             ]
 
@@ -150,7 +148,7 @@ class Polling(commands.Cog):
 
         # Get momentum effects if in General Campaign phase and this is a presidential race
         momentum_effects = {}
-        if (current_phase == "General Campaign" and 
+        if (current_phase == "General Campaign" and
             any(c.get("office") in ["President", "Vice President"] for c in seat_candidates)):
             momentum_effects = self._get_momentum_effects_for_candidates(guild_id, seat_candidates)
 
@@ -432,8 +430,8 @@ class Polling(commands.Cog):
                     current_year = time_config["current_rp_date"].year
                     seat_party_candidates = [
                         c for c in signups_config["candidates"]
-                        if (c["seat_id"] == candidate["seat_id"] and 
-                            c["party"] == candidate["party"] and 
+                        if (c["seat_id"] == candidate["seat_id"] and
+                            c["party"] == candidate["party"] and
                             c["year"] == current_year)
                     ]
 
@@ -459,7 +457,7 @@ class Polling(commands.Cog):
 
         # Generate random polling organization
         polling_orgs = [
-            "Mason-Dixon Polling", "Quinnipiac University", "Marist Poll", 
+            "Mason-Dixon Polling", "Quinnipiac University", "Marist Poll",
             "Suffolk University", "Emerson College", "Public Policy Polling",
             "SurveyUSA", "Ipsos/Reuters", "YouGov", "Rasmussen Reports",
             "CNN/SSRS", "Fox News Poll", "ABC News/Washington Post",
@@ -524,16 +522,15 @@ class Polling(commands.Cog):
                 current_year = time_config["current_rp_date"].year
                 primary_competitors = [
                     c for c in signups_config["candidates"]
-                    if (c["seat_id"] == candidate["seat_id"] and 
-                        c["party"] == candidate["party"] and 
-                        c["year"] == current_year and
-                        c["name"] != candidate_display_name)
+                    if (c["seat_id"] == candidate["seat_id"] and
+                        c["party"] == candidate["party"] and
+                        c["year"] == current_year)
                 ]
 
-                if primary_competitors:
+                if len(primary_competitors) > 1:
                     embed.add_field(
                         name="🔍 Primary Context",
-                        value=f"Competing against {len(primary_competitors)} other {candidate['party']} candidate{'s' if len(primary_competitors) > 1 else ''} in the primary",
+                        value=f"Competing against {len(primary_competitors) - 1} other {candidate['party']} candidate{'s' if len(primary_competitors) > 1 else ''} in the primary",
                         inline=False
                     )
         else:
@@ -556,7 +553,7 @@ class Polling(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @poll_info_group.command(
+    @poll_group.command(
         name="state",
         description="Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support."
     )
@@ -586,7 +583,7 @@ class Polling(commands.Cog):
 
         # Get base party percentages from STATE_DATA
         republican_base = state_info.get("republican", 33.0)
-        democrat_base = state_info.get("democrat", 33.0) 
+        democrat_base = state_info.get("democrat", 33.0)
         independent_base = state_info.get("other", 34.0)
 
         # Calculate poll results with margin of error
@@ -625,7 +622,7 @@ class Polling(commands.Cog):
         for party, poll_percentage in sorted_results:
             # Party abbreviations
             party_abbrev = "R" if party == "Republican" else ("D" if party == "Democrat" else "I")
-            
+
             progress_bar = create_progress_bar(poll_percentage)
             results_text += f"**{party_abbrev} - {party}**\n"
             results_text += f"{progress_bar} **{poll_percentage:.1f}%**\n\n"
@@ -698,9 +695,9 @@ class Polling(commands.Cog):
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
                 seat_candidates = [
-                    w for w in winners_config["winners"] 
-                    if (w["seat_id"].upper() == seat_id.upper() and 
-                        w.get("primary_winner", False) and 
+                    w for w in winners_config["winners"]
+                    if (w["seat_id"].upper() == seat_id.upper() and
+                        w.get("primary_winner", False) and
                         w["year"] == primary_year)
                 ]
         else:
@@ -709,7 +706,7 @@ class Polling(commands.Cog):
             if signups_config:
                 seat_candidates = [
                     c for c in signups_config["candidates"]
-                    if (c["seat_id"].upper() == seat_id.upper() and 
+                    if (c["seat_id"].upper() == seat_id.upper() and
                         c["year"] == current_year)
                 ]
 
