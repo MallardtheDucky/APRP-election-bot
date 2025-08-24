@@ -160,21 +160,34 @@ class PresidentialSignups(commands.Cog):
 
         pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
 
-        # Check if user already has a presidential signup
+        # Check if user already has ANY presidential campaign signup (President or VP)
         existing_signup = None
         for candidate in pres_config["candidates"]:
             if (candidate["user_id"] == interaction.user.id and
                 candidate["year"] == current_year and
-                candidate["office"] == "President"):
+                candidate["office"] in ["President", "Vice President"]):
                 existing_signup = candidate
                 break
 
         if existing_signup:
             await interaction.response.send_message(
-                f"❌ You are already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for President in {current_year}.",
+                f"❌ You are already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for {existing_signup['office']} in {current_year}.",
                 ephemeral=True
             )
             return
+
+        # Check if user has a regular election signup
+        signups_col = self.bot.db["signups"]
+        signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+        if signups_config:
+            for candidate in signups_config.get("candidates", []):
+                if (candidate["user_id"] == interaction.user.id and
+                    candidate["year"] == current_year):
+                    await interaction.response.send_message(
+                        f"❌ You are already signed up for a regular election as **{candidate['name']}** ({candidate['seat_id']}) in {current_year}. You cannot sign up as a VP candidate while running for another office.",
+                        ephemeral=True
+                    )
+                    return
 
         # Create presidential candidate entry
         new_candidate = {
@@ -355,21 +368,42 @@ class PresidentialSignups(commands.Cog):
             )
             return
 
-        # Check if user already has a VP signup
+        # Check if user is trying to select themselves as VP
+        if presidential_candidate_data["user_id"] == interaction.user.id:
+            await interaction.response.send_message(
+                f"❌ You cannot select yourself as your own running mate. Please choose a different presidential candidate.",
+                ephemeral=True
+            )
+            return
+
+        # Check if user already has ANY presidential campaign signup (President or VP)
         existing_signup = None
         for candidate in pres_config["candidates"]:
             if (candidate["user_id"] == interaction.user.id and
                 candidate["year"] == current_year and
-                candidate["office"] == "Vice President"):
+                candidate["office"] in ["President", "Vice President"]):
                 existing_signup = candidate
                 break
 
         if existing_signup:
             await interaction.response.send_message(
-                f"❌ You are already signed up as **{existing_signup['name']}** for Vice President in {current_year}.",
+                f"❌ You are already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for {existing_signup['office']} in {current_year}.",
                 ephemeral=True
             )
             return
+
+        # Check if user has a regular election signup
+        signups_col = self.bot.db["signups"]
+        signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+        if signups_config:
+            for candidate in signups_config.get("candidates", []):
+                if (candidate["user_id"] == interaction.user.id and
+                    candidate["year"] == current_year):
+                    await interaction.response.send_message(
+                        f"❌ You are already signed up for a regular election as **{candidate['name']}** ({candidate['seat_id']}) in {current_year}. You cannot sign up as a VP candidate while running for another office.",
+                        ephemeral=True
+                    )
+                    return
 
         # Check if this presidential candidate already has a VP
         if presidential_candidate_data.get("vp_candidate"):
@@ -479,6 +513,14 @@ class PresidentialSignups(commands.Cog):
         if not user_pres_campaign:
             await interaction.response.send_message(
                 "❌ You don't have an active presidential campaign.",
+                ephemeral=True
+            )
+            return
+
+        # Check if this presidential candidate already has a VP
+        if user_pres_campaign.get("vp_candidate"):
+            await interaction.response.send_message(
+                f"❌ You already have a VP candidate: **{user_pres_campaign['vp_candidate']}**. You cannot accept another VP request.",
                 ephemeral=True
             )
             return
@@ -665,14 +707,15 @@ class PresidentialSignups(commands.Cog):
 
             # Remove VP candidate if exists
             if vp_candidate_id:
-                vp_removed = False
-                for i, candidate in enumerate(pres_config["candidates"]):
-                    if (candidate["user_id"] == vp_candidate_id and
-                        candidate["year"] == current_year and
-                        candidate["office"] == "Vice President"):
-                        pres_config["candidates"].pop(i)
-                        vp_removed = True
-                        break
+                # Find and remove VP candidate from the candidates list
+                candidates_to_keep = []
+                for candidate in pres_config["candidates"]:
+                    if not (candidate["user_id"] == vp_candidate_id and
+                           candidate["year"] == current_year and
+                           candidate["office"] == "Vice President" and
+                           candidate.get("presidential_candidate_id") == interaction.user.id):
+                        candidates_to_keep.append(candidate)
+                pres_config["candidates"] = candidates_to_keep
 
         # If withdrawing from VP campaign, update presidential candidate
         elif user_campaign["office"] == "Vice President":
@@ -731,6 +774,54 @@ class PresidentialSignups(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
+        name="admin_cleanup_duplicates",
+        description="Remove duplicate presidential campaign entries (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_cleanup_duplicates(self, interaction: discord.Interaction):
+        """Remove duplicate presidential campaign entries"""
+        pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+        # Track users we've seen
+        seen_users = {}
+        cleaned_candidates = []
+        duplicates_removed = 0
+
+        for candidate in pres_config["candidates"]:
+            user_id = candidate["user_id"]
+            year = candidate["year"]
+            office = candidate["office"]
+
+            # Create a unique key for each user-year combination
+            user_key = f"{user_id}_{year}"
+
+            if user_key in seen_users:
+                # This is a duplicate
+                duplicates_removed += 1
+                continue
+            else:
+                # First time seeing this user for this year
+                seen_users[user_key] = candidate
+                cleaned_candidates.append(candidate)
+
+        if duplicates_removed > 0:
+            # Update the database
+            pres_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"candidates": cleaned_candidates}}
+            )
+
+            await interaction.response.send_message(
+                f"✅ Cleanup complete! Removed **{duplicates_removed}** duplicate entries.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "✅ No duplicate entries found.",
+                ephemeral=True
+            )
+
+    @app_commands.command(
         name="show_presidential_candidates",
         description="Show all presidential and VP candidates"
     )
@@ -782,6 +873,123 @@ class PresidentialSignups(commands.Cog):
             embed.add_field(
                 name=f"🇺🇸 {president['name']}",
                 value=ticket_info,
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="admin_force_withdraw",
+        description="Force withdraw a presidential or VP candidate (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(
+        candidate_name="Name of the candidate to withdraw",
+        reason="Reason for withdrawal (optional)"
+    )
+    async def admin_force_withdraw(
+        self,
+        interaction: discord.Interaction,
+        candidate_name: str,
+        reason: Optional[str] = None
+    ):
+        """Force withdraw a presidential or VP candidate"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+        user_campaign = None
+        campaign_index = None
+        for i, candidate in enumerate(pres_config["candidates"]):
+            if (candidate["name"].lower() == candidate_name.lower() and
+                candidate["year"] == current_year and
+                candidate["office"] in ["President", "Vice President"]):
+                user_campaign = candidate
+                campaign_index = i
+                break
+
+        if not user_campaign:
+            await interaction.response.send_message(
+                f"❌ Candidate '{candidate_name}' not found for the current year.",
+                ephemeral=True
+            )
+            return
+
+        # If withdrawing from presidential campaign, handle VP candidate
+        if user_campaign["office"] == "President":
+            vp_candidate_name = user_campaign.get("vp_candidate")
+            vp_candidate_id = user_campaign.get("vp_candidate_id")
+
+            if vp_candidate_id:
+                candidates_to_keep = []
+                for candidate in pres_config["candidates"]:
+                    if not (candidate["user_id"] == vp_candidate_id and
+                           candidate["year"] == current_year and
+                           candidate["office"] == "Vice President" and
+                           candidate.get("presidential_candidate_id") == user_campaign["user_id"]):
+                        candidates_to_keep.append(candidate)
+                pres_config["candidates"] = candidates_to_keep
+
+        # If withdrawing from VP campaign, update presidential candidate
+        elif user_campaign["office"] == "Vice President":
+            presidential_candidate_id = user_campaign.get("presidential_candidate_id")
+            if presidential_candidate_id:
+                for i, candidate in enumerate(pres_config["candidates"]):
+                    if (candidate["user_id"] == presidential_candidate_id and
+                        candidate["year"] == current_year and
+                        candidate["office"] == "President"):
+                        pres_config["candidates"][i]["vp_candidate"] = None
+                        pres_config["candidates"][i]["vp_candidate_id"] = None
+                        break
+
+        # Remove the candidate
+        withdrawn_candidate = pres_config["candidates"].pop(campaign_index)
+
+        # Remove any pending VP requests associated with this candidate
+        if "pending_vp_requests" in pres_config:
+            pres_config["pending_vp_requests"] = [
+                req for req in pres_config["pending_vp_requests"]
+                if not (req["presidential_candidate_id"] == withdrawn_candidate["user_id"] and req["year"] == current_year)
+            ]
+
+        pres_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {
+                "candidates": pres_config["candidates"],
+                "pending_vp_requests": pres_config["pending_vp_requests"]
+            }}
+        )
+
+        embed = discord.Embed(
+            title="👢 Forced Withdrawal",
+            description=f"**{withdrawn_candidate['name']}** has been force withdrawn from the {current_year} {withdrawn_candidate['office']}ial race.",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📋 Withdrawn Candidate",
+            value=f"**Name:** {withdrawn_candidate['name']}\n"
+                  f"**Party:** {withdrawn_candidate['party']}\n"
+                  f"**Office:** {withdrawn_candidate['office']}",
+            inline=True
+        )
+
+        if reason:
+            embed.add_field(
+                name="📝 Reason",
+                value=reason,
+                inline=False
+            )
+
+        if withdrawn_candidate["office"] == "President" and withdrawn_candidate.get("vp_candidate"):
+            embed.add_field(
+                name="⚠️ Impact",
+                value=f"VP candidate **{withdrawn_candidate['vp_candidate']}** has also been removed from the ticket.",
                 inline=False
             )
 
@@ -979,6 +1187,12 @@ class PresidentialSignups(commands.Cog):
             )
 
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_view_state_data.autocomplete("state_name")
+    async def state_name_autocomplete(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
 
     @app_commands.command(
         name="admin_ideology_modifications_log",

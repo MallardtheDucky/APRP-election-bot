@@ -246,6 +246,19 @@ class AllSignups(commands.Cog):
             )
             return
 
+        # Check if user has a presidential signup
+        pres_col = self.bot.db["presidential_signups"]
+        pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+        if pres_config:
+            for candidate in pres_config.get("candidates", []):
+                if (candidate["user_id"] == interaction.user.id and
+                    candidate["year"] == current_year):
+                    await interaction.response.send_message(
+                        f"❌ You are already signed up for the presidential race as **{candidate['name']}** ({candidate['office']}) in {current_year}. You cannot sign up for both presidential and regular elections.",
+                        ephemeral=True
+                    )
+                    return
+
         # Create embed showing available seats
         embed = discord.Embed(
             title=f"🗳️ Available Seats in {region}",
@@ -326,6 +339,10 @@ class AllSignups(commands.Cog):
                 if not selected_seat:
                     await interaction.response.send_message("❌ Error: Seat not found", ephemeral=True)
                     return
+
+                # Prevent selecting self as VP (assuming VP is represented by a specific seat or role not explicitly handled here,
+                # but this is a placeholder for such logic if it were implemented. For now, we focus on the presidential signup conflict.)
+                # A more robust VP check would require knowing the VP seat_id or role.
 
                 # Create candidate entry (primary phase)
                 new_candidate = {
