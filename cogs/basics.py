@@ -79,8 +79,12 @@ class HelpDropdown(discord.ui.Select):
         super().__init__(placeholder="Select a command category...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = self.view.get_embed(self.values[0])
-        await interaction.response.edit_message(embed=embed, view=self.view)
+        try:
+            embed = self.view.get_embed(self.values[0])
+            await interaction.response.edit_message(embed=embed, view=self.view)
+        except discord.NotFound:
+            # If interaction expired, try to send a new message
+            await interaction.followup.send("The interaction has expired. Please run the command again.", ephemeral=True)
 
 class HandbookDropdown(discord.ui.Select):
     def __init__(self):
@@ -99,8 +103,12 @@ class HandbookDropdown(discord.ui.Select):
         super().__init__(placeholder="Select a handbook section...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = self.view.get_handbook_embed(self.values[0])
-        await interaction.response.edit_message(embed=embed, view=self.view)
+        try:
+            embed = self.view.get_handbook_embed(self.values[0])
+            await interaction.response.edit_message(embed=embed, view=self.view)
+        except discord.NotFound:
+            # If interaction expired, try to send a new message
+            await interaction.followup.send("The interaction has expired. Please run the command again.", ephemeral=True)
 
 class HandbookView(discord.ui.View):
     def __init__(self):
@@ -186,7 +194,7 @@ Example Timeline:
 - November: General Election
 - December-January: Transition/Governance
 
-Use `/time set_time_scale` to control pacing:
+**Use `/time set_time_scale` to control pacing:**
 - Fast pace: 30 (30 real minutes = 1 RP day)
 - Medium pace: 60 (1 real hour = 1 RP day)
 - Slow pace: 120 (2 real hours = 1 RP day)
@@ -515,6 +523,7 @@ Administrators can create custom parties for unique roleplay scenarios:
 - `/party admin bulk_create` - Create multiple parties at once (Admin only)
 - `/party admin reset` - Removes all custom parties (Admin only)
 - `/party admin export` - Export party configuration for backup (Admin only)
+- `/party admin modify_color` - Change the color of multiple parties at once (Admin only)
 
 **Advanced Party Strategies**
 **Multi-Party Scenarios:** Coalition government simulation
@@ -1089,9 +1098,12 @@ class Basics(commands.Cog):  # Capitalized as per style
 
     @discord.app_commands.command(name="commands", description="Lists all the commands in the bot") #commands command
     async def help_command(self, interaction: discord.Interaction):
+        # Defer the response to prevent timeout
+        await interaction.response.defer()
+
         view = HelpView()
         embed = view.get_embed("basic")
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
 
     @discord.app_commands.command(name="credits", description="Lists the people that made this bot")
     async def credits_command(self, interaction: discord.Interaction):
@@ -1110,9 +1122,12 @@ class Basics(commands.Cog):  # Capitalized as per style
 
     @discord.app_commands.command(name="handbook", description="Access the comprehensive election bot handbook")
     async def handbook_command(self, interaction: discord.Interaction):
+        # Defer the response to prevent timeout
+        await interaction.response.defer()
+
         view = HandbookView()
         embed = view.get_handbook_embed("getting_started")
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
 
     # Create admin command group
     admin_group = app_commands.Group(

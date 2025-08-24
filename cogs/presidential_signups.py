@@ -93,6 +93,26 @@ class PresidentialSignups(commands.Cog):
         current_year = time_config["current_rp_date"].year
         current_phase = time_config.get("current_phase", "")
 
+        # Check if we're in a presidential election cycle (every 4 years)
+        # Presidential cycles: 1999-2000, 2003-2004, 2007-2008, etc.
+        # The cycle starts in odd years (1999, 2003, 2007) and elections happen in even years (2000, 2004, 2008)
+        if current_year % 4 == 3:  # 1999, 2003, 2007, 2011, 2015 (signup years)
+            is_presidential_cycle = True
+        elif current_year % 4 == 0:  # 2000, 2004, 2008, 2012, 2016 (election years)
+            is_presidential_cycle = True
+        else:  # 2001, 2002, 2005, 2006 (midterm years)
+            is_presidential_cycle = False
+
+        if not is_presidential_cycle:
+            next_presidential_signup = ((current_year // 4) + 1) * 4 - 1  # Next cycle start year
+            await interaction.response.send_message(
+                f"❌ Presidential signups are only available during presidential election cycles.\n"
+                f"The next presidential cycle begins in **{next_presidential_signup}**.\n"
+                f"Current year **{current_year}** is a midterm year.",
+                ephemeral=True
+            )
+            return
+
         if current_phase not in ["Signups", "Primary Campaign"]:
             await interaction.response.send_message(
                 f"❌ Presidential signups are not open during the {current_phase} phase.",
@@ -266,6 +286,24 @@ class PresidentialSignups(commands.Cog):
 
         current_year = time_config["current_rp_date"].year
         current_phase = time_config.get("current_phase", "")
+
+        # Check if we're in a presidential election cycle (every 4 years)
+        if current_year % 4 == 3:  # 1999, 2003, 2007, 2011, 2015 (signup years)
+            is_presidential_cycle = True
+        elif current_year % 4 == 0:  # 2000, 2004, 2008, 2012, 2016 (election years)
+            is_presidential_cycle = True
+        else:  # 2001, 2002, 2005, 2006 (midterm years)
+            is_presidential_cycle = False
+
+        if not is_presidential_cycle:
+            next_presidential_signup = ((current_year // 4) + 1) * 4 - 1  # Next cycle start year
+            await interaction.response.send_message(
+                f"❌ VP signups are only available during presidential election cycles.\n"
+                f"The next presidential cycle begins in **{next_presidential_signup}**.\n"
+                f"Current year **{current_year}** is a midterm year.",
+                ephemeral=True
+            )
+            return
 
         if current_phase not in ["Signups", "Primary Campaign"]:
             await interaction.response.send_message(
