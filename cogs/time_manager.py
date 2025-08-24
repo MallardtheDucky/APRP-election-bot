@@ -76,16 +76,28 @@ class TimeManager(commands.Cog):
         is_general_year = year % 2 == 0  # Even years are general years
 
         for phase in config["phases"]:
-            if phase["name"] in ["Signups", "Primary Campaign", "Primary Election"] and is_primary_year:
-                # Primary phases occur in odd years
+            if phase["name"] in ["Signups", "Primary Campaign"] and is_primary_year:
+                # Signups and Primary Campaign occur in odd years
                 if month >= phase["start_month"] and month <= phase["end_month"]:
                     return phase["name"]
-            elif phase["name"] in ["General Campaign", "General Election"] and is_general_year:
-                # General phases occur in even years  
+            elif phase["name"] in ["Primary Election", "General Campaign", "General Election"] and is_general_year:
+                # Primary Election, General Campaign, and General Election occur in even years  
                 if month >= phase["start_month"] and month <= phase["end_month"]:
                     return phase["name"]
 
         return "Between Phases"
+
+    async def _reset_stamina_for_general_campaign(self, guild_id: int, year: int):
+        """Resets stamina for all players in the general campaign phase."""
+        players_col = self.bot.db["players"]
+        # Assuming stamina is stored in the player document, reset it to a default value (e.g., 100)
+        # You might need to adjust the field name 'stamina' and the default value based on your schema
+        result = await players_col.update_many(
+            {"guild_id": guild_id},
+            {"$set": {"stamina": 100}} # Assuming stamina is reset to 100
+        )
+        print(f"Reset stamina for {result.modified_count} players for guild {guild_id} in year {year}.")
+
 
     @tasks.loop(minutes=1)
     async def time_loop(self):
@@ -109,6 +121,10 @@ class TimeManager(commands.Cog):
                 if current_phase != config["current_phase"]:
                     # Phase transition occurred
                     old_phase = config["current_phase"]
+
+                    # Reset stamina when transitioning to General Campaign
+                    if current_phase == "General Campaign":
+                        await self._reset_stamina_for_general_campaign(config["guild_id"], current_rp_date.year)
 
                     # Dispatch event to elections cog for automatic handling
                     elections_cog = self.bot.get_cog("Elections")
@@ -238,6 +254,10 @@ class TimeManager(commands.Cog):
                 if current_phase != config["current_phase"]:
                     # Phase transition occurred
                     old_phase = config["current_phase"]
+
+                    # Reset stamina when transitioning to General Campaign
+                    if current_phase == "General Campaign":
+                        await self._reset_stamina_for_general_campaign(config["guild_id"], current_rp_date.year)
 
                     # Dispatch event to elections cog for automatic handling
                     elections_cog = self.bot.get_cog("Elections")
@@ -603,10 +623,10 @@ class TimeManager(commands.Cog):
             is_general_year = year % 2 == 0
 
             if is_primary_year:
-                year_phases = [p for p in config["phases"] if p["name"] in ["Signups", "Primary Campaign", "Primary Election"]]
+                year_phases = [p for p in config["phases"] if p["name"] in ["Signups", "Primary Campaign"]]
                 schedule_text += f"**{year} (Primary Year)**\n"
             else:
-                year_phases = [p for p in config["phases"] if p["name"] in ["General Campaign", "General Election"]]
+                year_phases = [p for p in config["phases"] if p["name"] in ["Primary Election", "General Campaign", "General Election"]]
                 schedule_text += f"**{year} (General Year)**\n"
 
             for phase in year_phases:

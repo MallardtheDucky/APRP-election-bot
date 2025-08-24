@@ -111,214 +111,713 @@ class HandbookView(discord.ui.View):
         handbook_sections = {
             "getting_started": {
                 "title": "📖 Getting Started",
-                "content": """**Initial Setup:**
-• `/setup add_region` - Add US states to your server
-• `/setup set_start` - Set election start date
-• `/setup set_announcement_channel` - Set update channel
-• `/party admin create` - Create custom parties
-• `/election admin set_seats` - Configure election seats
+                "content": """**Step 1: Basic Configuration**
+1. Use `/setup add_region` to add US states to your server
+   - Add key battleground states first: Pennsylvania, Florida, Michigan, Wisconsin
+   - Include safe red states: Texas, Alabama, Wyoming  
+   - Include safe blue states: California, New York, Massachusetts
+   - Add swing states: Arizona, Georgia, North Carolina
 
-**Election Phases:**
-• **Signup Phase** - Candidates register
-• **Primary Campaign** - Campaign for party nominations
-• **Primary Voting** - Vote in party primaries
-• **General Campaign** - Campaign for general election
-• **General Voting** - Final election voting
-• **Governance** - Winners serve terms
+2. Use `/setup set_start` to set your election start date
+   - Format: YYYY-MM-DD
+   - Example: `/setup set_start 2024-01-01`
+   - This determines when your election cycle begins
 
-**Key Commands:**
-• `/time current_time` - Check current phase
-• `/signup` - Register as candidate
-• `/commands` - View all commands"""
+3. Use `/setup set_announcement_channel` for election updates
+   - Choose a channel where all major election events will be announced
+
+4. Use `/party admin create` to create custom parties if needed
+   - Default parties: Democratic Party (Blue), Republican Party (Red), Independent (Purple)
+   - Example: `/party admin create name:"Green Party" abbreviation:"G" color:"00FF00"`
+
+5. Use `/election admin set_seats` to configure election seats
+   - Sets up all available offices: Senate, House, Governor, President, VP
+
+**Step 2: Understanding Election Phases**
+• **Signup Phase** - Candidates register using `/signup`, `/pres_signup`, `/vp_signup`
+• **Primary Campaign** (2-4 weeks RP time) - Campaign within parties, build momentum
+• **Primary Voting** (1-3 days RP time) - Automated/admin-controlled voting
+• **General Campaign** (4-8 weeks RP time) - Party nominees face off, momentum crucial
+• **General Voting** (1-3 days RP time) - Final election, winners determined
+• **Governance** - Winners serve terms, setup for next cycle
+
+**Step 3: Time Management**
+- Use `/time current_time` to check current election phase
+- Real time vs RP time: Admins can set how fast time moves
+- Example: `/time set_time_scale 60` means 1 real hour = 1 RP day
+- Elections automatically progress through phases
+
+**Essential Commands:**
+• `/commands` - View all available commands
+• `/time current_time` - Check current phase and date
+• `/signup` - Register as a candidate (during signup phase)
+• `/speech` - Give a basic campaign speech
+• `/momentum status` - Check state momentum
+• `/demographic_status` - View demographic progress (presidential candidates)"""
             },
             "election_management": {
                 "title": "🗳️ Election Management",
-                "content": """**Setting Up Elections:**
-1. Configure seats with `/election admin set_seats`
-2. Set timing with `/time` commands
-3. Configure parties and colors
-4. Set announcement channels
+                "content": """**Comprehensive Seat Configuration**
 
-**Candidate Registration:**
-• `/signup` - General election signup
-• `/pres_signup` - Presidential campaigns
-• `/vp_signup` - Vice President signup
-• `/withdraw_signup` - Withdraw from race
+**Senate Seats** (6-year terms)
+- 3 senators per state in default configuration
+- Staggered elections (different classes expire different years)
+- High-profile races that affect national politics
 
-**Managing Process:**
-• Elections progress automatically through phases
-• Admins can manually set vote counts if needed
-• Results announced automatically
-• Use `/time set_time_scale` to control pacing"""
+**House Seats** (2-year terms)  
+- Multiple districts per state based on population
+- All seats up for election every cycle
+- More local, district-focused campaigns
+
+**Governor Seats** (4-year terms)
+- One per state, significant state-level executive power
+- Important for party momentum
+
+**National Offices** (4-year terms)
+- President and Vice President
+- Highest-profile races, Electoral College simulation
+
+**Election Timing Configuration**
+Example Timeline:
+- January-March: Signup Phase
+- April-June: Primary Campaign
+- July: Primary Elections  
+- August-October: General Campaign
+- November: General Election
+- December-January: Transition/Governance
+
+Use `/time set_time_scale` to control pacing:
+- Fast pace: 30 (30 real minutes = 1 RP day)
+- Medium pace: 60 (1 real hour = 1 RP day)
+- Slow pace: 120 (2 real hours = 1 RP day)
+
+**Candidate Registration Process**
+
+**General Election Signup**
+- `/signup` for general elections (Senate, House, Governor)
+- Must specify: name, party, seat, region/state
+- Each user can run for multiple offices if allowed
+- Withdrawals possible with `/withdraw_signup`
+
+**Presidential Campaign Registration**
+1. Presidential: `/pres_signup name:"John Smith" party:"Democratic Party" ideology:"Liberal"`
+2. Vice Presidential: `/vp_signup presidential_candidate:"John Smith"`
+3. Ticket Formation: Presidential candidate must accept VP with `/accept_vp`
+
+**Vote Management**
+1. **Automated Voting** (Recommended) - System calculates based on campaign activity
+2. **Manual Vote Setting** - `/election vote admin_bulk_set_votes` for specific outcomes
+3. **Hybrid Approach** - Automated with manual adjustments for close races"""
             },
             "campaign_strategies": {
                 "title": "🎯 Campaign Strategies",
-                "content": """**Basic Campaign Actions:**
-• **Speeches** (`/speech`) - Build general support
-• **Canvassing** (`/canvassing`) - Target specific regions
-• **Ads** (`/ad`) - Wide reach, costs more stamina
-• **Posters** (`/poster`) - Cheap name recognition
-• **Donor Appeals** (`/donor`) - Fundraising
+                "content": """**Understanding Campaign Actions**
 
-**Effectiveness Tips:**
-• Actions have cooldowns to prevent spam
-• Different actions work better in different states
-• Consider your party's base when choosing regions
+**1. Speeches** (`/speech`)
+- Purpose: Build general support and name recognition
+- Effectiveness: Moderate, broad appeal
+- Stamina Cost: Low-Medium, Cooldown: 4-6 hours
+- Best Used: Early campaign, building base support
+- Tips: Write engaging content, longer speeches = more points
 
-**Resource Management:**
-• All actions cost stamina
-• Plan campaign timeline carefully
-• Don't exhaust stamina early in long campaigns"""
+**2. Canvassing** (`/canvassing`)
+- Purpose: Target specific regions with ground game
+- Effectiveness: High in targeted regions
+- Stamina Cost: Medium, Cooldown: 6-8 hours  
+- Best Used: Swing states, competitive districts
+
+**3. Advertisements** (`/ad`)
+- Purpose: Wide reach across multiple regions
+- Effectiveness: High but expensive
+- Stamina Cost: High, Cooldown: 10-12 hours
+- Best Used: Late campaign, major media markets, requires video upload
+
+**4. Posters** (`/poster`)
+- Purpose: Cheap way to build name recognition
+- Effectiveness: Low but cost-efficient
+- Stamina Cost: Low, Cooldown: 2-4 hours
+- Best Used: Continuous presence, requires image upload
+
+**5. Donor Appeals** (`/donor`)
+- Purpose: Fundraising for future campaigns
+- Effectiveness: Varies by region and timing
+- Stamina Cost: Medium, Cooldown: 8-10 hours
+- Best Used: Building war chest, crisis response
+
+**Advanced Action Strategies**
+
+**Timing Your Actions**
+1. **Early Campaign** (First 1/3) - Focus on posters and speeches, build name recognition, conservative stamina use
+2. **Mid Campaign** (Middle 1/3) - Increase canvassing frequency, target demographics, moderate stamina expenditure  
+3. **Late Campaign** (Final 1/3) - Heavy use of ads, focus on swing states, maximum demographic targeting
+
+**Regional Targeting Strategy**
+**Tier 1: Must-Win States** - Party strongholds, focus 40% of resources
+**Tier 2: Competitive States** - True swing states, focus 50% of resources  
+**Tier 3: Stretch Goals** - Opposition strongholds with potential, focus 10% of resources
+
+**Resource Management**
+- **Total Stamina**: Usually 200 points maximum
+- **Critical Threshold**: Below 50 stamina = reduced effectiveness
+- **Emergency Reserve**: Always keep 20-30 stamina for responses
+- Track cooldowns, plan ahead, coordinate with running mates"""
             },
             "demographics": {
                 "title": "👥 Demographics & Targeting",
-                "content": """**20+ Demographic Groups:**
-• Urban vs Rural voters
-• Age groups (Young 18-29, Seniors 65+)
-• Ethnic groups (African American, Latino, Asian, etc.)
-• Economic groups (Wealthy, Low-Income, Blue-Collar)
-• Ideological groups (Evangelical, LGBTQ+, Environmental)
+                "content": """**Complete Demographic List (20+ Groups)**
 
-**State Multipliers:**
-• **Strong (1.75x)** - Very influential in state
-• **Moderate (0.75x)** - Average influence
-• **Small (0.3x)** - Limited influence
+**Geographic Demographics**
+- Urban Voters (25 point threshold)
+- Suburban Voters (20 point threshold)  
+- Rural Voters (18 point threshold)
 
-**Strategy:**
-1. Research state demographic strengths first
-2. Use `/demographic_appeal` in favorable states
-3. Avoid over-appealing (125%+ triggers backlash)
-4. Balance different demographic appeals"""
+**Religious Demographics**
+- Evangelical Christians (18 point threshold)
+
+**Racial/Ethnic Demographics**
+- African American Voters (22 point threshold)
+- Latino/Hispanic Voters (22 point threshold)
+- Asian American Voters (18 point threshold)
+- Native American Voters (12 point threshold)
+
+**Economic Demographics**
+- Blue-Collar / Working-Class Voters (20 point threshold)
+- College-Educated Professionals (20 point threshold)
+- Wealthy / High-Income Voters (15 point threshold)
+- Low-Income Voters (22 point threshold)
+- Tech & Innovation Workers (18 point threshold)
+
+**Age Demographics**
+- Young Voters (18–29) (20 point threshold)
+- Senior Citizens (65+) (18 point threshold)
+
+**Special Interest Demographics**
+- Military & Veteran Voters (15 point threshold)
+- LGBTQ+ Voters (15 point threshold)
+- Immigrant Communities (15 point threshold)
+- Environmental & Green Voters (18 point threshold)
+- Gun Rights Advocates (18 point threshold)
+
+**State Demographic Strengths**
+**Multiplier System:**
+- **Strong (1.75x)**: Demographics very influential in that state
+- **Moderate (0.75x)**: Average influence
+- **Small (0.3x)**: Limited influence
+
+**Example: Rural Voters**
+- Strong States: Alabama, Montana, Wyoming (1.75x multiplier)
+- Moderate States: Colorado, Pennsylvania (0.75x multiplier)
+- Small States: California, New York (0.3x multiplier)
+
+**Demographic Conflict System**
+**Major Conflict Pairs:**
+- Urban Voters ↔ Rural Voters
+- Young Voters ↔ Senior Citizens  
+- Gun Rights Advocates ↔ Environmental Voters
+- Evangelical Christians ↔ LGBTQ+ Voters
+- Blue-Collar Workers ↔ College-Educated Professionals
+
+**Backlash Thresholds:**
+- 90% of threshold: Soft backlash (-0.5 points to opposing groups)
+- 125% of threshold: Medium backlash (-1.0 points)
+- 150% of threshold: Hard backlash (-2.0 points)
+
+**Strategy Tips:**
+1. Pick 3-4 compatible demographics and focus heavily
+2. Use `/view_state_demographics` to research multipliers
+3. Campaign in states where your demographics are strong
+4. Plan coalition strategy to avoid major conflicts"""
             },
             "momentum": {
                 "title": "🌊 Momentum System",
-                "content": """**Understanding Momentum:**
-• Parties gain momentum through successful campaigns
-• High momentum makes future actions more effective
-• Low momentum can lead to "collapse" penalties
+                "content": """**Understanding Political Momentum**
+The momentum system simulates how parties gain and lose influence in states based on campaign activity, scandals, and voter sentiment.
 
-**Building Momentum:**
-• Consistent campaigning in states
-• Successful demographic appeals
-• Endorsements from local figures
+**Core Momentum Mechanics**
+- Successful campaign actions build momentum
+- Momentum multiplies effectiveness of future actions
+- High momentum makes everything easier
+- Momentum decays over time without activity
 
-**Momentum Collapse:**
-• Triggered when party becomes vulnerable
-• Use `/momentum trigger_collapse` on opponents
-• Results in major momentum loss and penalties
+**Momentum Vulnerability**
+- Parties with high momentum (50+ points) become vulnerable
+- Opponents can trigger "momentum collapse" 
+- Collapses cause massive momentum loss (30-70%)
+- Vulnerable parties have warning indicators (⚠️)
 
-**Strategy:**
-• Don't neglect states - momentum decays
-• Protect strong states from collapse attempts
-• Target opponent's vulnerable states"""
+**State Political Leans**
+Every state has a baseline political lean that affects momentum:
+- **Strong Lean** (1.5x momentum gain): Deep red/blue states
+- **Moderate Lean** (1.2x momentum gain): Typical partisan states
+- **Weak Lean** (1.0x momentum gain): Light red/blue states  
+- **Swing State** (0.8x momentum gain): True purple states
+
+**Examples by Category:**
+- **Strong Republican**: Alabama, Wyoming, Idaho
+- **Swing States**: Pennsylvania, Michigan, Wisconsin
+- **Strong Democratic**: California, Massachusetts, Hawaii
+
+**Building Momentum Strategies**
+
+**1. Fortress Strategy**
+- Pick 2-3 states to completely dominate
+- Campaign relentlessly in these states
+- Build massive momentum reserves
+
+**2. Expansion Strategy**  
+- Start with natural strongholds
+- Gradually expand to competitive states
+- More risky but higher potential reward
+
+**3. Surgical Strategy**
+- Focus on specific types of states
+- Deep expertise in chosen battlegrounds
+
+**Momentum Collapse System**
+- Momentum above 50.0 points creates vulnerability
+- Multiple party members can trigger collapses
+- 6-hour cooldown between collapse attempts
+- Reduces momentum by 30-70% of current total
+
+**Defensive Strategies:**
+- Monitor momentum levels carefully
+- Build momentum in multiple states to spread risk
+- Keep party members ready to trigger collapses on opponents
+- Have backup campaign plans ready
+
+**Strategic Implications:**
+- Every 10 points of momentum = ~1% polling shift
+- Momentum matters more than raw campaign points
+- Late momentum swings can overcome early deficits
+- Timing of momentum building is crucial"""
             },
             "presidential": {
                 "title": "🏛️ Presidential Campaigns",
-                "content": """**Presidential Primaries:**
-• Sign up with `/pres_signup`
-• Choose running mates with `/vp_signup` and `/accept_vp`
-• Compete for delegates through state campaigns
-• Early primary states matter more
+                "content": """**Presidential Primary System**
+Presidential campaigns are the most complex and prestigious elections, featuring unique mechanics and strategic considerations.
 
-**Special Presidential Actions:**
-• `/pres_speech` - Enhanced speeches with broader reach
-• `/pres_canvassing` - State-targeted canvassing
-• `/pres_ad` - Expensive but very effective
-• `/pres_poster` - Build national name recognition
-• `/pres_donor` - Major fundraising appeals
+**Primary Calendar and Delegate System**
+**Early Primary States** (High Influence)
+- Iowa, New Hampshire, South Carolina, Nevada traditionally go first
+- Early victories create momentum and media attention
+- Strong performance here can make or break campaigns
 
-**Electoral Strategy:**
-• Focus on swing states during general election
-• Don't neglect base states entirely
-• Consider regional balance with VP pick"""
+**Super Tuesday** (Mass Delegate Day)
+- Multiple large states vote simultaneously  
+- California, Texas, New York often included
+- Requires significant resource allocation
+
+**Primary Campaign Strategy**
+1. **Early State Strategy** - Focus heavily on Iowa and New Hampshire
+2. **National Strategy** - Campaign everywhere from the start
+3. **Regional Strategy** - Focus on specific geographic regions
+
+**Presidential Action System**
+Presidential candidates have enhanced campaign actions:
+
+**1. Presidential Speeches** (`/pres_speech`)
+- Effect: 1.5-3.0 points (enhanced)
+- Stamina Cost: 3.0, Cooldown: 6 hours
+- Special Features: Multi-state reach, national media coverage
+
+**2. Presidential Canvassing** (`/pres_canvassing`)
+- Effect: State-targeted with momentum bonus
+- Stamina Cost: 4.0, Cooldown: 8 hours
+- Special Features: Builds momentum and demographic points
+
+**3. Presidential Ads** (`/pres_ad`)
+- Effect: 2.0-4.0 points (very high)
+- Stamina Cost: 5.0, Cooldown: 12 hours
+- Special Features: Multi-state reach, premium effectiveness
+
+**4. Presidential Posters** (`/pres_poster`)
+- Effect: 1.0-2.0 points (enhanced)
+- Stamina Cost: 2.0, Cooldown: 4 hours
+- Special Features: National distribution, brand building
+
+**5. Presidential Donor Appeals** (`/pres_donor`)
+- Effect: Major fundraising, future campaign benefits
+- Stamina Cost: 3.5, Cooldown: 10 hours
+
+**Vice Presidential Selection Strategy**
+**Geographic Balance** - Choose VP from different region
+**Demographic Balance** - Balance age, gender, race, religion, background
+**Ideological Balance** - Moderate candidate + progressive VP or vice versa
+**Electoral Strategy Balance** - Swing state VPs help with crucial battlegrounds
+
+**General Election Strategy**
+**Electoral College Simulation:**
+- **Safe States Strategy** - Minimal presence to prevent upsets
+- **Swing State Focus** - Allocate majority of campaign resources
+- **Expansion Strategy** - Target opponent safe states after securing swing states
+- **Defensive Strategy** - When behind, focus on preventing opponent momentum
+
+**Presidential Campaign Timeline**
+1. **Early Primary Phase** (Months 1-3) - Build name recognition
+2. **Primary Campaign Phase** (Months 4-8) - Intensive primary campaigning  
+3. **VP Selection Phase** (Month 9) - Vet potential running mates
+4. **General Election Phase** (Months 10-12) - Focus on swing states"""
             },
             "party_management": {
                 "title": "🎉 Party Management",
-                "content": """**Default Parties:**
-• Democratic Party (Blue)
-• Republican Party (Red)
-• Independent (Purple)
-• Green Party (Green)
-• Libertarian Party (Yellow)
+                "content": """**Default Party Configuration**
 
-**Custom Parties:**
-• Admins can create with `/party admin create`
-• Set colors, abbreviations, descriptions
-• Useful for role-playing scenarios
+**Democratic Party (Blue)**
+- Color: #0099FF (Blue), Abbreviation: D
+- Traditional Strongholds: Urban areas, coasts, educated suburbs
+- Typical Demographics: Urban voters, college-educated, young voters, minorities
+- Advantages: Strong in high-population states
 
-**Party Strategy:**
-• Each party has traditional strongholds
-• Consider party when choosing regions
-• Some demographics align better with certain parties
+**Republican Party (Red)**
+- Color: #FF0000 (Red), Abbreviation: R
+- Traditional Strongholds: Rural areas, suburbs, Southern states
+- Typical Demographics: Rural voters, gun rights advocates, evangelicals
+- Advantages: Geographic distribution, consistent base turnout
 
-**Management Commands:**
-• `/party info list` - View all parties
-• `/party admin edit` - Modify existing parties
-• `/party admin remove` - Delete parties"""
+**Independent (Purple)**
+- Color: #800080 (Purple), Abbreviation: I
+- Traditional Strongholds: Varies widely
+- Typical Demographics: Suburban voters, moderate professionals
+- Advantages: Flexibility, can build unique coalitions
+
+**Additional Default Parties** (Server-dependent)
+- Green Party (Green) - Environmental voters, young progressives
+- Libertarian Party (Yellow) - Limited government, social liberals
+
+**Custom Party Creation**
+Administrators can create custom parties for unique roleplay scenarios:
+```
+/party admin create name:"Progressive Party" abbreviation:"P" color:"00FF80"
+```
+
+**Party Design Considerations**
+**Naming Strategy:** Choose names that reflect ideology or region
+**Visual Identity:** Choose distinguishable colors, consider color psychology
+**Abbreviation System:** Keep short and memorable (1-3 characters)
+
+**Party Strategy and Coalition Building**
+
+**Intra-Party Dynamics**
+- **Primary Elections:** Multiple candidates from same party compete
+- **Party Unity:** Coordinate campaigns to avoid conflicting messages
+- **Faction Management:** Balance moderate and extreme positions
+
+**Inter-Party Strategy**  
+- **Opposition Research:** Track opponent party activities
+- **Coalition Disruption:** Target opponent's demographic coalitions
+- **Alliance Building:** Temporary alliances with minor parties
+
+**Party Management Commands**
+- `/party info list` - Shows all available parties
+- `/party admin create` - Creates new political parties (Admin only)
+- `/party admin edit` - Modifies existing party attributes (Admin only)
+- `/party admin remove` - Removes custom parties (Admin only)
+- `/party admin bulk_create` - Create multiple parties at once (Admin only)
+- `/party admin reset` - Removes all custom parties (Admin only)
+- `/party admin export` - Export party configuration for backup (Admin only)
+
+**Advanced Party Strategies**
+**Multi-Party Scenarios:** Coalition government simulation
+**Regional Party Systems:** Parties representing specific regions
+**Issue-Based Parties:** Single-issue parties for specific causes
+**Historical Simulation:** Parties based on historical periods
+
+**Party Brand Management**
+- Ensure all party candidates use similar messaging
+- Coordinate policy positions and priorities
+- Build party infrastructure across multiple election cycles
+- Adapt to changing demographics and new issues"""
             },
             "advanced": {
                 "title": "🎓 Advanced Strategies",
-                "content": """**Coalition Building:**
-1. Identify 3-4 core demographic groups
-2. Avoid targeting opposing groups
-3. Focus on regions where demos are strong
-4. Space out appeals to avoid backlash
+                "content": """**Coalition Building Mastery**
 
-**Regional Specialization:**
-• Focus heavily on 2-3 states you can dominate
-• Maintain presence in swing states
-• Don't waste resources on opponent strongholds
+**The 3-4-2 Rule**
+- 3 Core Demographics: Your absolute base (aim for 110-120% of threshold)
+- 4 Supporting Demographics: Secondary targets (aim for 80-100% of threshold)
+- 2 Opportunity Demographics: Stretch goals if resources allow (50-80% of threshold)
 
-**Opponent Disruption:**
-• Monitor opponent momentum for collapse opportunities
-• Time attacks when opponents are vulnerable
-• Use endorsements strategically
+**Example Progressive Coalition**
+- Core: Urban Voters, College-Educated Professionals, Young Voters
+- Supporting: Environmental Voters, Tech Workers, LGBTQ+ Voters, Immigrant Communities
+- Opportunity: Asian American Voters, Low-Income Voters
 
-**Late Campaign Surges:**
-• Save stamina for final pushes
-• Target undecided voters in swing regions
-• Use high-impact actions like ads in final phases"""
+**Geographic Optimization Matrix**
+Create a matrix showing where your core demographics are strongest:
+```
+State         | Urban | College | Young | Environmental
+California    | 1.75x | 1.75x   | 1.75x | 1.75x
+New York      | 1.75x | 1.75x   | 1.75x | 0.75x
+Colorado      | 0.75x | 0.75x   | 0.75x | 0.75x
+```
+
+**Strategic Targeting Priority**
+1. States where all core demographics are strong
+2. States where 2-3 core demographics are strong
+3. Swing states where at least 1 core demographic is strong
+4. Opponent strongholds only if you have overwhelming advantages
+
+**Advanced Momentum Warfare**
+
+**Momentum Cascade Strategy**
+Create chain reactions that build momentum across multiple states:
+- **Phase 1:** Build moderate momentum (30-40 points) in 5-6 states
+- **Phase 2:** Push one strategic state to vulnerability (50+ momentum)
+- **Phase 3:** Spread momentum to other states before collapse occurs
+
+**Counter-Momentum Operations**
+Track opponent momentum and plan strategic collapses:
+- Week 1-2: Identify opponent momentum patterns
+- Week 3-4: Position party members for collapse attempts
+- Week 5-6: Execute collapses during crucial campaign moments
+- Week 7-8: Follow up with own momentum building
+
+**Resource Optimization Strategies**
+
+**Stamina Management Across Multiple Candidates**
+- **Stamina Sharing Protocols:** High-stamina candidates support allies
+- **Action Specialization:** Assign specific action types to different candidates
+- **Crisis Response Capabilities:** Maintain 20% stamina reserve across party
+
+**Psychological Warfare and Narrative Control**
+
+**Expectation Management**
+- **Underdog Positioning:** Set low expectations, exceed them for momentum
+- **Frontrunner Discipline:** When ahead, avoid major risks and controversies
+
+**Advanced Geographic Strategies**
+
+**Regional Specialization**
+- **Rust Belt Strategy:** Blue-collar voters, economic messaging (MI, OH, PA, WI)
+- **Sun Belt Strategy:** Suburban growth, education focus (AZ, GA, NC, TX)
+- **Mountain West Strategy:** Environmental issues, individual freedom (CO, NV, UT, MT)
+
+**Micro-Targeting Within States**
+- **Urban Cores:** Demographics - Urban voters, minorities, young professionals
+- **Suburban Rings:** Demographics - Suburban voters, college-educated, families
+- **Rural Areas:** Demographics - Rural voters, gun rights advocates, religious voters
+
+**Opposition Research and Counter-Intelligence**
+
+**Information Gathering**
+- Track all opponent campaign actions and effectiveness
+- Monitor demographic progress and momentum building
+- Analyze resource allocation and strategic priorities
+
+**Strategic Counter-Operations**
+- Time major announcements to overshadow opponents
+- Use momentum collapses to disrupt opponent campaign rhythm
+- Counter-program against opponent's demographic targeting
+
+**Late-Campaign Surge Strategies**
+
+**Resource Conservation vs. All-Out Push**
+- **Conservation Strategy** (When Ahead): Maintain minimal presence, focus on preventing opponent momentum
+- **Surge Strategy** (When Behind): Spend all remaining resources, take calculated risks
+
+**Closing Argument Development**
+- Synthesize campaign themes into final message
+- Target undecided voters with moderate positions
+- Reinforce base support to ensure turnout"""
             },
             "admin_tools": {
                 "title": "🔧 Admin Tools",
-                "content": """**Essential Admin Commands:**
-• `/election admin set_seats` - Configure elections
-• `/time set_current_time` - Control timing
-• `/momentum admin add_momentum` - Adjust momentum
-• `/party admin create` - Create custom parties
-• `/poll admin bulk_set_votes` - Set voting results
+                "content": """**Essential Election Administration**
 
-**Managing Elections:**
-• Monitor campaign activity for violations
-• Adjust time scales for appropriate pacing
-• Use polling commands for realistic scenarios
-• Manually resolve disputes if needed
+**Election System Architecture**
+Before campaigns begin, configure fundamental election infrastructure:
 
-**Balancing Gameplay:**
-• Ensure no single strategy is overpowered
-• Monitor momentum system for fairness
-• Adjust demographic thresholds if needed
-• Create interesting scenarios with admin tools"""
+**Seat Configuration** (`/election admin set_seats`)
+Consider these factors:
+- **Realistic Representation:** Base seats on actual population/server member counts
+- **Election Timing Balance:** Senate (6-year), House (2-year), Governor (4-year), President/VP (4-year)
+
+**Example Seat Configuration:**
+```
+Large States (CA, TX, NY): 6 Senate seats, 8-12 House districts, 1 Governor
+Medium States (PA, OH, MI): 3 Senate seats, 4-6 House districts, 1 Governor  
+Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
+```
+
+**Time Scale Management**
+**Realistic Pacing Guidelines:**
+- Signup Phase: 3-7 real days
+- Primary Campaign: 7-14 real days
+- Primary Election: 1-3 real days
+- General Campaign: 14-21 real days
+- General Election: 1-3 real days
+
+**Time Scale Formulas:**
+- Active Server: 30-60 minutes per RP day
+- Moderate Server: 60-120 minutes per RP day
+- Casual Server: 120-240 minutes per RP day
+
+**Advanced Election Management**
+
+**Multi-Cycle Planning**
+- **Presidential Election Years** (Every 4 years): All House, 1/3 Senate, Governors, President/VP
+- **Midterm Election Years** (2 years after): All House, 1/3 Senate (different class), some Governors
+- **Off-Year Elections**: Special elections only, good for party building
+
+**Voting System Management**
+**Hybrid Approach** (Recommended):
+- Use automated calculations for most races
+- Manual intervention for close races (within 5%)
+- Administrative judgment for special circumstances
+
+**Vote Calculation Factors:**
+- Campaign points accumulated
+- Momentum levels in relevant states
+- Demographic coalition strength
+- State political leans and multipliers
+- Random variance for realism
+
+**Monitoring and Balance**
+
+**Campaign Activity Tracking**
+- Track campaign actions per candidate
+- Monitor stamina usage patterns
+- Identify inactive candidates for intervention
+
+**Fairness and Balance Maintenance**
+- **Demographic System Balance:** Monitor threshold achievement rates
+- **Momentum System Oversight:** Track accumulation rates and collapse frequency
+- **State Balance Verification:** Ensure no states are consistently ignored
+
+**Advanced Administrative Features**
+
+**Crisis Management Tools**
+- Reset campaign cooldowns for technical issues: `/admin reset_campaign_cooldowns`
+- Manually adjust momentum for game balance: `/momentum admin add_momentum`
+- Resolve disputes between candidates
+- Handle rule violations and enforcement
+
+**Data Management and Analysis**
+- Export seat configurations for backup: `/election admin export`
+- Analyze historical election data
+- Track long-term trends and patterns
+- Monitor bot performance and response times
+
+**Common Administrative Challenges**
+**Low Engagement Issues:** Reduce time scales, create more competitive races
+**Over-Engagement Issues:** Increase cooldowns, add more complex strategic elements
+**System Balance Problems:** Monitor win rates by party and strategy
+
+**Essential Admin Commands:**
+- `/election admin set_seats` - Configure all election seats
+- `/time set_current_time` - Control election timing and phases
+- `/time set_time_scale` - Set how fast time progresses
+- `/momentum admin add_momentum` - Adjust state momentum levels
+- `/party admin create` - Create custom political parties
+- `/poll admin bulk_set_votes` - Set voting results manually"""
             },
             "troubleshooting": {
                 "title": "🛠️ Troubleshooting",
-                "content": """**Common Issues:**
-• **"Command on cooldown"** - Wait for cooldown to expire
-• **"Not in correct phase"** - Check current election phase
-• **"Insufficient permissions"** - Admin commands need admin role
-• **"Region not found"** - Use correct state abbreviations
+                "content": """**Common User Issues and Solutions**
 
-**Campaign Problems:**
-• **Low effectiveness** - Check regions for your demographics
-• **Momentum not building** - Increase campaign frequency
-• **Demographic backlash** - Reduce appeals to conflicting groups
+**Command Execution Problems**
 
-**Best Practices:**
-• Plan campaign strategy before starting
-• Monitor cooldowns and manage stamina
-• Study demographic conflicts before appeals
-• Keep track of momentum in key states
-• Coordinate with running mates and endorsers"""
+**"Command on cooldown" Errors**
+- **Cause:** User attempting action before cooldown expires
+- **Solution:** Wait for cooldown to complete or check remaining time
+- **Prevention:** Use `/demographic_status` to track all cooldowns
+- **Admin Override:** Use `/admin reset_campaign_cooldowns` if necessary
+
+**Example Resolution Process:**
+1. Check remaining cooldown time: `/demographic_status`
+2. Plan next action timing based on cooldown info
+3. Use different action types if one is on cooldown
+4. Contact admin if cooldown seems incorrect
+
+**"Not in correct phase" Errors**
+- **Cause:** Attempting phase-specific actions at wrong time
+- **Solution:** Check current phase with `/time current_time`
+- **Understanding:** Different actions available in different phases
+
+**Phase-Action Compatibility Guide:**
+- **Signup Phase:** /signup, /pres_signup, /vp_signup
+- **Primary Campaign:** All campaign actions, demographic appeals
+- **Primary Election:** Voting only, limited campaign actions
+- **General Campaign:** Enhanced campaign actions, momentum system
+- **General Election:** Voting only, final appeals
+- **Governance:** Administrative actions, next cycle preparation
+
+**Permission and Access Issues**
+**"Insufficient permissions" Errors**
+- **Cause:** Non-admin attempting admin-only commands
+- **Solution:** Contact server administrator for assistance
+- **Alternative:** Use equivalent non-admin commands where available
+
+**Registration and Signup Problems**
+**"Already signed up" Errors**
+- **Solution:** Use `/withdraw_signup` first, then re-register
+- **Note:** Can run for multiple different offices simultaneously
+
+**"Invalid region/state" Errors**
+- **Solution:** Check available regions with `/show_regions`
+- **Format:** Use exact spelling and capitalization
+- **Examples:** "PENNSYLVANIA" not "Pennsylvania"
+
+**Campaign Strategy Troubleshooting**
+
+**Low Campaign Effectiveness Issues**
+- **Diagnosis:** Check state demographic multipliers
+- **Solution:** Campaign in states where your demographics are strong
+- **Tool:** Use `/view_state_demographics` to research
+- **Strategy:** Focus on 1.75x multiplier states, avoid 0.3x states
+
+**Example Effectiveness Analysis:**
+Target: Rural Voters
+- Strong States (1.75x): Alabama, Montana, Wyoming
+- Moderate States (0.75x): Colorado, Pennsylvania
+- Weak States (0.3x): California, New York
+- Action Plan: Campaign for Rural Voters in Alabama/Montana/Wyoming
+
+**Demographic Backlash Problems**
+- **Cause:** Over-appealing to conflicting demographic groups
+- **Symptoms:** Losing points in demographics you've previously built
+- **Prevention:** Plan coalition strategy to avoid major conflicts
+
+**Backlash Prevention Strategy:**
+1. Map out your core demographic coalition
+2. Identify all conflicting demographics for each core group
+3. Plan geographic targeting to minimize overlap
+4. Monitor threshold percentages to avoid trigger points
+
+**Momentum Building Difficulties**
+- **Solution:** Increase campaign frequency in target states
+- **Strategy:** Build momentum systematically in 2-3 states first
+- **Tool:** Use `/momentum status` to track progress
+
+**Momentum Building Best Practices:**
+- Week 1-2: Choose 2-3 target states, begin consistent campaigning
+- Week 3-4: Build to 30-40 momentum in each target state
+- Week 5-6: Expand to 2-3 additional states
+- Week 7-8: Maintain momentum, avoid vulnerability thresholds
+
+**System Performance and Technical Issues**
+
+**Bot Response Problems**
+- **Slow Command Response:** Wait for response, avoid spamming commands
+- **Failed Command Execution:** Wait and retry command once, screenshot errors
+
+**Best Practices for Issue Prevention**
+
+**Strategic Planning**
+- Plan campaign strategy before beginning active campaigning
+- Research state demographics and momentum systems thoroughly
+- Develop contingency plans for various scenarios
+
+**Resource Management**
+- Track stamina usage and cooldown timers carefully
+- Maintain reserves for emergency responses
+- Plan action timing around server activity patterns
+
+**Communication and Coordination**
+- Share research and analysis with party members
+- Coordinate timing of major campaign actions
+- Report issues and problems promptly to admins
+- Maintain good sportsmanship and fair play standards"""
             }
         }
 
@@ -349,53 +848,66 @@ class HelpView(discord.ui.View):
             },
             "setup": {
                 "title": "🏛️ Setup Commands", 
-                "content": """/setup add_region - Add a US state (by abbreviation) to this guild's election regions
-/setup remove_region - Remove a US state from this guild's regions
+                "content": """**User Commands:**
 /setup show_config - Show current election configuration
 /setup list_regions - List all the US states you've added as regions
-/setup set_start - Set the start date & time for your election (format: YYYY-MM-DD HH:MM)
-/setup set_announcement_channel - Set the channel for election announcements
-/setup remove_announcement_channel - Remove the announcement channel setting"""
+
+**Admin Commands:**
+/setup add_region - Add a US state (by abbreviation) to this guild's election regions (Admin only)
+/setup remove_region - Remove a US state from this guild's regions (Admin only)
+/setup set_start - Set the start date & time for your election (format: YYYY-MM-DD HH:MM) (Admin only)
+/setup set_announcement_channel - Set the channel for election announcements (Admin only)
+/setup remove_announcement_channel - Remove the announcement channel setting (Admin only)"""
             },
             "party": {
                 "title": "🎉 Party Management Commands",
-                "content": """/party admin create - Create a new political party (Admin only)
+                "content": """**User Commands:**
+/party info list - List all available political parties
+
+**Admin Commands:**
+/party admin create - Create a new political party (Admin only)
 /party admin remove - Remove a political party (Admin only)
 /party admin edit - Edit an existing political party (Admin only)
 /party admin reset - Reset all parties to default (Admin only - DESTRUCTIVE)
 /party admin bulk_create - Create multiple parties at once (Admin only)
 /party admin remove_all_custom - Remove all custom parties (keep defaults) (Admin only)
 /party admin export - Export party configuration as text (Admin only)
-/party admin modify_color - Change the color of multiple parties at once (Admin only)
-/party info list - List all available political parties"""
+/party admin modify_color - Change the color of multiple parties at once (Admin only)"""
             },
             "polling": {
                 "title": "📊 Polling Commands",
-                "content": """/poll candidate - Conduct an NPC poll for a specific candidate (shows polling with 7% margin of error)
+                "content": """**User Commands:**
+/poll candidate - Conduct an NPC poll for a specific candidate (shows polling with 7% margin of error)
 /poll info state - Conduct an NPC poll for all parties in a specific state, showing Rep/Dem/Independent support
+
+**Admin Commands:**
 /poll admin bulk_set_votes - Set vote counts for multiple candidates (Admin only)
-/poll admin set_winner_votes - Set election winner and vote counts for general elections (Admin only)
-/poll vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
-/poll vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)"""
+/poll admin set_winner_votes - Set election winner and vote counts for general elections (Admin only)"""
             },
             "election": {
                 "title": "🗳️ Election Management",
-                "content": """/election admin set_seats - Set up election seats for the guild (Admin only)
+                "content": """**User Commands:**
+/election seat view - View details of a specific election seat
+/election seat list - List all election seats
+/election seat assign - Assign a user to an election seat
+/election info phases - Show current election phase information
+/election info winners - View election winners
+
+**Admin Commands:**
+/election admin set_seats - Set up election seats for the guild (Admin only)
 /election admin reset_seats - Reset all election seats (Admin only)
 /election admin view_seats - View all configured election seats (Admin only)
 /election admin bulk_add_seats - Add multiple seats from formatted text (Admin only)
 /election admin fill_vacant_seat - Fill a vacant seat with a user (Admin only)
-/election seat view - View details of a specific election seat
-/election seat list - List all election seats
-/election seat assign - Assign a user to an election seat
 /election seat admin_update - Update a specific election seat (Admin only)
-/election seat admin_reset_term - Reset term for a specific seat (Admin only)
-/election info phases - Show current election phase information
-/election info winners - View election winners"""
+/election seat admin_reset_term - Reset term for a specific seat (Admin only)"""
             },
             "time": {
                 "title": "⏰ Time Management",
-                "content": """/time current_time - Show the current RP date and election phase
+                "content": """**User Commands:**
+/time current_time - Show the current RP date and election phase
+
+**Admin Commands:**
 /time set_current_time - Set the current RP date and time (Admin only)
 /time set_time_scale - Set how many real minutes equal one RP day (Admin only)
 /time reset_cycle - Reset the election cycle to the beginning (Admin only)
@@ -421,54 +933,65 @@ class HelpView(discord.ui.View):
             },
             "endorsements": {
                 "title": "🤝 Endorsements & Delegates",
-                "content": """/endorse - Endorse a candidate (value based on your Discord role)
-/admin_set_endorsement_role - Set Discord role for endorsement position (Admin only)
-/view_endorsement_roles - View current endorsement role mappings (Admin only)
+                "content": """**User Commands:**
+/endorse - Endorse a candidate (value based on your Discord role)
 /view_endorsements - View all endorsements made in current cycle
 /my_endorsement - View your current endorsement status
 /view_delegates - View current delegate count for presidential candidates
+
+**Admin Commands:**
+/admin_set_endorsement_role - Set Discord role for endorsement position (Admin only)
+/view_endorsement_roles - View current endorsement role mappings (Admin only)
 /admin_call_state - Manually call a state for delegate allocation (Admin only)"""
             },
             "voting": {
                 "title": "🗳️ Voting & Results",
-                "content": """/vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
-/vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)
+                "content": """**User Commands:**
 /view_primary_winners - View all primary election winners for the current year
+
+**Admin Commands:**
+/vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
+/vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)
 /admin_set_winner_votes - Set votes for a primary winner (Admin only)
 /admin_declare_general_winners - Declare general election winners based on final scores (Admin only)"""
             },
             "campaign": {
                 "title": "🎯 Campaign Actions",
-                "content": """/pres_speech - Give a presidential campaign speech
+                "content": """**Presidential Campaign Actions:**
+/pres_speech - Give a presidential campaign speech
 /pres_donor - Make a presidential donor appeal
 /pres_canvassing - Conduct presidential canvassing in a state
 /pres_ad - Run a presidential campaign ad
 /pres_poster - Put up presidential campaign posters
 
+**General Campaign Actions:**
 /speech - Give a campaign speech for any candidate
 /donor - Make a donor fundraising appeal
 /canvassing - Conduct door-to-door canvassing in a region
 /ad - Run a campaign advertisement
 /poster - Put up campaign posters
 
+**Demographics & Voter Outreach:**
 /demographic_appeal - Target specific demographic groups with campaign appeals
 /voter_registration - Conduct voter registration drives
 /town_hall - Host town hall meetings
 /grassroots - Organize grassroots campaign events"""
             },
             "momentum": {
-                "title": "🌊 Momentum & State Dynamics",
-                "content": """/momentum status - View momentum status for a specific state
+                "title": "🌊 Momentum & Demographics",
+                "content": """**User Commands:**
+/momentum status - View momentum status for a specific state
 /momentum overview - View momentum overview for all states
 /momentum trigger_collapse - Attempt to trigger momentum collapse for a vulnerable party
+/show_regions - Show all available election regions
+/show_phases - Show all election phases and their timing
+/show_primary_winners - Show current presidential primary winners
+
+**Admin Commands:**
 /momentum admin add_momentum - Add momentum to a party in a state (Admin only)
 /momentum admin set_lean - Set or change a state's political lean (Admin only)
 /momentum admin settings - View or modify momentum system settings (Admin only)
-
-/show_regions - Show all available election regions
-/show_phases - Show all election phases and their timing
 /admin_view_pres_state_data - View PRESIDENTIAL_STATE_DATA as a formatted table (Admin only)
-/show_primary_winners - Show current presidential primary winners
 /admin_update_winner - Manually update a primary winner (Admin only)
 /admin_reset_winners - Reset all primary winners (Admin only)
 /admin_view_state_percentages - View state-by-state voting percentages for general election (Admin only)"""
@@ -477,7 +1000,55 @@ class HelpView(discord.ui.View):
                 "title": "🔧 Admin Commands",
                 "content": """/admin reset_campaign_cooldowns - Reset general campaign action cooldowns for a user (Admin only)
 
-All admin commands from other categories are also available with admin permissions."""
+**Party Management:**
+/party admin create - Create a new political party (Admin only)
+/party admin remove - Remove a political party (Admin only)
+/party admin edit - Edit an existing political party (Admin only)
+/party admin reset - Reset all parties to default (Admin only - DESTRUCTIVE)
+/party admin bulk_create - Create multiple parties at once (Admin only)
+/party admin remove_all_custom - Remove all custom parties (keep defaults) (Admin only)
+/party admin export - Export party configuration as text (Admin only)
+/party admin modify_color - Change the color of multiple parties at once (Admin only)
+
+**Polling:**
+/poll admin bulk_set_votes - Set vote counts for multiple candidates (Admin only)
+/poll admin set_winner_votes - Set election winner and vote counts for general elections (Admin only)
+
+**Election Management:**
+/election admin set_seats - Set up election seats for the guild (Admin only)
+/election admin reset_seats - Reset all election seats (Admin only)
+/election admin view_seats - View all configured election seats (Admin only)
+/election admin bulk_add_seats - Add multiple seats from formatted text (Admin only)
+/election admin fill_vacant_seat - Fill a vacant seat with a user (Admin only)
+/election seat admin_update - Update a specific election seat (Admin only)
+/election seat admin_reset_term - Reset term for a specific seat (Admin only)
+
+**Time Management:**
+/time set_current_time - Set the current RP date and time (Admin only)
+/time set_time_scale - Set how many real minutes equal one RP day (Admin only)
+/time reset_cycle - Reset the election cycle to the beginning (Admin only)
+/time set_voice_channel - Set which voice channel to update with RP date (Admin only)
+/time toggle_voice_updates - Toggle automatic voice channel name updates (Admin only)
+/time update_voice_channel - Manually update the configured voice channel with current RP date (Admin only)
+
+**Endorsements & Delegates:**
+/admin_set_endorsement_role - Set Discord role for endorsement position (Admin only)
+/admin_call_state - Manually call a state for delegate allocation (Admin only)
+
+**Voting & Results:**
+/vote admin_bulk_set_votes - Set vote counts for multiple candidates (Admin only)
+/vote admin_set_winner_votes - Set election winner and vote counts for general elections (Admin only)
+/admin_set_winner_votes - Set votes for a primary winner (Admin only)
+/admin_declare_general_winners - Declare general election winners based on final scores (Admin only)
+
+**Momentum & Demographics:**
+/momentum admin add_momentum - Add momentum to a party in a state (Admin only)
+/momentum admin set_lean - Set or change a state's political lean (Admin only)
+/momentum admin settings - View or modify momentum system settings (Admin only)
+/admin_view_pres_state_data - View PRESIDENTIAL_STATE_DATA as a formatted table (Admin only)
+/admin_update_winner - Manually update a primary winner (Admin only)
+/admin_reset_winners - Reset all primary winners (Admin only)
+/admin_view_state_percentages - View state-by-state voting percentages for general election (Admin only)"""
             },
             "handbook": {
                 "title": "📚 Election Bot Handbook",
@@ -544,12 +1115,21 @@ class Basics(commands.Cog):  # Capitalized as per style
         await interaction.response.send_message(embed=embed, view=view)
 
     # Create admin command group
-    admin_group = app_commands.Group(name="admin", description="Admin-only commands")
+    admin_group = app_commands.Group(
+        name="admin", 
+        description="Admin-only commands",
+        default_permissions=discord.Permissions(administrator=True)
+    )
 
     @admin_group.command(
         name="reset_campaign_cooldowns",
         description="Reset general campaign action cooldowns for a user (Admin only)"
     )
+    @app_commands.describe(
+        user="The user to reset cooldowns for (defaults to yourself)",
+        collection_name="The cooldown collection to reset"
+    )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_reset_campaign_cooldowns(
         self,
