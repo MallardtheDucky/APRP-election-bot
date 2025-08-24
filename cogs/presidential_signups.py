@@ -122,7 +122,7 @@ class PresidentialSignups(commands.Cog):
 
         # Validate ideology choices
         available_choices = self._get_available_choices()
-        
+
         if ideology not in available_choices["ideology"]:
             await interaction.response.send_message(
                 f"❌ Invalid ideology. Available options: {', '.join(available_choices['ideology'])}",
@@ -314,7 +314,7 @@ class PresidentialSignups(commands.Cog):
 
         # Validate ideology choices
         available_choices = self._get_available_choices()
-        
+
         ideology_errors = []
         if ideology not in available_choices["ideology"]:
             ideology_errors.append(f"Invalid ideology. Available: {', '.join(available_choices['ideology'])}")
@@ -401,7 +401,7 @@ class PresidentialSignups(commands.Cog):
 
         if "pending_vp_requests" not in pres_config:
             pres_config["pending_vp_requests"] = []
-        
+
         pres_config["pending_vp_requests"].append(vp_request)
 
         pres_col.update_one(
@@ -412,7 +412,7 @@ class PresidentialSignups(commands.Cog):
         # Notify the presidential candidate
         guild = interaction.guild
         president_user = guild.get_member(presidential_candidate_data["user_id"])
-        
+
         if president_user:
             try:
                 embed = discord.Embed(
@@ -530,7 +530,7 @@ class PresidentialSignups(commands.Cog):
 
         # Add VP to candidates and update president's record
         pres_config["candidates"].append(vp_candidate)
-        
+
         for i, candidate in enumerate(pres_config["candidates"]):
             if candidate["user_id"] == interaction.user.id and candidate["office"] == "President":
                 pres_config["candidates"][i]["vp_candidate"] = vp_request["name"]
@@ -752,7 +752,7 @@ class PresidentialSignups(commands.Cog):
 
         # Get candidates for target year
         candidates = [c for c in pres_config["candidates"] if c["year"] == target_year]
-        
+
         presidents = [c for c in candidates if c["office"] == "President"]
         vps = [c for c in candidates if c["office"] == "Vice President"]
 
@@ -771,7 +771,7 @@ class PresidentialSignups(commands.Cog):
 
         for president in presidents:
             vp_name = president.get("vp_candidate", "No VP selected")
-            
+
             ticket_info = f"**Party:** {president['party']}\n"
             ticket_info += f"**Running Mate:** {vp_name}\n"
             ticket_info += f"**Ideology:** {president['ideology']} ({president['axis']})\n"
@@ -877,7 +877,7 @@ class PresidentialSignups(commands.Cog):
                             for name in party_names if current.lower() in name.lower()][:25]
         except:
             pass
-        
+
         # Fallback to default parties if party management not available
         default_parties = ["Democratic Party", "Republican Party", "Independent"]
         return [app_commands.Choice(name=name, value=name) 
@@ -898,7 +898,7 @@ class PresidentialSignups(commands.Cog):
                             for name in party_names if current.lower() in name.lower()][:25]
         except:
             pass
-        
+
         # Fallback to default parties if party management not available
         default_parties = ["Democratic Party", "Republican Party", "Independent"]
         return [app_commands.Choice(name=name, value=name) 
@@ -961,7 +961,7 @@ class PresidentialSignups(commands.Cog):
 
             states_list = list(STATE_DATA.keys())
             states_per_field = 20
-            
+
             # Split states into chunks for display
             for i in range(0, len(states_list), states_per_field):
                 chunk = states_list[i:i + states_per_field]
@@ -995,7 +995,7 @@ class PresidentialSignups(commands.Cog):
             limit = 25
 
         ideology_col = self.bot.db["ideology_modifications"]
-        
+
         modifications = list(ideology_col.find(
             {"guild_id": interaction.guild.id}
         ).sort("timestamp", -1).limit(limit))
@@ -1016,9 +1016,9 @@ class PresidentialSignups(commands.Cog):
         for mod in modifications:
             user = interaction.guild.get_member(mod.get("user_id"))
             user_name = user.display_name if user else f"User {mod.get('user_id', 'Unknown')}"
-            
+
             timestamp = mod["timestamp"].strftime("%Y-%m-%d %H:%M")
-            
+
             if mod["action"] == "add_state":
                 value = f"**Added state:** {mod['state_name']}\n"
                 value += f"**Data:** {mod['data']}\n"
