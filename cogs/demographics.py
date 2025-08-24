@@ -34,17 +34,26 @@ DEMOGRAPHIC_THRESHOLDS = {
 
 # Backlash system - opposing voter blocs
 DEMOGRAPHIC_CONFLICTS = {
-    "Urban Voters": ["Rural Voters"],
-    "Rural Voters": ["Urban Voters"],
-    "Gun Rights Advocates": ["Environmental & Green Voters", "Urban Voters"],
-    "Environmental & Green Voters": ["Gun Rights Advocates"],
-    "Wealthy / High-Income Voters": ["Low-Income Voters"],
+    "Urban Voters": ["Rural Voters", "Gun Rights Advocates"],
+    "Suburban Voters": ["Rural Voters"],
+    "Rural Voters": ["Urban Voters", "Suburban Voters", "Environmental & Green Voters"],
+    "Evangelical Christians": ["LGBTQ+ Voters", "Immigrant Communities", "Young Voters (18–29)"],
+    "African American Voters": ["Gun Rights Advocates"],
+    "Latino/Hispanic Voters": ["Gun Rights Advocates"],
+    "Asian American Voters": ["Gun Rights Advocates"],
+    "Blue-Collar / Working-Class Voters": ["College-Educated Professionals", "Tech & Innovation Workers", "Wealthy / High-Income Voters"],
+    "College-Educated Professionals": ["Blue-Collar / Working-Class Voters", "Gun Rights Advocates"],
+    "Young Voters (18–29)": ["Senior Citizens (65+)", "Evangelical Christians"],
+    "Senior Citizens (65+)": ["Young Voters (18–29)", "Tech & Innovation Workers"],
+    "Native American Voters": ["Gun Rights Advocates"],
+    "Military & Veteran Voters": ["Environmental & Green Voters", "LGBTQ+ Voters"],
+    "LGBTQ+ Voters": ["Evangelical Christians", "Military & Veteran Voters"],
+    "Immigrant Communities": ["Evangelical Christians", "Gun Rights Advocates"],
+    "Tech & Innovation Workers": ["Blue-Collar / Working-Class Voters", "Senior Citizens (65+)", "Gun Rights Advocates"],
+    "Wealthy / High-Income Voters": ["Low-Income Voters", "Blue-Collar / Working-Class Voters"],
     "Low-Income Voters": ["Wealthy / High-Income Voters"],
-    "Evangelical Christians": ["LGBTQ+ Voters", "Immigrant Communities"],
-    "LGBTQ+ Voters": ["Evangelical Christians"],
-    "Immigrant Communities": ["Evangelical Christians"],
-    "Blue-Collar / Working-Class": ["College-Educated Professionals"],
-    "College-Educated Professionals": ["Blue-Collar / Working-Class"]
+    "Environmental & Green Voters": ["Gun Rights Advocates", "Rural Voters", "Military & Veteran Voters"],
+    "Gun Rights Advocates": ["Environmental & Green Voters", "Urban Voters", "College-Educated Professionals", "African American Voters", "Latino/Hispanic Voters", "Asian American Voters", "Native American Voters", "Immigrant Communities", "Tech & Innovation Workers"]
 }
 
 class Demographics(commands.Cog):
@@ -672,8 +681,10 @@ class Demographics(commands.Cog):
         threshold = DEMOGRAPHIC_THRESHOLDS.get(demographic, 20)
         backlash_updates = {}
 
-        # Soft backlash when points are closer to threshold (e.g., 125% of threshold)
-        soft_backlash_threshold = threshold * 1.25 
+        # Early soft backlash when approaching threshold (90% of threshold)
+        early_backlash_threshold = threshold * 0.9
+        # Medium backlash when exceeding threshold (125% of threshold)
+        medium_backlash_threshold = threshold * 1.25 
         # Hard backlash at 150% of threshold
         hard_backlash_threshold = threshold * 1.5  
 
@@ -683,8 +694,14 @@ class Demographics(commands.Cog):
             for opposing_bloc in opposing_blocs:
                 current_opposing = current_demographics.get(opposing_bloc, 0)
                 backlash_updates[f"winners.$.demographic_points.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
-        elif new_points > soft_backlash_threshold:
-            backlash_loss = -1.0  # Soft backlash
+        elif new_points > medium_backlash_threshold:
+            backlash_loss = -1.0  # Medium backlash
+            opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
+            for opposing_bloc in opposing_blocs:
+                current_opposing = current_demographics.get(opposing_bloc, 0)
+                backlash_updates[f"winners.$.demographic_points.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
+        elif new_points > early_backlash_threshold and current_points <= early_backlash_threshold:
+            backlash_loss = -0.5  # Early soft backlash (only triggers when crossing the threshold)
             opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
             for opposing_bloc in opposing_blocs:
                 current_opposing = current_demographics.get(opposing_bloc, 0)
@@ -1058,7 +1075,6 @@ class Demographics(commands.Cog):
             inline=True
         )
 
-        embed.set_image(url=image.url)
         embed.set_footer(text="Next demographic poster available in 6 hours")
 
         await interaction.response.send_message(embed=embed)
@@ -1387,7 +1403,7 @@ class Demographics(commands.Cog):
         # Add warning about backlash
         embed.add_field(
             name="⚠️ Backlash Warning",
-            value="Exceeding 150% of a demographic's threshold may cause backlash from opposing groups!",
+            value="Backlash occurs at 90% (soft), 125% (medium), and 150% (hard) of a demographic's threshold!",
             inline=False
         )
 
@@ -1772,9 +1788,9 @@ class Demographics(commands.Cog):
         )
 
         # Backlash thresholds
-        backlash_text = "**Soft Backlash:** 150% of threshold\n"
-        backlash_text += "**Hard Backlash:** 200% of threshold\n"
-        backlash_text += "**Backlash Loss:** -1.0 to -2.0 points"
+        backlash_text = "**Early Soft Backlash:** 90% of threshold (-0.5)\n"
+        backlash_text += "**Medium Backlash:** 125% of threshold (-1.0)\n"
+        backlash_text += "**Hard Backlash:** 150% of threshold (-2.0)"
 
         embed.add_field(
             name="⚖️ Backlash System",

@@ -1,6 +1,5 @@
-
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from datetime import datetime, timedelta
 import random
@@ -11,11 +10,15 @@ from .presidential_winners import PRESIDENTIAL_STATE_DATA
 class Momentum(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.momentum_decay_loop.start()  # Start the decay loop
         print("Momentum cog loaded successfully")
 
     # Create main command groups
     momentum_group = app_commands.Group(name="momentum", description="State momentum commands")
     momentum_admin_group = app_commands.Group(name="admin", description="Momentum admin commands", parent=momentum_group)
+
+    def cog_unload(self):
+        self.momentum_decay_loop.cancel()
 
     def _get_time_config(self, guild_id: int):
         """Get time configuration to check current phase"""
@@ -131,13 +134,77 @@ class Momentum(commands.Cog):
         """Calculate how momentum affects polling percentages"""
         state_momentum = momentum_config["state_momentum"].get(state, {})
         party_momentum = state_momentum.get(party, 0.0)
-        
+
         # Convert momentum to polling percentage change
         # Each 10 points of momentum = ~1% polling change
         polling_effect = party_momentum / 10.0
-        
+
         # Cap the effect to prevent extreme swings
         return max(-15.0, min(15.0, polling_effect))
+
+    @tasks.loop(hours=12)  # Run decay every 12 hours
+    async def momentum_decay_loop(self):
+        """Apply momentum decay across all guilds"""
+        try:
+            col = self.bot.db["momentum_config"]
+            configs = col.find({})
+
+            for config in configs:
+                guild_id = config["guild_id"]
+
+                # Check if we're in General Campaign phase
+                time_col, time_config = self._get_time_config(guild_id)
+                if not time_config or time_config.get("current_phase", "") != "General Campaign":
+                    continue  # Skip decay if not in General Campaign
+
+                settings = config["settings"]
+                decay_rate = settings.get("momentum_decay_rate", 0.95)
+
+                # Apply decay to all state momentum
+                updates = {}
+                momentum_changed = False
+
+                for state_name, momentum_data in config["state_momentum"].items():
+                    for party in ["Republican", "Democrat", "Independent"]:
+                        current_momentum = momentum_data.get(party, 0.0)
+
+                        if abs(current_momentum) > 0.1:  # Only decay if momentum is significant
+                            # Apply decay - reduce momentum toward zero
+                            if current_momentum > 0:
+                                new_momentum = current_momentum * decay_rate
+                            else:
+                                new_momentum = current_momentum * decay_rate
+
+                            # If momentum gets very small, set it to 0
+                            if abs(new_momentum) < 0.1:
+                                new_momentum = 0.0
+
+                            updates[f"state_momentum.{state_name}.{party}"] = new_momentum
+                            momentum_changed = True
+
+                            # Log decay event if significant change
+                            if abs(current_momentum - new_momentum) > 0.5:
+                                self._add_momentum_event(
+                                    col, guild_id, state_name, party,
+                                    new_momentum - current_momentum, "Daily decay"
+                                )
+
+                # Apply all updates at once
+                if updates:
+                    updates[f"state_momentum.last_decay"] = datetime.utcnow()
+                    col.update_one(
+                        {"guild_id": guild_id},
+                        {"$set": updates}
+                    )
+
+                    print(f"Applied momentum decay for guild {guild_id}")
+
+        except Exception as e:
+            print(f"Error in momentum decay loop: {e}")
+
+    @momentum_decay_loop.before_loop
+    async def before_momentum_decay_loop(self):
+        await self.bot.wait_until_ready()
 
     @momentum_group.command(
         name="status",
@@ -715,6 +782,99 @@ class Momentum(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @momentum_admin_group.command(
+        name="trigger_decay",
+        description="Manually trigger momentum decay for all states (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def trigger_decay(self, interaction: discord.Interaction):
+        # Check if in General Campaign phase
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config or time_config.get("current_phase", "") != "General Campaign":
+            await interaction.response.send_message(
+                "❌ Momentum decay can only be triggered during the General Campaign phase.",
+                ephemeral=True
+            )
+            return
+
+        momentum_col, momentum_config = self._get_momentum_config(interaction.guild.id)
+        settings = momentum_config["settings"]
+        decay_rate = settings.get("momentum_decay_rate", 0.95)
+
+        # Apply decay to all states
+        updates = {}
+        decay_summary = []
+
+        for state_name, momentum_data in momentum_config["state_momentum"].items():
+            for party in ["Republican", "Democrat", "Independent"]:
+                current_momentum = momentum_data.get(party, 0.0)
+
+                if abs(current_momentum) > 0.1:  # Only decay if momentum is significant
+                    # Apply decay
+                    if current_momentum > 0:
+                        new_momentum = current_momentum * decay_rate
+                    else:
+                        new_momentum = current_momentum * decay_rate
+
+                    # If momentum gets very small, set it to 0
+                    if abs(new_momentum) < 0.1:
+                        new_momentum = 0.0
+
+                    change = new_momentum - current_momentum
+                    updates[f"state_momentum.{state_name}.{party}"] = new_momentum
+
+                    # Track significant changes for summary
+                    if abs(change) > 0.5:
+                        decay_summary.append(f"**{state_name} {party}:** {current_momentum:.1f} → {new_momentum:.1f}")
+
+                        # Log decay event
+                        self._add_momentum_event(
+                            momentum_col, interaction.guild.id, state_name, party,
+                            change, "Manual decay trigger", interaction.user.id
+                        )
+
+        # Apply all updates
+        if updates:
+            updates["state_momentum.last_decay"] = datetime.utcnow()
+            momentum_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": updates}
+            )
+
+        embed = discord.Embed(
+            title="⚙️ Momentum Decay Applied",
+            description=f"Applied {((1-decay_rate)*100):.1f}% decay to all momentum values",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        if decay_summary:
+            # Show first 10 significant changes
+            summary_text = "\n".join(decay_summary[:10])
+            if len(decay_summary) > 10:
+                summary_text += f"\n... and {len(decay_summary) - 10} more changes"
+
+            embed.add_field(
+                name="📉 Significant Changes",
+                value=summary_text,
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="📉 Changes",
+                value="No significant momentum changes (all values below 0.1)",
+                inline=False
+            )
+
+        embed.add_field(
+            name="⚙️ Settings",
+            value=f"**Decay Rate:** {decay_rate:.2f} ({((1-decay_rate)*100):.1f}% reduction)\n"
+                  f"**Triggered By:** {interaction.user.mention}",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @momentum_group.command(
         name="overview",
         description="View momentum overview for all states"
@@ -786,9 +946,18 @@ class Momentum(commands.Cog):
                 inline=True
             )
 
+        # Show last decay time
+        last_decay = momentum_config["state_momentum"].get("last_decay")
+        if last_decay:
+            time_since_decay = datetime.utcnow() - last_decay
+            hours_since = int(time_since_decay.total_seconds() // 3600)
+            decay_text = f"Last decay: {hours_since}h ago"
+        else:
+            decay_text = "No decay applied yet"
+
         embed.add_field(
             name="ℹ️ Legend",
-            value="Numbers show momentum level\n⚠️ = Party vulnerable to collapse\nR/D/I = Republican/Democrat/Independent vulnerable",
+            value="Numbers show momentum level\n⚠️ = Party vulnerable to collapse\nR/D/I = Republican/Democrat/Independent vulnerable\n" + decay_text,
             inline=False
         )
 

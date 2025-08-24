@@ -69,6 +69,11 @@ class HelpDropdown(discord.ui.Select):
                 label="🔧 Admin Commands",
                 description="Administrator-only commands",
                 value="admin"
+            ),
+            discord.SelectOption(
+                label="📚 Handbook",
+                description="Strategy guides and how-to tutorials",
+                value="handbook"
             )
         ]
         super().__init__(placeholder="Select a command category...", options=options)
@@ -76,6 +81,259 @@ class HelpDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         embed = self.view.get_embed(self.values[0])
         await interaction.response.edit_message(embed=embed, view=self.view)
+
+class HandbookDropdown(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="📖 Getting Started", description="Initial setup and basic concepts", value="getting_started"),
+            discord.SelectOption(label="🗳️ Election Management", description="Managing elections and phases", value="election_management"),
+            discord.SelectOption(label="🎯 Campaign Strategies", description="Basic campaign tactics", value="campaign_strategies"),
+            discord.SelectOption(label="👥 Demographics & Targeting", description="Voter demographic strategies", value="demographics"),
+            discord.SelectOption(label="🌊 Momentum System", description="Understanding momentum mechanics", value="momentum"),
+            discord.SelectOption(label="🏛️ Presidential Campaigns", description="Presidential election strategies", value="presidential"),
+            discord.SelectOption(label="🎉 Party Management", description="Political party administration", value="party_management"),
+            discord.SelectOption(label="🎓 Advanced Strategies", description="Complex campaign techniques", value="advanced"),
+            discord.SelectOption(label="🔧 Admin Tools", description="Administrative commands guide", value="admin_tools"),
+            discord.SelectOption(label="🛠️ Troubleshooting", description="Common issues and solutions", value="troubleshooting")
+        ]
+        super().__init__(placeholder="Select a handbook section...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        embed = self.view.get_handbook_embed(self.values[0])
+        await interaction.response.edit_message(embed=embed, view=self.view)
+
+class HandbookView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(HandbookDropdown())
+
+    def get_handbook_embed(self, section: str) -> discord.Embed:
+        handbook_sections = {
+            "getting_started": {
+                "title": "📖 Getting Started",
+                "content": """**Initial Setup:**
+• `/setup add_region` - Add US states to your server
+• `/setup set_start` - Set election start date
+• `/setup set_announcement_channel` - Set update channel
+• `/party admin create` - Create custom parties
+• `/election admin set_seats` - Configure election seats
+
+**Election Phases:**
+• **Signup Phase** - Candidates register
+• **Primary Campaign** - Campaign for party nominations
+• **Primary Voting** - Vote in party primaries
+• **General Campaign** - Campaign for general election
+• **General Voting** - Final election voting
+• **Governance** - Winners serve terms
+
+**Key Commands:**
+• `/time current_time` - Check current phase
+• `/signup` - Register as candidate
+• `/commands` - View all commands"""
+            },
+            "election_management": {
+                "title": "🗳️ Election Management",
+                "content": """**Setting Up Elections:**
+1. Configure seats with `/election admin set_seats`
+2. Set timing with `/time` commands
+3. Configure parties and colors
+4. Set announcement channels
+
+**Candidate Registration:**
+• `/signup` - General election signup
+• `/pres_signup` - Presidential campaigns
+• `/vp_signup` - Vice President signup
+• `/withdraw_signup` - Withdraw from race
+
+**Managing Process:**
+• Elections progress automatically through phases
+• Admins can manually set vote counts if needed
+• Results announced automatically
+• Use `/time set_time_scale` to control pacing"""
+            },
+            "campaign_strategies": {
+                "title": "🎯 Campaign Strategies",
+                "content": """**Basic Campaign Actions:**
+• **Speeches** (`/speech`) - Build general support
+• **Canvassing** (`/canvassing`) - Target specific regions
+• **Ads** (`/ad`) - Wide reach, costs more stamina
+• **Posters** (`/poster`) - Cheap name recognition
+• **Donor Appeals** (`/donor`) - Fundraising
+
+**Effectiveness Tips:**
+• Actions have cooldowns to prevent spam
+• Different actions work better in different states
+• Consider your party's base when choosing regions
+
+**Resource Management:**
+• All actions cost stamina
+• Plan campaign timeline carefully
+• Don't exhaust stamina early in long campaigns"""
+            },
+            "demographics": {
+                "title": "👥 Demographics & Targeting",
+                "content": """**20+ Demographic Groups:**
+• Urban vs Rural voters
+• Age groups (Young 18-29, Seniors 65+)
+• Ethnic groups (African American, Latino, Asian, etc.)
+• Economic groups (Wealthy, Low-Income, Blue-Collar)
+• Ideological groups (Evangelical, LGBTQ+, Environmental)
+
+**State Multipliers:**
+• **Strong (1.75x)** - Very influential in state
+• **Moderate (0.75x)** - Average influence
+• **Small (0.3x)** - Limited influence
+
+**Strategy:**
+1. Research state demographic strengths first
+2. Use `/demographic_appeal` in favorable states
+3. Avoid over-appealing (125%+ triggers backlash)
+4. Balance different demographic appeals"""
+            },
+            "momentum": {
+                "title": "🌊 Momentum System",
+                "content": """**Understanding Momentum:**
+• Parties gain momentum through successful campaigns
+• High momentum makes future actions more effective
+• Low momentum can lead to "collapse" penalties
+
+**Building Momentum:**
+• Consistent campaigning in states
+• Successful demographic appeals
+• Endorsements from local figures
+
+**Momentum Collapse:**
+• Triggered when party becomes vulnerable
+• Use `/momentum trigger_collapse` on opponents
+• Results in major momentum loss and penalties
+
+**Strategy:**
+• Don't neglect states - momentum decays
+• Protect strong states from collapse attempts
+• Target opponent's vulnerable states"""
+            },
+            "presidential": {
+                "title": "🏛️ Presidential Campaigns",
+                "content": """**Presidential Primaries:**
+• Sign up with `/pres_signup`
+• Choose running mates with `/vp_signup` and `/accept_vp`
+• Compete for delegates through state campaigns
+• Early primary states matter more
+
+**Special Presidential Actions:**
+• `/pres_speech` - Enhanced speeches with broader reach
+• `/pres_canvassing` - State-targeted canvassing
+• `/pres_ad` - Expensive but very effective
+• `/pres_poster` - Build national name recognition
+• `/pres_donor` - Major fundraising appeals
+
+**Electoral Strategy:**
+• Focus on swing states during general election
+• Don't neglect base states entirely
+• Consider regional balance with VP pick"""
+            },
+            "party_management": {
+                "title": "🎉 Party Management",
+                "content": """**Default Parties:**
+• Democratic Party (Blue)
+• Republican Party (Red)
+• Independent (Purple)
+• Green Party (Green)
+• Libertarian Party (Yellow)
+
+**Custom Parties:**
+• Admins can create with `/party admin create`
+• Set colors, abbreviations, descriptions
+• Useful for role-playing scenarios
+
+**Party Strategy:**
+• Each party has traditional strongholds
+• Consider party when choosing regions
+• Some demographics align better with certain parties
+
+**Management Commands:**
+• `/party info list` - View all parties
+• `/party admin edit` - Modify existing parties
+• `/party admin remove` - Delete parties"""
+            },
+            "advanced": {
+                "title": "🎓 Advanced Strategies",
+                "content": """**Coalition Building:**
+1. Identify 3-4 core demographic groups
+2. Avoid targeting opposing groups
+3. Focus on regions where demos are strong
+4. Space out appeals to avoid backlash
+
+**Regional Specialization:**
+• Focus heavily on 2-3 states you can dominate
+• Maintain presence in swing states
+• Don't waste resources on opponent strongholds
+
+**Opponent Disruption:**
+• Monitor opponent momentum for collapse opportunities
+• Time attacks when opponents are vulnerable
+• Use endorsements strategically
+
+**Late Campaign Surges:**
+• Save stamina for final pushes
+• Target undecided voters in swing regions
+• Use high-impact actions like ads in final phases"""
+            },
+            "admin_tools": {
+                "title": "🔧 Admin Tools",
+                "content": """**Essential Admin Commands:**
+• `/election admin set_seats` - Configure elections
+• `/time set_current_time` - Control timing
+• `/momentum admin add_momentum` - Adjust momentum
+• `/party admin create` - Create custom parties
+• `/poll admin bulk_set_votes` - Set voting results
+
+**Managing Elections:**
+• Monitor campaign activity for violations
+• Adjust time scales for appropriate pacing
+• Use polling commands for realistic scenarios
+• Manually resolve disputes if needed
+
+**Balancing Gameplay:**
+• Ensure no single strategy is overpowered
+• Monitor momentum system for fairness
+• Adjust demographic thresholds if needed
+• Create interesting scenarios with admin tools"""
+            },
+            "troubleshooting": {
+                "title": "🛠️ Troubleshooting",
+                "content": """**Common Issues:**
+• **"Command on cooldown"** - Wait for cooldown to expire
+• **"Not in correct phase"** - Check current election phase
+• **"Insufficient permissions"** - Admin commands need admin role
+• **"Region not found"** - Use correct state abbreviations
+
+**Campaign Problems:**
+• **Low effectiveness** - Check regions for your demographics
+• **Momentum not building** - Increase campaign frequency
+• **Demographic backlash** - Reduce appeals to conflicting groups
+
+**Best Practices:**
+• Plan campaign strategy before starting
+• Monitor cooldowns and manage stamina
+• Study demographic conflicts before appeals
+• Keep track of momentum in key states
+• Coordinate with running mates and endorsers"""
+            }
+        }
+
+        section_data = handbook_sections.get(section, handbook_sections["getting_started"])
+        embed = discord.Embed(
+            title=section_data["title"],
+            description=section_data["content"],
+            color=discord.Colour.green()
+        )
+        embed.set_footer(text="Use the dropdown below to navigate between handbook sections")
+        return embed
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
 
 class HelpView(discord.ui.View):
     def __init__(self):
@@ -220,6 +478,23 @@ class HelpView(discord.ui.View):
                 "content": """/admin reset_campaign_cooldowns - Reset general campaign action cooldowns for a user (Admin only)
 
 All admin commands from other categories are also available with admin permissions."""
+            },
+            "handbook": {
+                "title": "📚 Election Bot Handbook",
+                "content": """/handbook - Access the comprehensive election bot handbook with strategies and guides
+
+The handbook includes detailed guides on:
+• Getting started with elections
+• Campaign strategies and tactics
+• Demographics and voter targeting
+• Momentum system mechanics
+• Presidential campaign management
+• Party management and customization
+• Advanced strategic techniques
+• Administrative tools and commands
+• Troubleshooting common issues
+
+Use the handbook dropdown to navigate between different strategy guides and tutorials."""
             }
         }
 
@@ -261,6 +536,12 @@ class Basics(commands.Cog):  # Capitalized as per style
         )
 
         await interaction.response.send_message(embed=embed)
+
+    @discord.app_commands.command(name="handbook", description="Access the comprehensive election bot handbook")
+    async def handbook_command(self, interaction: discord.Interaction):
+        view = HandbookView()
+        embed = view.get_handbook_embed("getting_started")
+        await interaction.response.send_message(embed=embed, view=view)
 
     # Create admin command group
     admin_group = app_commands.Group(name="admin", description="Admin-only commands")
