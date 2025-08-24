@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -49,19 +48,17 @@ class Endorsements(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    def _check_endorsement_cooldown(self, guild_id: int, user_id: int):
-        """Check if user is on endorsement cooldown (24 hours)"""
+    def _check_duplicate_endorsement(self, guild_id: int, user_id: int, candidate_name: str):
+        """Check if user has already endorsed this specific candidate"""
         history_col, history_config = self._get_endorsement_history(guild_id)
-        
-        # Find user's last endorsement
+
+        # Check if user has already endorsed this specific candidate
         for endorsement in history_config.get("endorsements", []):
-            if endorsement["endorser_id"] == user_id:
-                last_endorsement = endorsement["timestamp"]
-                cooldown_end = last_endorsement + timedelta(hours=24)
-                if datetime.utcnow() < cooldown_end:
-                    return False, cooldown_end - datetime.utcnow()
-        
-        return True, None
+            if (endorsement["endorser_id"] == user_id and 
+                endorsement["candidate_name"].lower() == candidate_name.lower()):
+                return True  # Already endorsed
+
+        return False  # Not yet endorsed
 
     def _get_user_endorsement_value(self, guild_id: int, user: discord.Member):
         """Get endorsement value based on user's Discord roles"""
@@ -193,14 +190,8 @@ class Endorsements(commands.Cog):
                            endorsement_value: float, role_type: str, role_name: str):
         """Record endorsement in history"""
         history_col, history_config = self._get_endorsement_history(guild_id)
-        
-        # Remove any existing endorsement from this user (users can only endorse once per cycle)
-        history_config["endorsements"] = [
-            e for e in history_config.get("endorsements", []) 
-            if e["endorser_id"] != endorser_id
-        ]
-        
-        # Add new endorsement
+
+        # Add new endorsement (no duplicates should reach here due to check)
         new_endorsement = {
             "endorser_id": endorser_id,
             "candidate_name": candidate_name,
@@ -209,9 +200,9 @@ class Endorsements(commands.Cog):
             "role_name": role_name,
             "timestamp": datetime.utcnow()
         }
-        
+
         history_config["endorsements"].append(new_endorsement)
-        
+
         history_col.update_one(
             {"guild_id": guild_id},
             {"$set": {"endorsements": history_config["endorsements"]}}
@@ -240,13 +231,11 @@ class Endorsements(commands.Cog):
             )
             return
         
-        # Check endorsement cooldown
-        can_endorse, remaining_time = self._check_endorsement_cooldown(interaction.guild.id, interaction.user.id)
-        if not can_endorse:
-            hours = int(remaining_time.total_seconds() // 3600)
-            minutes = int((remaining_time.total_seconds() % 3600) // 60)
+        # Check if user has already endorsed this specific candidate
+        already_endorsed = self._check_duplicate_endorsement(interaction.guild.id, interaction.user.id, candidate_name)
+        if already_endorsed:
             await interaction.response.send_message(
-                f"❌ You must wait {hours}h {minutes}m before making another endorsement.",
+                f"❌ You have already endorsed **{candidate_name}**. You can't endorse the same candidate multiple times.",
                 ephemeral=True
             )
             return
@@ -330,8 +319,8 @@ class Endorsements(commands.Cog):
         )
         
         embed.add_field(
-            name="⏰ Cooldown",
-            value="Next endorsement available in 24 hours",
+            name="ℹ️ Note",
+            value=f"You can endorse other candidates, but you can only endorse **{candidate['name']}** once.",
             inline=False
         )
         
@@ -489,30 +478,26 @@ class Endorsements(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
-        name="my_endorsement",
-        description="View your current endorsement status"
+        name="my_endorsements",
+        description="View all your current endorsements"
     )
-    async def my_endorsement(self, interaction: discord.Interaction):
+    async def my_endorsements(self, interaction: discord.Interaction):
         # Check endorsement value
         endorsement_value, role_type, role_name = self._get_user_endorsement_value(interaction.guild.id, interaction.user)
-        
-        # Check cooldown
-        can_endorse, remaining_time = self._check_endorsement_cooldown(interaction.guild.id, interaction.user.id)
-        
-        # Find current endorsement
+
+        # Find all current endorsements
         history_col, history_config = self._get_endorsement_history(interaction.guild.id)
-        current_endorsement = None
-        for endorsement in history_config.get("endorsements", []):
-            if endorsement["endorser_id"] == interaction.user.id:
-                current_endorsement = endorsement
-                break
-        
+        user_endorsements = [
+            e for e in history_config.get("endorsements", []) 
+            if e["endorser_id"] == interaction.user.id
+        ]
+
         embed = discord.Embed(
-            title="🎖️ Your Endorsement Status",
+            title="🎖️ Your Endorsements",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
-        
+
         if endorsement_value > 0:
             embed.add_field(
                 name="💪 Endorsement Power",
@@ -526,37 +511,37 @@ class Endorsements(commands.Cog):
                 value="You don't have a role that allows endorsements",
                 inline=True
             )
-        
-        if current_endorsement:
+
+        if user_endorsements:
+            # Sort by most recent first
+            user_endorsements.sort(key=lambda x: x["timestamp"], reverse=True)
+
+            endorsements_text = ""
+            for i, endorsement in enumerate(user_endorsements[:10], 1):  # Show up to 10
+                date_str = endorsement["timestamp"].strftime("%m/%d %H:%M")
+                endorsements_text += f"{i}. **{endorsement['candidate_name']}** (+{endorsement['endorsement_value']}) - {date_str}\n"
+
             embed.add_field(
-                name="✅ Current Endorsement",
-                value=f"**Candidate:** {current_endorsement['candidate_name']}\n"
-                      f"**Date:** {current_endorsement['timestamp'].strftime('%Y-%m-%d %H:%M')}\n"
-                      f"**Value:** +{current_endorsement['endorsement_value']} points",
-                inline=True
+                name=f"✅ Active Endorsements ({len(user_endorsements)})",
+                value=endorsements_text or "None",
+                inline=False
             )
+
+            if len(user_endorsements) > 10:
+                embed.set_footer(text=f"Showing 10 of {len(user_endorsements)} endorsements")
         else:
             embed.add_field(
-                name="📋 Current Endorsement",
+                name="📋 Active Endorsements",
                 value="You haven't endorsed anyone yet",
-                inline=True
-            )
-        
-        if can_endorse:
-            embed.add_field(
-                name="⏰ Availability",
-                value="✅ You can endorse a candidate now!",
                 inline=False
             )
-        elif remaining_time:
-            hours = int(remaining_time.total_seconds() // 3600)
-            minutes = int((remaining_time.total_seconds() % 3600) // 60)
-            embed.add_field(
-                name="⏰ Cooldown",
-                value=f"⌛ Next endorsement available in {hours}h {minutes}m",
-                inline=False
-            )
-        
+
+        embed.add_field(
+            name="ℹ️ How It Works",
+            value="• You can endorse multiple different candidates\n• You can only endorse each candidate once\n• Each endorsement adds points to that candidate",
+            inline=False
+        )
+
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot):

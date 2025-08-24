@@ -1507,10 +1507,12 @@ class Demographics(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # Admin Configuration Commands
-    @app_commands.command(
-        name="admin_demo_overview",
-        description="[ADMIN] View all candidates' demographic progress"
+    # Create admin demographic command group
+    admin_demo_group = app_commands.Group(name="admin_demo", description="Admin demographic management commands")
+
+    @admin_demo_group.command(
+        name="overview",
+        description="View all candidates' demographic progress"
     )
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_overview(self, interaction: discord.Interaction):
@@ -1575,9 +1577,9 @@ class Demographics(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
-        name="admin_demo_reset",
-        description="[ADMIN] Reset all demographic progress for a candidate"
+    @admin_demo_group.command(
+        name="reset",
+        description="Reset all demographic progress for a candidate"
     )
     @app_commands.describe(candidate_name="Name of the candidate to reset")
     @app_commands.default_permissions(administrator=True)
@@ -1614,9 +1616,9 @@ class Demographics(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
-        name="admin_demo_modify",
-        description="[ADMIN] Modify demographic points for a candidate"
+    @admin_demo_group.command(
+        name="modify",
+        description="Modify demographic points for a candidate"
     )
     @app_commands.describe(
         candidate_name="Name of the candidate",
@@ -1675,9 +1677,9 @@ class Demographics(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
-        name="admin_demo_clear_cooldowns",
-        description="[ADMIN] Clear all demographic cooldowns for a user"
+    @admin_demo_group.command(
+        name="clear_cooldowns",
+        description="Clear all demographic cooldowns for a user"
     )
     @app_commands.describe(user="User whose cooldowns to clear")
     @app_commands.default_permissions(administrator=True)
@@ -1701,6 +1703,65 @@ class Demographics(commands.Cog):
             value=f"**Target User:** {user.mention}\n"
                   f"**Cooldowns Removed:** {result.deleted_count}\n"
                   f"**Status:** All demographic actions now available",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_demo_group.command(
+        name="reset_all",
+        description="Reset ALL demographic progress for ALL candidates (DESTRUCTIVE)"
+    )
+    @app_commands.describe(confirm="Type 'RESET' to confirm this destructive action")
+    @app_commands.default_permissions(administrator=True)
+    async def admin_demographic_reset_all(self, interaction: discord.Interaction, confirm: str):
+        if confirm != "RESET":
+            await interaction.response.send_message(
+                "⚠️ **DANGER:** This will permanently delete ALL demographic progress for ALL candidates!\n"
+                "To confirm this destructive action, use: `/admin_demo_reset_all confirm:RESET`",
+                ephemeral=True
+            )
+            return
+
+        # Reset demographics for presidential winners
+        winners_col = self.bot.db["presidential_winners"]
+        winners_result = winners_col.update_many(
+            {"guild_id": interaction.guild.id},
+            {"$unset": {"winners.$[].demographic_points": ""}}
+        )
+
+        # Reset demographics for general signups
+        signups_col = self.bot.db["signups"]
+        signups_result = signups_col.update_many(
+            {"guild_id": interaction.guild.id},
+            {"$unset": {"candidates.$[].demographic_points": ""}}
+        )
+
+        # Clear all demographic cooldowns
+        cooldowns_col = self.bot.db["demographic_cooldowns"]
+        cooldowns_result = cooldowns_col.delete_many({
+            "guild_id": interaction.guild.id
+        })
+
+        embed = discord.Embed(
+            title="🔄 ALL Demographics Reset Complete",
+            description="**ALL demographic progress has been reset for ALL candidates!**",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="Reset Summary",
+            value=f"**Presidential Winners:** {winners_result.modified_count} records reset\n"
+                  f"**General Candidates:** {signups_result.modified_count} records reset\n"
+                  f"**Cooldowns Cleared:** {cooldowns_result.deleted_count} cooldowns removed\n"
+                  f"**Status:** Fresh start for all demographic campaigns",
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚠️ Notice",
+            value="All candidates now start with 0 demographic points in all categories.",
             inline=False
         )
 
@@ -1822,9 +1883,9 @@ class Demographics(commands.Cog):
 
             await interaction.response.send_message(embed=embed, ephemeral=False)
 
-    @app_commands.command(
-        name="admin_demo_system_status",
-        description="[ADMIN] View demographic system configuration and statistics"
+    @admin_demo_group.command(
+        name="system_status",
+        description="View demographic system configuration and statistics"
     )
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_system_status(self, interaction: discord.Interaction):

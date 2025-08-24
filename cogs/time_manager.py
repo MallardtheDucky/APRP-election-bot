@@ -34,6 +34,7 @@ class TimeManager(commands.Cog):
                 "last_real_update": datetime.utcnow(),
                 "voice_channel_id": None,  # Specific voice channel to update
                 "update_voice_channels": True,  # Enable voice updates by default
+                "time_paused": False,  # Whether time progression is paused
                 "phases": [
                     {"name": "Signups", "start_month": 2, "end_month": 7},
                     {"name": "Primary Campaign", "start_month": 8, "end_month": 12},
@@ -94,6 +95,10 @@ class TimeManager(commands.Cog):
             configs = col.find({})
 
             for config in configs:
+                # Skip time progression if paused
+                if config.get("time_paused", False):
+                    continue
+
                 current_rp_date, current_phase = self._calculate_current_rp_time(config)
                 guild = self.bot.get_guild(config["guild_id"])
 
@@ -219,6 +224,10 @@ class TimeManager(commands.Cog):
             configs = col.find({})
 
             for config in configs:
+                # Skip time progression if paused
+                if config.get("time_paused", False):
+                    continue
+
                 current_rp_date, current_phase = self._calculate_current_rp_time(config)
                 guild = self.bot.get_guild(config["guild_id"])
 
@@ -705,6 +714,51 @@ class TimeManager(commands.Cog):
                 f"❌ Failed to update voice channel: {str(e)}",
                 ephemeral=True
             )
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @time_admin_group.command(
+        name="pause_time",
+        description="Pause or unpause RP time progression (Admin only)"
+    )
+    async def pause_time(self, interaction: discord.Interaction):
+        config = self._get_time_config(interaction.guild.id)
+        col = self.bot.db["time_configs"]
+
+        current_paused = config.get("time_paused", False)
+        new_paused = not current_paused
+
+        # If unpausing, update the last_real_update to now to prevent time jumps
+        update_data = {"time_paused": new_paused}
+        if not new_paused:
+            update_data["last_real_update"] = datetime.utcnow()
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": update_data}
+        )
+
+        status = "paused" if new_paused else "resumed"
+        embed = discord.Embed(
+            title="⏸️ Time Control" if new_paused else "▶️ Time Control",
+            description=f"RP time progression has been **{status}**.",
+            color=discord.Color.orange() if new_paused else discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        if new_paused:
+            embed.add_field(
+                name="⚠️ Note",
+                value="Time will remain frozen until you run this command again to resume.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="ℹ️ Note",
+                value="Time progression has resumed from the current moment.",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(TimeManager(bot))
