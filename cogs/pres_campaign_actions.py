@@ -147,31 +147,60 @@ class PresCampaignActions(commands.Cog):
             )
 
     def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float):
-        """Adds momentum to a state based on campaign actions."""
-        momentum_col = self.bot.db["presidential_momentum"]
+        """Adds momentum to a state based on campaign actions with auto-collapse protection."""
+        # Use the momentum system from the momentum cog
+        momentum_cog = self.bot.get_cog('Momentum')
+        if not momentum_cog:
+            return  # Momentum system not loaded
         
-        # Define momentum parameters
-        momentum_gain_factor = 0.1  # How much momentum is gained per point
-        max_momentum = 100.0
+        # Get momentum config
+        momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
         
-        # Calculate momentum gained
+        # Get user's candidate to determine party
+        signups_col, candidate = self._get_user_presidential_candidate(guild_id, user_id)
+        if not candidate:
+            return
+        
+        # Determine party key
+        party = candidate.get("party", "").lower()
+        if "republican" in party:
+            party_key = "Republican"
+        elif "democrat" in party:
+            party_key = "Democrat"
+        else:
+            party_key = "Independent"
+        
+        # Calculate momentum gained (reduced factor to prevent spam)
+        momentum_gain_factor = 2.0  # Momentum gained per campaign point
         momentum_gained = points_gained * momentum_gain_factor
         
-        # Update or insert momentum for the state
-        momentum_col.update_one(
-            {"guild_id": guild_id, "state": state_name},
-            {
-                "$inc": {"momentum": momentum_gained},
-                "$set": {"last_updated": datetime.utcnow()}
-            },
-            upsert=True
+        # Get current momentum
+        current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
+        new_momentum = current_momentum + momentum_gained
+        
+        # Check for auto-collapse
+        final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
+            momentum_col, guild_id, state_name, party_key, new_momentum
         )
         
-        # Ensure momentum does not exceed max
-        momentum_col.update_one(
-            {"guild_id": guild_id, "state": state_name},
-            {"$min": {"momentum": max_momentum}}
-        )
+        if not collapsed:
+            # No collapse occurred, update normally
+            momentum_col.update_one(
+                {"guild_id": guild_id},
+                {
+                    "$set": {
+                        f"state_momentum.{state_name}.{party_key}": final_momentum,
+                        f"state_momentum.{state_name}.last_updated": datetime.utcnow()
+                    }
+                }
+            )
+            
+            # Log the momentum gain
+            if momentum_gained > 0.1:  # Only log significant gains
+                momentum_cog._add_momentum_event(
+                    momentum_col, guild_id, state_name, party_key,
+                    momentum_gained, f"Campaign action (+{points_gained:.1f} pts)", user_id
+                )
 
     def _get_state_lean_and_momentum(self, guild_id: int, state_name: str):
         """Retrieves the lean and current momentum for a given state."""
@@ -194,7 +223,7 @@ class PresCampaignActions(commands.Cog):
         return lean_percentage, current_momentum, state_data
 
     def _calculate_general_election_percentages(self, guild_id: int, office: str):
-        """Calculate general election percentages using state-based distribution"""
+        """Calculate general election percentages using state-based distribution with proportional redistribution"""
         time_col, time_config = self._get_time_config(guild_id)
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
@@ -216,61 +245,120 @@ class PresCampaignActions(commands.Cog):
         if not candidates:
             return {}
 
-        # Initialize final percentages
-        final_percentages = {}
-        
-        # For each candidate, calculate their total based on state performance
+        # Define minimum percentage floors for presidential races
+        def get_presidential_minimum_floor(candidate):
+            party = candidate.get("party", "").lower()
+            if any(keyword in party for keyword in ['democrat', 'republican']):
+                return 25.0  # 25% minimum for major parties
+            else:
+                return 2.0   # 2% minimum for independents/third parties
+
+        # Calculate baseline percentages based on party alignment across all states
+        baseline_percentages = {}
+        num_candidates = len(candidates)
+
+        # Count major parties
+        major_parties = []
+        for candidate in candidates:
+            party = candidate["party"].lower()
+            if "democrat" in party or "democratic" in party:
+                if "Democrat" not in major_parties:
+                    major_parties.append("Democrat")
+            elif "republican" in party:
+                if "Republican" not in major_parties:
+                    major_parties.append("Republican")
+
+        major_parties_present = len(major_parties)
+
+        if major_parties_present == 2 and num_candidates == 2:
+            # Two-way race between major parties: 50-50
+            for candidate in candidates:
+                baseline_percentages[candidate["name"]] = 50.0
+        elif major_parties_present == 2 and num_candidates > 2:
+            # Democrat + Republican + others: 40-40 for major, split remainder among others
+            remaining_percentage = 20.0
+            other_parties_count = num_candidates - 2
+            other_party_percentage = remaining_percentage / other_parties_count if other_parties_count > 0 else 0
+
+            for candidate in candidates:
+                party = candidate["party"].lower()
+                if "democrat" in party or "democratic" in party or "republican" in party:
+                    baseline_percentages[candidate["name"]] = 40.0
+                else:
+                    baseline_percentages[candidate["name"]] = other_party_percentage
+        else:
+            # No standard major party setup, split evenly
+            for candidate in candidates:
+                baseline_percentages[candidate["name"]] = 100.0 / num_candidates
+
+        # Start with baseline percentages
+        current_percentages = baseline_percentages.copy()
+
+        # Apply campaign effects using proportional redistribution for each state
+        for state_name, state_data in PRESIDENTIAL_STATE_DATA.items():
+            # Get state lean and momentum
+            lean_percentage, current_momentum, _ = self._get_state_lean_and_momentum(guild_id, state_name)
+
+            # Calculate total campaign points in this state
+            total_state_campaign_points = sum(
+                candidate.get("state_points", {}).get(state_name, 0.0) for candidate in candidates
+            )
+
+            if total_state_campaign_points > 0:
+                # Apply proportional redistribution for this state's impact
+                state_weight = 1.0 / len(PRESIDENTIAL_STATE_DATA)  # Each state contributes equally
+
+                for candidate in candidates:
+                    candidate_name = candidate["name"]
+                    campaign_points = candidate.get("state_points", {}).get(state_name, 0.0)
+
+                    if campaign_points > 0:
+                        # Calculate how much this candidate can gain from this state
+                        # Each campaign point in a state = 0.01% national impact
+                        points_gained = campaign_points * 0.01 * state_weight * 100
+                        # Add momentum effect
+                        points_gained += current_momentum * state_weight
+
+                        # Calculate total percentage that can be taken from other candidates
+                        total_available_to_take = 0.0
+                        for other_candidate in candidates:
+                            if other_candidate != candidate:
+                                other_name = other_candidate["name"]
+                                other_current = current_percentages[other_name]
+                                other_minimum = get_presidential_minimum_floor(other_candidate)
+                                available = max(0, other_current - other_minimum)
+                                total_available_to_take += available
+
+                        # Limit gains to what's actually available
+                        actual_gain = min(points_gained, total_available_to_take)
+                        current_percentages[candidate_name] += actual_gain
+
+                        # Distribute losses proportionally among other candidates
+                        if total_available_to_take > 0:
+                            for other_candidate in candidates:
+                                if other_candidate != candidate:
+                                    other_name = other_candidate["name"]
+                                    other_current = current_percentages[other_name]
+                                    other_minimum = get_presidential_minimum_floor(other_candidate)
+                                    available = max(0, other_current - other_minimum)
+
+                                    if available > 0:
+                                        proportional_loss = (available / total_available_to_take) * actual_gain
+                                        current_percentages[other_name] -= proportional_loss
+
+        # Ensure minimum floors are respected
         for candidate in candidates:
             candidate_name = candidate["name"]
-            state_points = candidate.get("state_points", {})
-            total_percentage = 0.0
+            minimum_floor = get_presidential_minimum_floor(candidate)
+            current_percentages[candidate_name] = max(current_percentages[candidate_name], minimum_floor)
 
-            # Calculate weighted percentage based on state data and campaign points
-            for state_name, state_data in PRESIDENTIAL_STATE_DATA.items():
-                # Get candidate's campaign points in this state
-                campaign_points = state_points.get(state_name, 0.0)
-                
-                # Get state lean and momentum
-                lean_percentage, current_momentum, _ = self._get_state_lean_and_momentum(guild_id, state_name)
-
-                # Determine party alignment bonus
-                party_bonus = 0.0
-                candidate_party = candidate["party"].lower()
-                if "democrat" in candidate_party or "democratic" in candidate_party:
-                    party_bonus = state_data["democrat"] / 100.0
-                elif "republican" in candidate_party:
-                    party_bonus = state_data["republican"] / 100.0
-                else:
-                    party_bonus = state_data["other"] / 100.0
-                
-                # Calculate effective percentage considering lean and momentum
-                # Lean adds a base advantage, momentum amplifies it (exponentially)
-                # The formula here is a simplified representation: base advantage + momentum effect
-                # A more complex formula could involve exponential growth of momentum's impact.
-                
-                # Example: lean_percentage + (current_momentum * 0.1) + (campaign_points * 0.01)
-                # For now, let's use a simpler approach where momentum boosts the base advantage.
-                
-                effective_state_advantage = (party_bonus * 100) + lean_percentage + current_momentum # Simplified: adding momentum directly
-                
-                # Add the campaign points bonus to the effective advantage
-                effective_state_advantage += (campaign_points * 0.01) * 100 # Convert campaign points to percentage
-
-                # Each state contributes equally (1/50th of total)
-                state_weight = 1.0 / len(PRESIDENTIAL_STATE_DATA)
-                
-                state_contribution = effective_state_advantage * state_weight
-                total_percentage += state_contribution
-
-            final_percentages[candidate_name] = max(0.01, total_percentage) # Ensure at least 0.01%
-
-        # Normalize to 100%
-        total = sum(final_percentages.values())
+        # Normalize to ensure total is 100%
+        total = sum(current_percentages.values())
         if total > 0:
-            for name in final_percentages:
-                final_percentages[name] = (final_percentages[name] / total) * 100.0
+            for candidate_name in current_percentages:
+                current_percentages[candidate_name] = (current_percentages[candidate_name] / total) * 100.0
 
-        return final_percentages
+        return current_percentages
 
     class PresidentialSpeechModal(discord.ui.Modal, title='Presidential Campaign Speech'):
         def __init__(self, target_candidate: str, state_name: str):

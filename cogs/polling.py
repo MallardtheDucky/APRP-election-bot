@@ -215,58 +215,79 @@ class Polling(commands.Cog):
                 for candidate in seat_candidates:
                     baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 100.0 / num_candidates
 
-        # Apply zero-sum redistribution
+        # Apply proportional redistribution with minimum floors
         final_percentages = {}
+
+        # Define minimum percentage floors
+        def get_minimum_floor(candidate):
+            party = candidate.get('party', '').lower()
+            if any(keyword in party for keyword in ['democrat', 'republican']):
+                return 25.0  # 25% minimum for major parties
+            else:
+                return 2.0   # 2% minimum for independents/third parties
 
         # Calculate total campaign points across all candidates in this seat
         total_campaign_points = sum(candidate.get('points', 0.0) for candidate in seat_candidates)
 
-        # If no campaign points exist, use baseline percentages
-        if total_campaign_points == 0:
-            final_percentages = baseline_percentages.copy()
-        else:
-            # Calculate the adjustment factor - how much total percentage change from campaign points
-            # Each campaign point = 1% change potential, but we need to redistribute
+        # Start with baseline percentages
+        current_percentages = baseline_percentages.copy()
+
+        # Apply campaign effects using proportional redistribution
+        if total_campaign_points > 0:
             for candidate in seat_candidates:
                 candidate_name = candidate.get('candidate', candidate.get('name', ''))
-                baseline = baseline_percentages[candidate_name]
                 candidate_points = candidate.get('points', 0.0)
 
-                # Start with baseline percentage
-                percentage = baseline
+                if candidate_points > 0:
+                    # This candidate gains points
+                    points_gained = candidate_points
 
-                # Add this candidate's campaign points as direct percentage gains
-                percentage += candidate_points
+                    # Calculate total percentage that can be taken from other candidates
+                    total_available_to_take = 0.0
+                    for other_candidate in seat_candidates:
+                        if other_candidate != candidate:
+                            other_name = other_candidate.get('candidate', other_candidate.get('name', ''))
+                            other_current = current_percentages[other_name]
+                            other_minimum = get_minimum_floor(other_candidate)
+                            available = max(0, other_current - other_minimum)
+                            total_available_to_take += available
 
-                # Subtract a proportional share of OTHER candidates' gains
-                # Each candidate loses percentage proportional to their baseline when others gain
-                other_candidates_points = total_campaign_points - candidate_points
-                if other_candidates_points > 0:
-                    # Calculate proportional loss based on baseline share
-                    total_baseline = sum(baseline_percentages.values())
-                    proportional_loss = (baseline / total_baseline) * other_candidates_points
-                    percentage -= proportional_loss
+                    # Limit gains to what's actually available
+                    actual_gain = min(points_gained, total_available_to_take)
+                    current_percentages[candidate_name] += actual_gain
 
-                # Apply momentum effects if available
-                momentum_effect = momentum_effects.get(candidate_name, 0.0)
-                percentage += momentum_effect
+                    # Distribute losses proportionally among other candidates
+                    if total_available_to_take > 0:
+                        for other_candidate in seat_candidates:
+                            if other_candidate != candidate:
+                                other_name = other_candidate.get('candidate', other_candidate.get('name', ''))
+                                other_current = current_percentages[other_name]
+                                other_minimum = get_minimum_floor(other_candidate)
+                                available = max(0, other_current - other_minimum)
 
-                # Ensure minimum percentage and store
-                final_percentages[candidate_name] = max(0.1, percentage)
+                                if available > 0:
+                                    proportional_loss = (available / total_available_to_take) * actual_gain
+                                    current_percentages[other_name] -= proportional_loss
 
-        # Normalize to exactly 100%
-        total = sum(final_percentages.values())
-        if total > 0:
-            # First normalize
-            for name in final_percentages:
-                final_percentages[name] = (final_percentages[name] / total) * 100.0
+        # Apply momentum effects if available
+        for candidate in seat_candidates:
+            candidate_name = candidate.get('candidate', candidate.get('name', ''))
+            momentum_effect = momentum_effects.get(candidate_name, 0.0)
+            current_percentages[candidate_name] += momentum_effect
 
-            # Handle rounding to ensure exact 100% total
-            new_total = sum(final_percentages.values())
-            if abs(new_total - 100.0) > 0.01:  # If rounding errors exist
-                # Adjust the largest percentage to make total exactly 100%
-                largest_name = max(final_percentages.keys(), key=lambda k: final_percentages[k])
-                final_percentages[largest_name] += (100.0 - new_total)
+        # Ensure minimum floors are respected
+        for candidate in seat_candidates:
+            candidate_name = candidate.get('candidate', candidate.get('name', ''))
+            minimum_floor = get_minimum_floor(candidate)
+            current_percentages[candidate_name] = max(current_percentages[candidate_name], minimum_floor)
+
+        # Normalize to ensure total is 100%
+        total_percentage = sum(current_percentages.values())
+        if total_percentage > 0:
+            for candidate_name in current_percentages:
+                current_percentages[candidate_name] = (current_percentages[candidate_name] / total_percentage) * 100.0
+
+        final_percentages = current_percentages
 
         return final_percentages
 

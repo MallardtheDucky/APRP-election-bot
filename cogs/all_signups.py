@@ -337,7 +337,7 @@ class AllSignups(commands.Cog):
                     "office": selected_seat["office"],
                     "year": self.candidate_info["year"],
                     "signup_date": datetime.utcnow(),
-                    "points": 0.0,  # Start with 0 points for primary campaign
+                    "points": 30.0,  # Starting campaign points - everyone starts at 30
                     "stamina": 100,
                     "corruption": 0,
                     "phase": "Primary Campaign"

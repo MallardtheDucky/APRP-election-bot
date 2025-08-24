@@ -543,59 +543,75 @@ class Demographics(commands.Cog):
         config = col.find_one({"guild_id": guild_id})
         return col, config
 
-    def _get_user_presidential_candidate(self, guild_id: int, user_id: int):
-        """Get user's presidential candidate information"""
+    def _get_user_candidate(self, guild_id: int, user_id: int):
+        """Get user's candidate information for any race type"""
         time_col, time_config = self._get_time_config(guild_id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
         if current_phase == "General Campaign":
-            # Look in presidential winners collection for general campaign
+            # First check presidential winners collection for general campaign
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
 
-            if not winners_config:
-                return None, None
+            if winners_config:
+                # For general campaign, look for primary winners from the previous year if we're in an even year
+                # Or current year if odd year
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
-            # For general campaign, look for primary winners from the previous year if we're in an even year
-            # Or current year if odd year
-            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                for winner in winners_config.get("winners", []):
+                    if (winner["user_id"] == user_id and 
+                        winner.get("primary_winner", False) and 
+                        winner["year"] == primary_year):
+                        return winners_col, winner
 
-            for winner in winners_config.get("winners", []):
-                if (winner["user_id"] == user_id and 
-                    winner.get("primary_winner", False) and 
-                    winner["year"] == primary_year and
-                    winner["office"] in ["President", "Vice President"]):
-                    return winners_col, winner
+            # Also check signups collection for admin-created general campaign candidates
+            signups_col = self.bot.db["signups"]
+            signups_config = signups_col.find_one({"guild_id": guild_id})
+            
+            if signups_config:
+                for candidate in signups_config.get("candidates", []):
+                    if (candidate["user_id"] == user_id and 
+                        candidate["year"] == current_year and
+                        candidate.get("phase") == "General Campaign"):
+                        return signups_col, candidate
 
-            return winners_col, None
+            return None, None
         else:
             return None, None
 
-    def _get_presidential_candidate_by_name(self, guild_id: int, candidate_name: str):
-        """Get presidential candidate by name"""
+    def _get_candidate_by_name(self, guild_id: int, candidate_name: str):
+        """Get candidate by name for any race type"""
         time_col, time_config = self._get_time_config(guild_id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
         if current_phase == "General Campaign":
-            # Look in presidential winners collection for general campaign
+            # First check presidential winners collection for general campaign
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
 
-            if not winners_config:
-                return None, None
+            if winners_config:
+                # For general campaign, look for primary winners from the previous year if we're in an even year
+                # Or current year if odd year
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
-            # For general campaign, look for primary winners from the previous year if we're in an even year
-            # Or current year if odd year
-            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                for winner in winners_config.get("winners", []):
+                    if (winner["name"].lower() == candidate_name.lower() and 
+                        winner.get("primary_winner", False) and 
+                        winner["year"] == primary_year):
+                        return winners_col, winner
 
-            for winner in winners_config.get("winners", []):
-                if (winner["name"].lower() == candidate_name.lower() and 
-                    winner.get("primary_winner", False) and
-                    winner["year"] == primary_year and
-                    winner["office"] in ["President", "Vice President"]):
-                    return winners_col, winner
+            # Also check signups collection for admin-created general campaign candidates
+            signups_col = self.bot.db["signups"]
+            signups_config = signups_col.find_one({"guild_id": guild_id})
+            
+            if signups_config:
+                for candidate in signups_config.get("candidates", []):
+                    if (candidate["name"].lower() == candidate_name.lower() and 
+                        candidate["year"] == current_year and
+                        candidate.get("phase") == "General Campaign"):
+                        return signups_col, candidate
 
-            return winners_col, None
+            return None, None
         else:
             return None, None
 
@@ -653,27 +669,110 @@ class Demographics(commands.Cog):
 
         return remaining
 
-    def _update_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_gained: float, state: str):
+    def _get_relevant_states_for_candidate(self, candidate: dict, state: str):
+        """Get relevant states for demographic calculations based on candidate's office"""
+        from .ideology import REGIONS, STATE_TO_SEAT
+
+        office = candidate.get("office", "")
+        seat_id = candidate.get("seat_id", "")
+
+        # For presidential/VP candidates, all states are relevant
+        if office in ["President", "Vice President"]:
+            return [state.upper()]
+
+        # For governors, all states in their region are relevant
+        elif office == "Governor":
+            region_code = seat_id.split("-")[0] if "-" in seat_id else ""
+            region_mapping = {
+                "CO": "Columbia", "CA": "Cambridge", "AU": "Austin",
+                "SU": "Superior", "HL": "Heartland", "YS": "Yellowstone", "PH": "Phoenix"
+            }
+            region_name = region_mapping.get(region_code)
+            if region_name and region_name in REGIONS:
+                return REGIONS[region_name]
+
+        # For senators, all states in their region are relevant
+        elif office == "Senator":
+            region_code = seat_id.split("-")[1] if "-" in seat_id else ""
+            region_mapping = {
+                "CO": "Columbia", "CA": "Cambridge", "AU": "Austin",
+                "SU": "Superior", "HL": "Heartland", "YS": "Yellowstone", "PH": "Phoenix"
+            }
+            region_name = region_mapping.get(region_code)
+            if region_name and region_name in REGIONS:
+                return REGIONS[region_name]
+
+        # For representatives, only their specific state is relevant
+        elif office == "Representative":
+            for state_name, rep_seat in STATE_TO_SEAT.items():
+                if rep_seat == seat_id:
+                    return [state_name]
+
+        # Default fallback
+        return [state.upper()]
+
+    def _update_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_gained: float, state: str, candidate: dict):
         """Update demographic points for a candidate and handle backlash"""
-        # Initialize demographic_points if it doesn't exist
-        collection.update_one(
-            {"guild_id": guild_id, "winners.user_id": user_id},
-            {"$set": {"winners.$.demographic_points": {}}},
-            upsert=False
-        )
+        # Determine if this is a winners collection or signups collection
+        is_winners_collection = "winners" in str(collection.name)
+        is_signups_collection = "signups" in str(collection.name)
 
-        # Get current demographic points
-        winners_config = collection.find_one({"guild_id": guild_id})
-        candidate = None
-        for winner in winners_config.get("winners", []):
-            if winner["user_id"] == user_id:
-                candidate = winner
-                break
+        if is_winners_collection:
+            # Initialize demographic_points if it doesn't exist
+            collection.update_one(
+                {"guild_id": guild_id, "winners.user_id": user_id},
+                {"$set": {"winners.$.demographic_points": {}}},
+                upsert=False
+            )
 
-        if not candidate:
-            return
+            # Get current demographic points
+            config = collection.find_one({"guild_id": guild_id})
+            current_candidate = None
+            for winner in config.get("winners", []):
+                if winner["user_id"] == user_id:
+                    current_candidate = winner
+                    break
+            
+            if not current_candidate:
+                return 0, {}
 
-        current_demographics = candidate.get("demographic_points", {})
+            current_demographics = current_candidate.get("demographic_points", {})
+            update_path_prefix = "winners.$.demographic_points"
+            array_filter = {"guild_id": guild_id, "winners.user_id": user_id}
+
+        elif is_signups_collection:
+            # Initialize demographic_points if it doesn't exist for signups
+            collection.update_one(
+                {"guild_id": guild_id, "candidates.user_id": user_id},
+                {"$set": {"candidates.$.demographic_points": {}}},
+                upsert=False
+            )
+
+            # Get current demographic points
+            config = collection.find_one({"guild_id": guild_id})
+            current_candidate = None
+            for candidate_entry in config.get("candidates", []):
+                if candidate_entry["user_id"] == user_id:
+                    current_candidate = candidate_entry
+                    break
+            
+            if not current_candidate:
+                return 0, {}
+
+            current_demographics = current_candidate.get("demographic_points", {})
+            update_path_prefix = "candidates.$.demographic_points"
+            array_filter = {"guild_id": guild_id, "candidates.user_id": user_id}
+
+        else:
+            return 0, {}
+
+        # Get relevant states for this candidate's office
+        relevant_states = self._get_relevant_states_for_candidate(candidate, state)
+
+        # Check if the state is relevant for this candidate
+        if state.upper() not in relevant_states:
+            return 0, {}  # No effect if not in relevant states
+
         current_points = current_demographics.get(demographic, 0)
         new_points = current_points + points_gained
 
@@ -693,20 +792,19 @@ class Demographics(commands.Cog):
             opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
             for opposing_bloc in opposing_blocs:
                 current_opposing = current_demographics.get(opposing_bloc, 0)
-                backlash_updates[f"winners.$.demographic_points.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
+                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
         elif new_points > medium_backlash_threshold:
             backlash_loss = -1.0  # Medium backlash
             opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
             for opposing_bloc in opposing_blocs:
                 current_opposing = current_demographics.get(opposing_bloc, 0)
-                backlash_updates[f"winners.$.demographic_points.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
+                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
         elif new_points > early_backlash_threshold and current_points <= early_backlash_threshold:
             backlash_loss = -0.5  # Early soft backlash (only triggers when crossing the threshold)
             opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
             for opposing_bloc in opposing_blocs:
                 current_opposing = current_demographics.get(opposing_bloc, 0)
-                backlash_updates[f"winners.$.demographic_points.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
-
+                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
 
         # Apply state multiplier
         state_multiplier = self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 1.0)
@@ -714,12 +812,12 @@ class Demographics(commands.Cog):
 
         # Update the demographic points
         update_doc = {
-            f"winners.$.demographic_points.{demographic}": current_points + final_points_gained
+            f"{update_path_prefix}.{demographic}": current_points + final_points_gained
         }
         update_doc.update(backlash_updates)
 
         collection.update_one(
-            {"guild_id": guild_id, "winners.user_id": user_id},
+            array_filter,
             {"$set": update_doc}
         )
 
@@ -749,21 +847,21 @@ class Demographics(commands.Cog):
 
     async def _process_demographic_speech(self, interaction: discord.Interaction, speech_text: str, target_name: str, state_name: str, demographic: str):
         """Process demographic speech submission"""
-        # Check if user is a presidential candidate
-        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+        # Check if user is a candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
         if not candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered presidential candidate in the General Campaign to give demographic speeches.",
+                "❌ You must be a registered candidate in the General Campaign to give demographic speeches.",
                 ephemeral=True
             )
             return
 
         # Get target candidate
-        target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target_name)
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target_name)
         if not target_candidate:
             await interaction.response.send_message(
-                f"❌ Target presidential candidate '{target_name}' not found.",
+                f"❌ Target candidate '{target_name}' not found.",
                 ephemeral=True
             )
             return
@@ -784,7 +882,7 @@ class Demographics(commands.Cog):
         # Update demographic points and handle backlash
         points_gained, backlash_updates = self._update_demographic_points(
             target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-            demographic, base_points, state_name
+            demographic, base_points, state_name, target_candidate
         )
 
         # Update stamina
@@ -853,7 +951,7 @@ class Demographics(commands.Cog):
     @app_commands.describe(
         state="U.S. state for demographic speech",
         demographic="Target demographic group",
-        target="The presidential candidate who will receive benefits (optional)"
+        target="The candidate who will receive benefits (optional)"
     )
     async def demographic_speech(self, interaction: discord.Interaction, state: str, demographic: str, target: Optional[str] = None):
         # Check if in General Campaign phase
@@ -882,12 +980,12 @@ class Demographics(commands.Cog):
             )
             return
 
-        # Check if user is a presidential candidate
-        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+        # Check if user is a candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
         if not candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered presidential candidate in the General Campaign to give demographic speeches.",
+                "❌ You must be a registered candidate in the General Campaign to give demographic speeches.",
                 ephemeral=True
             )
             return
@@ -922,7 +1020,7 @@ class Demographics(commands.Cog):
         state="U.S. state for demographic poster",
         demographic="Target demographic group",
         image="Upload your demographic poster image",
-        target="The presidential candidate who will receive benefits (optional)"
+        target="The candidate who will receive benefits (optional)"
     )
     async def demographic_poster(
         self, 
@@ -958,12 +1056,12 @@ class Demographics(commands.Cog):
             )
             return
 
-        # Check if user is a presidential candidate
-        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+        # Check if user is a candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
         if not candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered presidential candidate in the General Campaign to create demographic posters.",
+                "❌ You must be a registered candidate in the General Campaign to create demographic posters.",
                 ephemeral=True
             )
             return
@@ -973,10 +1071,10 @@ class Demographics(commands.Cog):
             target = candidate["name"]
 
         # Get target candidate
-        target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
         if not target_candidate:
             await interaction.response.send_message(
-                f"❌ Target presidential candidate '{target}' not found.",
+                f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
             )
             return
@@ -1022,7 +1120,7 @@ class Demographics(commands.Cog):
         # Update demographic points and handle backlash
         points_gained, backlash_updates = self._update_demographic_points(
             target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-            demographic, base_points, state_upper
+            demographic, base_points, state_upper, target_candidate
         )
 
         # Update stamina
@@ -1086,7 +1184,7 @@ class Demographics(commands.Cog):
     @app_commands.describe(
         state="U.S. state for demographic ad",
         demographic="Target demographic group",
-        target="The presidential candidate who will receive benefits (optional)"
+        target="The candidate who will receive benefits (optional)"
     )
     async def demographic_ad(self, interaction: discord.Interaction, state: str, demographic: str, target: Optional[str] = None):
         # Check if in General Campaign phase
@@ -1115,12 +1213,12 @@ class Demographics(commands.Cog):
             )
             return
 
-        # Check if user is a presidential candidate
-        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+        # Check if user is a candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
         if not candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered presidential candidate in the General Campaign to create demographic ads.",
+                "❌ You must be a registered candidate in the General Campaign to create demographic ads.",
                 ephemeral=True
             )
             return
@@ -1130,10 +1228,10 @@ class Demographics(commands.Cog):
             target = candidate["name"]
 
         # Get target candidate
-        target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
         if not target_candidate:
             await interaction.response.send_message(
-                f"❌ Target presidential candidate '{target}' not found.",
+                f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
             )
             return
@@ -1202,7 +1300,7 @@ class Demographics(commands.Cog):
             # Update demographic points and handle backlash
             points_gained, backlash_updates = self._update_demographic_points(
                 target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-                demographic, base_points, state_upper
+                demographic, base_points, state_upper, target_candidate
             )
 
             # Update stamina
@@ -1306,12 +1404,12 @@ class Demographics(commands.Cog):
         description="View your demographic voting bloc progress and thresholds"
     )
     async def demographic_status(self, interaction: discord.Interaction):
-        # Check if user is a presidential candidate in General Campaign
-        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+        # Check if user is a candidate in General Campaign
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
         if not candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered presidential candidate in the General Campaign to view demographic status.",
+                "❌ You must be a registered candidate in the General Campaign to view demographic status.",
                 ephemeral=True
             )
             return
@@ -1484,11 +1582,11 @@ class Demographics(commands.Cog):
     @app_commands.describe(candidate_name="Name of the candidate to reset")
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_reset(self, interaction: discord.Interaction, candidate_name: str):
-        winners_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
+        winners_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, candidate_name)
 
         if not target_candidate:
             await interaction.response.send_message(
-                f"❌ Presidential candidate '{candidate_name}' not found.",
+                f"❌ Candidate '{candidate_name}' not found.",
                 ephemeral=True
             )
             return
@@ -1534,11 +1632,11 @@ class Demographics(commands.Cog):
             )
             return
 
-        winners_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
+        winners_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, candidate_name)
 
         if not target_candidate:
             await interaction.response.send_message(
-                f"❌ Presidential candidate '{candidate_name}' not found.",
+                f"❌ Candidate '{candidate_name}' not found.",
                 ephemeral=True
             )
             return

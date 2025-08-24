@@ -13,7 +13,7 @@ class Momentum(commands.Cog):
         self.momentum_decay_loop.start()  # Start the decay loop
         print("Momentum cog loaded successfully")
 
-    # Create main command groups
+    # Create command groups
     momentum_group = app_commands.Group(name="momentum", description="State momentum commands")
     momentum_admin_group = app_commands.Group(name="admin", description="Momentum admin commands", parent=momentum_group)
 
@@ -41,9 +41,11 @@ class Momentum(commands.Cog):
                     "momentum_decay_rate": 0.95,  # Daily decay rate
                     "exponential_growth_rate": 1.05,  # Growth multiplier
                     "volatility_threshold": 50.0,  # Momentum level that triggers volatility
+                    "auto_collapse_threshold": 100.0,  # Automatic collapse threshold (anti-spam)
                 },
                 "state_leans": {},  # State political leans (hardcoded values)
                 "state_momentum": {},  # Current momentum by state and party
+                "regional_momentum": {},  # Regional momentum for senate/governor races
                 "momentum_events": []  # Log of momentum changes
             }
             
@@ -81,6 +83,16 @@ class Momentum(commands.Cog):
                     "last_updated": datetime.utcnow()
                 }
             
+            # Initialize regional momentum for senate/governor races
+            from .ideology import REGIONS
+            for region_name in REGIONS.keys():
+                config["regional_momentum"][region_name] = {
+                    "Republican": 0.0,
+                    "Democrat": 0.0,
+                    "Independent": 0.0,
+                    "last_updated": datetime.utcnow()
+                }
+            
             col.insert_one(config)
         
         return col, config
@@ -99,9 +111,18 @@ class Momentum(commands.Cog):
         """Apply exponential growth to momentum"""
         if current_momentum <= 0:
             return current_momentum
-        
+
         # Exponential growth: the more momentum you have, the more you gain
-        return current_momentum * growth_rate
+        new_momentum = current_momentum * growth_rate
+
+        # Auto-collapse if momentum gets too high (prevents spam abuse)
+        auto_collapse_threshold = 100.0  # Automatic collapse at 100 momentum
+        if new_momentum >= auto_collapse_threshold:
+            # Trigger automatic collapse - reduce by 60-80%
+            collapse_percentage = random.uniform(0.6, 0.8)
+            new_momentum = new_momentum * (1 - collapse_percentage)
+
+        return new_momentum
 
     def _check_vulnerability_threshold(self, guild_id: int, state: str, party: str, momentum_config: dict) -> bool:
         """Check if party has high momentum making them vulnerable"""
@@ -130,6 +151,39 @@ class Momentum(commands.Cog):
             }
         )
 
+    def _check_and_apply_auto_collapse(self, momentum_col, guild_id: int, state: str, party: str, current_momentum: float):
+        """Check if momentum should auto-collapse and apply it"""
+        # Get the auto-collapse threshold from settings
+        momentum_col_config, momentum_config = self._get_momentum_config(guild_id)
+        auto_collapse_threshold = momentum_config["settings"].get("auto_collapse_threshold", 100.0)
+
+        if current_momentum >= auto_collapse_threshold:
+            # Calculate collapse amount (60-80% reduction)
+            collapse_percentage = random.uniform(0.6, 0.8)
+            momentum_loss = current_momentum * collapse_percentage
+            new_momentum = current_momentum - momentum_loss
+
+            # Update momentum
+            momentum_col.update_one(
+                {"guild_id": guild_id},
+                {
+                    "$set": {
+                        f"state_momentum.{state}.{party}": new_momentum,
+                        f"state_momentum.{state}.last_updated": datetime.utcnow()
+                    }
+                }
+            )
+
+            # Log the auto-collapse event
+            self._add_momentum_event(
+                momentum_col, guild_id, state, party, 
+                -momentum_loss, "Automatic collapse (anti-spam)", None
+            )
+
+            return new_momentum, True
+
+        return current_momentum, False
+
     def _calculate_momentum_effect_on_polling(self, state: str, party: str, momentum_config: dict) -> float:
         """Calculate how momentum affects polling percentages"""
         state_momentum = momentum_config["state_momentum"].get(state, {})
@@ -141,6 +195,33 @@ class Momentum(commands.Cog):
 
         # Cap the effect to prevent extreme swings
         return max(-15.0, min(15.0, polling_effect))
+
+    def _calculate_regional_momentum_effect(self, region: str, party: str, momentum_config: dict) -> float:
+        """Calculate regional momentum effect for senate/governor races"""
+        regional_momentum = momentum_config.get("regional_momentum", {}).get(region, {})
+        party_momentum = regional_momentum.get(party, 0.0)
+
+        # Convert momentum to polling percentage change
+        # Each 15 points of momentum = ~1% polling change (weaker than state-level)
+        polling_effect = party_momentum / 15.0
+
+        # Cap the effect to prevent extreme swings
+        return max(-10.0, min(10.0, polling_effect))
+
+    def _get_region_from_seat_id(self, seat_id: str) -> str:
+        """Extract region from seat ID"""
+        if not seat_id or "-" not in seat_id:
+            return None
+            
+        parts = seat_id.split("-")
+        if len(parts) >= 2:
+            region_code = parts[0] if seat_id.endswith("-GOV") else parts[1]
+            region_mapping = {
+                "CO": "Columbia", "CA": "Cambridge", "AU": "Austin",
+                "SU": "Superior", "HL": "Heartland", "YS": "Yellowstone", "PH": "Phoenix"
+            }
+            return region_mapping.get(region_code)
+        return None
 
     @tasks.loop(hours=12)  # Run decay every 12 hours
     async def momentum_decay_loop(self):
@@ -210,7 +291,9 @@ class Momentum(commands.Cog):
         name="status",
         description="View momentum status for a specific state"
     )
-    @app_commands.describe(state="U.S. state to check momentum")
+    @app_commands.describe(
+        state="U.S. state to check momentum (for presidential races)"
+    )
     async def momentum_status(self, interaction: discord.Interaction, state: str):
         # Check if in General Campaign phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
@@ -222,6 +305,13 @@ class Momentum(commands.Cog):
             return
 
         # Validate state
+        if not state:
+            await interaction.response.send_message(
+                "❌ Please provide a state name.",
+                ephemeral=True
+            )
+            return
+            
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -694,7 +784,8 @@ class Momentum(commands.Cog):
     @app_commands.describe(
         vulnerability_threshold="Number of people needed to trigger collapse",
         momentum_decay_rate="Daily decay rate (0.0-1.0)",
-        volatility_threshold="Momentum level that triggers volatility"
+        volatility_threshold="Momentum level that triggers volatility",
+        auto_collapse_threshold="Automatic collapse threshold (anti-spam)"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def momentum_settings(
@@ -702,7 +793,8 @@ class Momentum(commands.Cog):
         interaction: discord.Interaction, 
         vulnerability_threshold: Optional[int] = None,
         momentum_decay_rate: Optional[float] = None,
-        volatility_threshold: Optional[float] = None
+        volatility_threshold: Optional[float] = None,
+        auto_collapse_threshold: Optional[float] = None
     ):
         momentum_col, momentum_config = self._get_momentum_config(interaction.guild.id)
         settings = momentum_config["settings"]
@@ -736,6 +828,15 @@ class Momentum(commands.Cog):
                 return
             updates["settings.volatility_threshold"] = volatility_threshold
 
+        if auto_collapse_threshold is not None:
+            if auto_collapse_threshold < 50.0 or auto_collapse_threshold > 500.0:
+                await interaction.response.send_message(
+                    "❌ Auto-collapse threshold must be between 50.0 and 500.0.",
+                    ephemeral=True
+                )
+                return
+            updates["settings.auto_collapse_threshold"] = auto_collapse_threshold
+
         if updates:
             momentum_col.update_one(
                 {"guild_id": interaction.guild.id},
@@ -755,7 +856,8 @@ class Momentum(commands.Cog):
         embed.add_field(
             name="🎯 Collapse Settings",
             value=f"**Vulnerability Threshold:** {settings['vulnerability_threshold']} people\n"
-                  f"**Volatility Threshold:** {settings['volatility_threshold']:.1f} momentum",
+                  f"**Volatility Threshold:** {settings['volatility_threshold']:.1f} momentum\n"
+                  f"**Auto-Collapse Threshold:** {settings.get('auto_collapse_threshold', 100.0):.1f} momentum",
             inline=True
         )
 
