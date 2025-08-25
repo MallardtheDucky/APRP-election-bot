@@ -2,9 +2,8 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from datetime import datetime, timedelta
-import random
 import asyncio
-import csv
+import random
 from typing import Optional, Dict
 from .presidential_winners import PRESIDENTIAL_STATE_DATA
 
@@ -823,126 +822,34 @@ class Demographics(commands.Cog):
 
         return final_points_gained, backlash_updates
 
-    class DemographicSpeechModal(discord.ui.Modal, title='Demographic Campaign Speech'):
-        def __init__(self, target_candidate: str, state_name: str, demographic: str):
-            super().__init__()
-            self.target_candidate = target_candidate
-            self.state_name = state_name
-            self.demographic = demographic
+    def _get_state_demographic_multiplier(self, state: str, demographic: str) -> float:
+        """Get the demographic multiplier for a given state and demographic."""
+        return self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 1.0)
 
-        speech_text = discord.ui.TextInput(
-            label='Demographic Speech Content',
-            style=discord.TextStyle.long,
-            placeholder='Enter your targeted demographic speech (400-2000 characters)...',
-            min_length=400,
-            max_length=2000
-        )
-
-        async def on_submit(self, interaction: discord.Interaction):
-            # Get the cog instance
-            cog = interaction.client.get_cog('Demographics')
-
-            # Process the speech
-            await cog._process_demographic_speech(interaction, str(self.speech_text), self.target_candidate, self.state_name, self.demographic)
-
-    async def _process_demographic_speech(self, interaction: discord.Interaction, speech_text: str, target_name: str, state_name: str, demographic: str):
-        """Process demographic speech submission"""
-        # Check if user is a candidate
-        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
-
-        if not candidate:
-            await interaction.response.send_message(
-                "❌ You must be a registered candidate in the General Campaign to give demographic speeches.",
-                ephemeral=True
-            )
-            return
-
-        # Get target candidate
-        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target_name)
-        if not target_candidate:
-            await interaction.response.send_message(
-                f"❌ Target candidate '{target_name}' not found.",
-                ephemeral=True
-            )
-            return
-
-        # Check stamina
-        if target_candidate["stamina"] < 2.0:
-            await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a demographic speech! They need at least 2.0 stamina.",
-                ephemeral=True
-            )
-            return
-
-        # Calculate base points (0.5-1.5 based on content length)
-        char_count = len(speech_text)
-        base_points = (char_count / 1000) * 1.0
-        base_points = min(base_points, 1.5)
-
-        # Update demographic points and handle backlash
-        points_gained, backlash_updates = self._update_demographic_points(
-            target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-            demographic, base_points, state_name, target_candidate
-        )
-
-        # Update stamina
-        target_signups_col.update_one(
-            {"guild_id": interaction.guild.id, "winners.user_id": target_candidate["user_id"]},
-            {"$inc": {"winners.$.stamina": -2.0}}
-        )
-
-        embed = discord.Embed(
-            title="🎤 Demographic Campaign Speech",
-            description=f"**{candidate['name']}** gives a targeted speech to **{demographic}** supporting **{target_candidate['name']}** in {state_name}!",
-            color=discord.Color.blue(),
-            timestamp=datetime.utcnow()
-        )
-
-        # Truncate speech for display if too long
-        display_speech = speech_text
-        if len(display_speech) > 800:
-            display_speech = display_speech[:797] + "..."
-
-        embed.add_field(
-            name="📜 Speech Content",
-            value=display_speech,
-            inline=False
-        )
-
-        # Show demographic progress
-        threshold = DEMOGRAPHIC_THRESHOLDS.get(demographic, 20)
-        current_points = target_candidate.get("demographic_points", {}).get(demographic, 0) + points_gained
-        progress_bar = "█" * min(int((current_points / threshold) * 10), 10) + "░" * max(0, 10 - int((current_points / threshold) * 10))
-
-        embed.add_field(
-            name="📊 Demographic Impact",
-            value=f"**Target Demographic:** {demographic}\n"
-                  f"**State:** {state_name}\n"
-                  f"**Points Gained:** +{points_gained:.2f}\n"
-                  f"**Progress:** {progress_bar} {current_points:.1f}/{threshold}\n"
-                  f"**Characters:** {char_count:,}",
-            inline=True
-        )
-
-        # Show backlash if any
-        if backlash_updates:
-            backlash_text = ""
-            for key, value in backlash_updates.items():
-                bloc_name = key.split('.')[-1]
-                backlash_text += f"**{bloc_name}:** -{abs(value - target_candidate.get('demographic_points', {}).get(bloc_name, 0)):.1f}\n"
-
-            embed.add_field(
-                name="⚖️ Backlash Effects",
-                value=backlash_text,
-                inline=True
-            )
-
-        embed.set_footer(text="Next demographic speech available in 8 hours")
-
-        if interaction.response.is_done():
-            await interaction.followup.send(embed=embed)
+    def _update_candidate_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_to_add: float):
+        """Helper to add points to a candidate's demographic and ensure it doesn't go below zero."""
+        
+        update_path = ""
+        if "winners" in str(collection.name):
+            update_path = f"winners.$.demographic_points.{demographic}"
+            array_filter = {"guild_id": guild_id, "winners.user_id": user_id}
+        elif "signups" in str(collection.name):
+            update_path = f"candidates.$.demographic_points.{demographic}"
+            array_filter = {"guild_id": guild_id, "candidates.user_id": user_id}
         else:
-            await interaction.response.send_message(embed=embed)
+            return
+
+        collection.update_one(
+            array_filter,
+            {"$inc": {update_path: points_to_add}}
+        )
+        
+        # Ensure points don't go below zero after update
+        collection.update_one(
+            array_filter,
+            {"$max": {update_path: 0}}
+        )
+
 
     @app_commands.command(
         name="demographic_speech",
@@ -1005,12 +912,124 @@ class Demographics(commands.Cog):
             )
             return
 
-        # Set cooldown
-        self._set_cooldown(interaction.guild.id, interaction.user.id, "demographic_speech")
+        # Verify target candidate exists
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
+        if not target_candidate:
+            await interaction.response.send_message(
+                f"❌ Target candidate '{target}' not found.",
+                ephemeral=True
+            )
+            return
 
-        # Show modal for speech input
-        modal = self.DemographicSpeechModal(target, state_upper, demographic)
-        await interaction.response.send_modal(modal)
+        # Get demographic info
+        threshold = DEMOGRAPHIC_THRESHOLDS[demographic]
+        multiplier = self._get_state_demographic_multiplier(state_upper, demographic)
+
+        # Send initial message asking for speech
+        await interaction.response.send_message(
+            f"🎯 **{candidate['name']}**, please reply to this message with your demographic-targeted speech!\n\n"
+            f"**Target:** {target_candidate['name']}\n"
+            f"**State:** {state_upper}\n"
+            f"**Demographic:** {demographic}\n"
+            f"**Threshold:** {threshold} points\n"
+            f"**State Multiplier:** {multiplier:.2f}x\n"
+            f"**Requirements:**\n"
+            f"• Speech content (400-2000 characters)\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Effect:** 1 point per 200 characters (modified by state multiplier)"
+        )
+
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
+
+        try:
+            # Wait for user to reply with speech
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            speech_content = reply_message.content
+            char_count = len(speech_content)
+
+            # Check character limits
+            if char_count < 400 or char_count > 2000:
+                await reply_message.reply(f"❌ Demographic speech must be 400-2000 characters. You wrote {char_count} characters.")
+                return
+
+            # Set cooldown after successful validation
+            self._set_cooldown(interaction.guild.id, interaction.user.id, "demographic_speech")
+
+            # Calculate demographic points
+            base_points = (char_count / 200) * 1.0  # 1 point per 200 characters
+            final_points = base_points * multiplier
+
+            # Update candidate's demographic progress
+            self._update_candidate_demographic_points(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+                                                    demographic, final_points)
+
+            # Get updated demographic status
+            updated_candidate = self._get_candidate_by_name(interaction.guild.id, target)[1]
+            current_points = updated_candidate.get("demographic_points", {}).get(demographic, 0)
+            percentage = (current_points / threshold) * 100
+
+            # Check for threshold achievement
+            threshold_achieved = current_points >= threshold
+
+            # Create response embed
+            embed = discord.Embed(
+                title="🎯 Demographic-Targeted Speech",
+                description=f"**{candidate['name']}** delivers a targeted speech for **{target_candidate['name']}** in {state_upper}!",
+                color=discord.Color.green() if threshold_achieved else discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Truncate speech for display if too long
+            display_speech = speech_content
+            if len(display_speech) > 1000:
+                display_speech = display_speech[:997] + "..."
+
+            embed.add_field(
+                name="📜 Speech Content",
+                value=display_speech,
+                inline=False
+            )
+
+            embed.add_field(
+                name="🎯 Campaign Details",
+                value=f"**Target:** {target_candidate['name']}\n"
+                      f"**State:** {state_upper}\n"
+                      f"**Demographic:** {demographic}\n"
+                      f"**Characters:** {char_count:,}",
+                inline=True
+            )
+
+            embed.add_field(
+                name="📊 Demographic Progress",
+                value=f"**Points Gained:** +{final_points:.2f}\n"
+                      f"**Total Progress:** {current_points:.2f}/{threshold}\n"
+                      f"**Completion:** {percentage:.1f}%\n"
+                      f"**Status:** {'✅ Threshold Achieved!' if threshold_achieved else '🔄 In Progress'}",
+                inline=True
+            )
+
+            if threshold_achieved:
+                embed.add_field(
+                    name="🎉 Achievement Unlocked!",
+                    value=f"**{target_candidate['name']}** has successfully reached the {demographic} threshold!",
+                    inline=False
+                )
+
+            embed.set_footer(text="Next demographic speech available in 8 hours")
+
+            await reply_message.reply(embed=embed)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate['name']}**, your demographic speech timed out. Please use `/demographic_speech` again and reply with your speech within 5 minutes."
+            )
 
     @app_commands.command(
         name="demographic_poster",
@@ -1971,7 +1990,7 @@ class Demographics(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # Autocomplete for admin commands
-    @admin_demographic_reset.autocomplete("candidate_name")
+    @admin_demo_group.autocomplete("candidate_name")
     async def candidate_autocomplete_reset(self, interaction: discord.Interaction, current: str):
         winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
 

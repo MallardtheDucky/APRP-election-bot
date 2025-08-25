@@ -370,48 +370,6 @@ class PresCampaignActions(commands.Cog):
 
         return current_percentages
 
-    class PresidentialSpeechModal(discord.ui.Modal, title='Presidential Campaign Speech'):
-        def __init__(self, target_candidate: str, state_name: str):
-            super().__init__()
-            self.target_candidate = target_candidate
-            self.state_name = state_name
-
-        speech_text = discord.ui.TextInput(
-            label='Speech Content',
-            style=discord.TextStyle.long,
-            placeholder='Enter your presidential campaign speech (600-3000 characters)...',
-            min_length=600,
-            max_length=3000
-        )
-
-        async def on_submit(self, interaction: discord.Interaction):
-            # Get the cog instance
-            cog = interaction.client.get_cog('PresCampaignActions')
-
-            # Process the speech
-            await cog._process_pres_speech(interaction, str(self.speech_text), self.target_candidate, self.state_name)
-
-    class PresidentialDonorModal(discord.ui.Modal, title='Presidential Donor Appeal'):
-        def __init__(self, target_candidate: str, state_name: str):
-            super().__init__()
-            self.target_candidate = target_candidate
-            self.state_name = state_name
-
-        donor_appeal = discord.ui.TextInput(
-            label='Donor Appeal',
-            style=discord.TextStyle.long,
-            placeholder='Enter your presidential fundraising appeal (400+ characters)...',
-            min_length=400,
-            max_length=2000
-        )
-
-        async def on_submit(self, interaction: discord.Interaction):
-            # Get the cog instance
-            cog = interaction.client.get_cog('PresCampaignActions')
-
-            # Process the donor appeal
-            await cog._process_pres_donor(interaction, str(self.donor_appeal), self.target_candidate, self.state_name)
-
     async def _process_pres_speech(self, interaction: discord.Interaction, speech_text: str, target_name: str, state_name: str):
         """Process presidential speech submission"""
         # Check if user is a presidential candidate
@@ -529,7 +487,7 @@ class PresCampaignActions(commands.Cog):
         # Calculate polling boost - 1% per 1000 characters  
         char_count = len(donor_appeal)
         polling_boost = (char_count / 1000) * 1.0
-        polling_boost = min(polling_boost, 2.0)
+        polling_boost = min(polling_boost, 3.0)
 
         # Apply buff/debuff multipliers
         polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, candidate["user_id"], interaction.guild.id, "pres_donor")
@@ -1179,12 +1137,99 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Set cooldown
-        self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_speech")
+        # Send initial message asking for speech
+        await interaction.response.send_message(
+            f"🎤 **{candidate['name']}**, please reply to this message with your presidential campaign speech!\n\n"
+            f"**Target:** {target_candidate['name']}\n"
+            f"**State:** {state_upper}\n"
+            f"**Requirements:**\n"
+            f"• Speech content (600-3000 characters)\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Effect:** +1% polling per 1200 characters, -2.25 stamina\n"
+            f"**Current Target Stamina:** {target_candidate['stamina']}/200"
+        )
 
-        # Show modal for speech input
-        modal = self.PresidentialSpeechModal(target, state_upper)
-        await interaction.response.send_modal(modal)
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
+
+        try:
+            # Wait for user to reply with speech
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            speech_content = reply_message.content
+            char_count = len(speech_content)
+
+            # Check character limits
+            if char_count < 600 or char_count > 3000:
+                await reply_message.reply(f"❌ Presidential speech must be 600-3000 characters. You wrote {char_count} characters.")
+                return
+
+            # Set cooldown after successful validation
+            self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_speech")
+
+            # Calculate polling boost - 1% per 1200 characters
+            polling_boost = (char_count / 1200) * 1.0
+            polling_boost = min(polling_boost, 2.5)
+
+            # Apply buff/debuff multipliers
+            polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, target_candidate["user_id"], interaction.guild.id, "pres_speech")
+
+            # Update target candidate stats
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=2.25)
+
+            # Create public speech announcement
+            embed = discord.Embed(
+                title="🎤 Presidential Campaign Speech",
+                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}** in {state_upper}!",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Truncate speech for display if too long
+            display_speech = speech_content
+            if len(display_speech) > 1000:
+                display_speech = display_speech[:997] + "..."
+
+            embed.add_field(
+                name="📜 Speech Content",
+                value=display_speech,
+                inline=False
+            )
+
+            # For general campaign, show updated percentages
+            time_col, time_config = self._get_time_config(interaction.guild.id)
+            current_phase = time_config.get("current_phase", "")
+
+            if current_phase == "General Campaign":
+                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+                updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+
+                embed.add_field(
+                    name="📊 Impact",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="📊 Impact",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
+                    inline=True
+                )
+
+            embed.set_footer(text=f"Next speech available in 12 hours")
+
+            await reply_message.reply(embed=embed)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/pres_speech` again and reply with your speech within 5 minutes."
+            )
 
     @app_commands.command(
         name="speech",
@@ -1213,107 +1258,100 @@ class PresCampaignActions(commands.Cog):
 
         state_data = STATE_DATA[state_key]
 
-        # Check for ideology match
-        ideology_match = False
-        if state_data.get("ideology", "").lower() == ideology.lower():
-            ideology_match = True
-
-        # Calculate bonus
-        bonus = 0.0
-        if ideology_match:
-            bonus = 1.0  # 1% bonus for ideology match
-        else:
-            bonus = 0.5  # 0.5% base bonus for giving a speech
-
-        # Create response embed
-        embed = discord.Embed(
-            title=f"🎤 Speech in {state.title()}",
-            description=f"You delivered a speech in {state.title()}!",
-            color=discord.Color.blue() if ideology_match else discord.Color.orange(),
-            timestamp=datetime.utcnow()
+        # Send initial message asking for speech
+        await interaction.response.send_message(
+            f"🎤 **{interaction.user.display_name}**, please reply to this message with your campaign speech!\n\n"
+            f"**State:** {state.title()}\n"
+            f"**Your Ideology:** {ideology}\n"
+            f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
+            f"**Requirements:**\n"
+            f"• Speech content (700-3000 characters)\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Potential Bonus:** {'✅ Ideology match (+1.0%)' if state_data.get('ideology', '').lower() == ideology.lower() else '⚠️ No ideology match (+0.5%)'}"
         )
 
-        embed.add_field(
-            name="📍 State Information",
-            value=f"**State:** {state.title()}\n"
-                  f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
-                  f"**Your Ideology:** {ideology}",
-            inline=True
-        )
+        # Get the response message
+        response_message = await interaction.original_response()
 
-        embed.add_field(
-            name="🎯 Speech Results",
-            value=f"**Ideology Match:** {'✅ Yes' if ideology_match else '❌ No'}\n"
-                  f"**Bonus Gained:** +{bonus}%\n"
-                  f"**Reason:** {'Perfect ideology alignment!' if ideology_match else 'Base speech bonus'}",
-            inline=True
-        )
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
 
-        if ideology_match:
+        try:
+            # Wait for user to reply with speech
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            speech_content = reply_message.content
+            char_count = len(speech_content)
+
+            # Check character limits
+            if char_count < 700 or char_count > 3000:
+                await reply_message.reply(f"❌ Speech must be 700-3000 characters. You wrote {char_count} characters.")
+                return
+
+            # Check for ideology match
+            ideology_match = False
+            if state_data.get("ideology", "").lower() == ideology.lower():
+                ideology_match = True
+
+            # Calculate bonus based on character count and ideology match
+            base_bonus = (char_count / 1000) * 0.5  # 0.5% per 1000 characters
+            ideology_bonus = 0.5 if ideology_match else 0.0
+            total_bonus = base_bonus + ideology_bonus
+
+            # Create response embed
+            embed = discord.Embed(
+                title=f"🎤 Campaign Speech in {state.title()}",
+                description=f"**{interaction.user.display_name}** delivered a campaign speech in {state.title()}!",
+                color=discord.Color.blue() if ideology_match else discord.Color.orange(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Truncate speech for display if too long
+            display_speech = speech_content
+            if len(display_speech) > 1000:
+                display_speech = display_speech[:997] + "..."
+
             embed.add_field(
-                name="🌟 Special Bonus",
-                value="Your ideology perfectly aligns with this state's political climate, "
-                      "resulting in maximum speech effectiveness!",
+                name="📜 Speech Content",
+                value=display_speech,
                 inline=False
             )
 
-        embed.set_footer(text="Campaign Action: Speech")
+            embed.add_field(
+                name="📍 Campaign Details",
+                value=f"**State:** {state.title()}\n"
+                      f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
+                      f"**Your Ideology:** {ideology}\n"
+                      f"**Characters:** {char_count:,}",
+                inline=True
+            )
 
-        await interaction.response.send_message(embed=embed)
+            embed.add_field(
+                name="🎯 Speech Results",
+                value=f"**Ideology Match:** {'✅ Yes' if ideology_match else '❌ No'}\n"
+                      f"**Base Bonus:** +{base_bonus:.2f}%\n"
+                      f"**Ideology Bonus:** +{ideology_bonus:.2f}%\n"
+                      f"**Total Bonus:** +{total_bonus:.2f}%",
+                inline=True
+            )
 
-    @speech.autocomplete("state")
-    async def state_autocomplete(self, interaction: discord.Interaction, current: str):
-        states = list(STATE_DATA.keys())
-        return [
-            app_commands.Choice(name=state.title(), value=state)
-            for state in states 
-            if current.upper() in state
-        ][:25]
+            if ideology_match:
+                embed.add_field(
+                    name="🌟 Special Bonus",
+                    value="Your ideology perfectly aligns with this state's political climate!",
+                    inline=False
+                )
 
-    @speech.autocomplete("ideology")
-    async def ideology_autocomplete(self, interaction: discord.Interaction, current: str):
-        ideologies = set()
-        for state_data in STATE_DATA.values():
-            if "ideology" in state_data:
-                ideologies.add(state_data["ideology"])
+            embed.set_footer(text="Campaign Action: Speech")
 
-        ideology_list = sorted(list(ideologies))
-        return [
-            app_commands.Choice(name=ideology, value=ideology)
-            for ideology in ideology_list
-            if current.lower() in ideology.lower()
-        ][:25]
+            await reply_message.reply(embed=embed)
 
-    # State autocomplete for all commands
-    @pres_canvassing.autocomplete("state")
-    async def state_autocomplete_canvassing(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
-
-    @pres_donor.autocomplete("state")
-    async def state_autocomplete_donor(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
-
-    @pres_ad.autocomplete("state")
-    async def state_autocomplete_ad(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
-
-    @pres_poster.autocomplete("state")
-    async def state_autocomplete_poster(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
-
-    @pres_speech.autocomplete("state")
-    async def state_autocomplete_speech(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{interaction.user.display_name}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
+            )
 
     @app_commands.command(
         name="pres_polling",

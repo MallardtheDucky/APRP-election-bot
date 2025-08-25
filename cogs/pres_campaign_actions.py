@@ -516,7 +516,7 @@ class PresCampaignActions(commands.Cog):
         # Calculate polling boost - 1% per 1000 characters  
         char_count = len(donor_appeal)
         polling_boost = (char_count / 1000) * 1.0
-        polling_boost = min(polling_boost, 2.0)
+        polling_boost = min(polling_boost, 3.0)
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target_name)
