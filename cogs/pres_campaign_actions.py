@@ -146,6 +146,66 @@ class PresCampaignActions(commands.Cog):
                 }
             )
 
+    def _check_cooldown(self, guild_id: int, user_id: int, action: str, hours: int) -> bool:
+        """Check if user is on cooldown for a specific action"""
+        cooldowns_col = self.bot.db["action_cooldowns"]
+        
+        cooldown_record = cooldowns_col.find_one({
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "action": action
+        })
+        
+        if not cooldown_record:
+            return True
+        
+        from datetime import datetime, timedelta
+        last_used = cooldown_record["last_used"]
+        cooldown_duration = timedelta(hours=hours)
+        
+        return datetime.utcnow() > last_used + cooldown_duration
+
+    def _get_cooldown_remaining(self, guild_id: int, user_id: int, action: str, hours: int):
+        """Get remaining cooldown time"""
+        cooldowns_col = self.bot.db["action_cooldowns"]
+        
+        cooldown_record = cooldowns_col.find_one({
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "action": action
+        })
+        
+        if not cooldown_record:
+            return timedelta(0)
+        
+        from datetime import datetime, timedelta
+        last_used = cooldown_record["last_used"]
+        cooldown_duration = timedelta(hours=hours)
+        next_available = last_used + cooldown_duration
+        
+        if datetime.utcnow() >= next_available:
+            return timedelta(0)
+        
+        return next_available - datetime.utcnow()
+
+    def _set_cooldown(self, guild_id: int, user_id: int, action: str):
+        """Set cooldown for a user action"""
+        cooldowns_col = self.bot.db["action_cooldowns"]
+        
+        cooldowns_col.update_one(
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "action": action
+            },
+            {
+                "$set": {
+                    "last_used": datetime.utcnow()
+                }
+            },
+            upsert=True
+        )
+
     def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float):
         """Adds momentum to a state based on campaign actions with auto-collapse protection."""
         # Use the momentum system from the momentum cog

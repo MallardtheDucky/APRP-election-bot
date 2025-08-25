@@ -1,6 +1,7 @@
 from discord.ext import commands
 import discord
 from discord import app_commands
+from datetime import datetime
 
 class AdminCentral(commands.Cog):
     """Centralized admin commands to reduce total command count"""
@@ -11,7 +12,7 @@ class AdminCentral(commands.Cog):
 
     # Main admin group - this replaces individual admin groups in other cogs
     admin_group = app_commands.Group(
-        name="admin", 
+        name="central",
         description="Centralized admin commands",
         default_permissions=discord.Permissions(administrator=True)
     )
@@ -80,7 +81,7 @@ class AdminCentral(commands.Cog):
     ):
         """View PRESIDENTIAL_STATE_DATA for a specific state or all states in table format"""
         from cogs.presidential_winners import PRESIDENTIAL_STATE_DATA
-        from datetime import datetime
+        
 
         if state_name:
             state_name = state_name.upper()
@@ -282,8 +283,16 @@ class AdminCentral(commands.Cog):
         # Reset candidate points
         points_reset = pres_winners_cog._reset_all_candidate_points(interaction.guild.id)
 
+        # Clear any incomplete text from the file
+
+        # Also clear presidential winners to prepare for next cycle
+        pres_winners_col = self.bot.db["presidential_winners"]
+        pres_winners_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"winners": {}}}
+        )
+
         # Create response embed
-        from datetime import datetime
         embed = discord.Embed(
             title="🗳️ Presidential Election Cycle Ended",
             color=discord.Color.gold(),
@@ -304,7 +313,7 @@ class AdminCentral(commands.Cog):
                 changes_text += f"**{change['state']}:**\n"
                 changes_text += f"  R: {old['republican']}% → {new['republican']}%\n"
                 changes_text += f"  D: {old['democrat']}% → {new['democrat']}%\n"
-                changes_text += f"  I: {old['other']}% → {new['other']}%\n\n"
+                changes_text += f"  O: {old['other']}% → {new['other']}%\n\n"
 
             if len(changes) > 5:
                 changes_text += f"... and {len(changes) - 5} more states"
@@ -316,14 +325,14 @@ class AdminCentral(commands.Cog):
             )
 
         embed.add_field(
-            name="🔄 Candidate Points Reset",
-            value="✅ All presidential candidate points reset to 0" if points_reset else "❌ Failed to reset candidate points",
-            inline=False
+            name="🔄 Points Reset",
+            value=f"All candidate points reset to 0" + (" ✅" if points_reset else " ❌"),
+            inline=True
         )
 
         embed.add_field(
             name="🎯 Next Steps",
-            value="• New election cycle can begin\n• Fresh candidates can sign up\n• Updated state baselines are now in effect",
+            value="• New election cycle can now begin\n• Fresh candidates can register\n• State ideologies permanently updated",
             inline=False
         )
 
