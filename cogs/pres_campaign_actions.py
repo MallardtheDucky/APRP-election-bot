@@ -761,12 +761,106 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Set cooldown
-        self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_donor")
+        # Send initial message asking for donor appeal
+        await interaction.response.send_message(
+            f"💰 **{candidate['name']}**, please reply to this message with your presidential donor appeal!\n\n"
+            f"**Target:** {target_candidate['name']}\n"
+            f"**State:** {state_upper}\n"
+            f"**Requirements:**\n"
+            f"• Minimum 400 characters\n"
+            f"• Maximum 3000 characters\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Effect:** Up to 3% polling boost based on length, +5 corruption, -1.5 stamina",
+            ephemeral=False
+        )
 
-        # Show modal for donor appeal input
-        modal = self.PresidentialDonorModal(target, state_upper)
-        await interaction.response.send_modal(modal)
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
+
+        try:
+            # Wait for user to reply with donor appeal
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            donor_appeal = reply_message.content
+            char_count = len(donor_appeal)
+
+            # Check character limits
+            if char_count < 400:
+                await reply_message.reply(f"❌ Donor appeal must be at least 400 characters. You wrote {char_count} characters.")
+                return
+
+            if char_count > 3000:
+                await reply_message.reply(f"❌ Donor appeal must be no more than 3000 characters. You wrote {char_count} characters.")
+                return
+
+            # Set cooldown after successful validation
+            self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_donor")
+
+            # Calculate polling boost - 1% per 1000 characters  
+            polling_boost = (char_count / 1000) * 1.0
+            polling_boost = min(polling_boost, 3.0)
+
+            # Update target candidate stats
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+                                                     state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5)
+
+            embed = discord.Embed(
+                title="💰 Presidential Donor Fundraising",
+                description=f"**{candidate['name']}** makes a donor appeal for **{target_candidate['name']}** in {state_upper}!",
+                color=discord.Color.gold(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Truncate appeal for display if too long
+            display_appeal = donor_appeal
+            if len(display_appeal) > 800:
+                display_appeal = display_appeal[:797] + "..."
+
+            embed.add_field(
+                name="📝 Donor Appeal",
+                value=display_appeal,
+                inline=False
+            )
+
+            # For general campaign, show updated percentages
+            time_col, time_config = self._get_time_config(interaction.guild.id)
+            current_phase = time_config.get("current_phase", "") if time_config else ""
+
+            if current_phase == "General Campaign":
+                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+                updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+
+                embed.add_field(
+                    name="📊 Impact",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="📊 Impact",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                    inline=True
+                )
+
+            embed.add_field(
+                name="⚠️ Warning",
+                value="High corruption may lead to scandals!",
+                inline=True
+            )
+
+            embed.set_footer(text=f"Next donor appeal available in 24 hours")
+
+            await reply_message.reply(embed=embed)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate['name']}**, your donor appeal timed out. Please use `/pres_donor` again and reply with your appeal within 5 minutes."
+            )
 
     @app_commands.command(
         name="pres_ad",
@@ -1148,12 +1242,96 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Set cooldown
-        self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_speech")
+        # Send initial message asking for speech
+        await interaction.response.send_message(
+            f"🎤 **{candidate['name']}**, please reply to this message with your presidential campaign speech!\n\n"
+            f"**Target:** {target_candidate['name']}\n"
+            f"**State:** {state_upper}\n"
+            f"**Requirements:**\n"
+            f"• 600-3000 characters\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Effect:** Up to 2.5% polling boost based on length, -2.25 stamina",
+            ephemeral=False
+        )
 
-        # Show modal for speech input
-        modal = self.PresidentialSpeechModal(target, state_upper)
-        await interaction.response.send_modal(modal)
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
+
+        try:
+            # Wait for user to reply with speech
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            speech_content = reply_message.content
+            char_count = len(speech_content)
+
+            # Check character limits
+            if char_count < 600 or char_count > 3000:
+                await reply_message.reply(f"❌ Presidential speech must be 600-3000 characters. You wrote {char_count} characters.")
+                return
+
+            # Set cooldown after successful validation
+            self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_speech")
+
+            # Calculate polling boost - 1% per 1200 characters
+            polling_boost = (char_count / 1200) * 1.0
+            polling_boost = min(polling_boost, 2.5)
+
+            # Update target candidate stats
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=2.25)
+
+            # Create public speech announcement
+            embed = discord.Embed(
+                title="🎤 Presidential Campaign Speech",
+                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}** in {state_upper}!",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Truncate speech for display if too long
+            display_speech = speech_content
+            if len(display_speech) > 1000:
+                display_speech = display_speech[:997] + "..."
+
+            embed.add_field(
+                name="📜 Speech Content",
+                value=display_speech,
+                inline=False
+            )
+
+            # For general campaign, show updated percentages
+            time_col, time_config = self._get_time_config(interaction.guild.id)
+            current_phase = time_config.get("current_phase", "") if time_config else ""
+
+            if current_phase == "General Campaign":
+                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+                updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+
+                embed.add_field(
+                    name="📊 Impact",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="📊 Impact",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
+                    inline=True
+                )
+
+            embed.set_footer(text=f"Next speech available in 12 hours")
+
+            await reply_message.reply(embed=embed)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/pres_speech` again and reply with your speech within 5 minutes."
+            )
 
     # State autocomplete for all commands
     @pres_canvassing.autocomplete("state")

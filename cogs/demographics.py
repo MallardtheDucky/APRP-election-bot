@@ -934,7 +934,7 @@ class Demographics(commands.Cog):
             f"**Threshold:** {threshold} points\n"
             f"**State Multiplier:** {multiplier:.2f}x\n"
             f"**Requirements:**\n"
-            f"• Speech content (400-2000 characters)\n"
+            f"• Speech content (700-3000 characters)\n"
             f"• Reply within 5 minutes\n\n"
             f"**Effect:** 1 point per 200 characters (modified by state multiplier)"
         )
@@ -955,8 +955,8 @@ class Demographics(commands.Cog):
             char_count = len(speech_content)
 
             # Check character limits
-            if char_count < 400 or char_count > 2000:
-                await reply_message.reply(f"❌ Demographic speech must be 400-2000 characters. You wrote {char_count} characters.")
+            if char_count < 700 or char_count > 3000:
+                await reply_message.reply(f"❌ Demographic speech must be 700-3000 characters. You wrote {char_count} characters.")
                 return
 
             # Set cooldown after successful validation
@@ -1990,7 +1990,7 @@ class Demographics(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # Autocomplete for admin commands
-    @admin_demo_group.autocomplete("candidate_name")
+    @admin_demographic_reset.autocomplete("candidate_name")
     async def candidate_autocomplete_reset(self, interaction: discord.Interaction, current: str):
         winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
 

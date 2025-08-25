@@ -370,6 +370,42 @@ class PresCampaignActions(commands.Cog):
 
         return current_percentages
 
+    def _apply_buff_debuff_multiplier_enhanced(self, base_points: float, user_id: int, guild_id: int, action_type: str) -> float:
+        """Apply any active buffs or debuffs to the points gained with announcements"""
+        buffs_col, buffs_config = self._get_buffs_debuffs_config(guild_id)
+
+        active_effects = buffs_config.get("active_effects", {})
+        multiplier = 1.0
+        current_time = datetime.utcnow()
+
+        # Clean up expired effects
+        expired_effects = []
+        for effect_id, effect in active_effects.items():
+            if effect.get("expires_at", current_time) <= current_time:
+                expired_effects.append(effect_id)
+
+        if expired_effects:
+            for effect_id in expired_effects:
+                buffs_col.update_one(
+                    {"guild_id": guild_id},
+                    {"$unset": {f"active_effects.{effect_id}": ""}}
+                )
+
+        for effect_id, effect in active_effects.items():
+            # Check if effect applies to this user and action
+            if (effect.get("target_user_id") == user_id and 
+                effect.get("expires_at") > current_time and
+                (not effect.get("action_types") or action_type in effect.get("action_types", []))):
+
+                effect_multiplier = effect.get("multiplier", 1.0)
+                if effect.get("effect_type") == "buff":
+                    multiplier += (effect_multiplier - 1.0)
+                elif effect.get("effect_type") == "debuff":
+                    multiplier *= effect_multiplier
+
+        return base_points * max(0.1, multiplier)  # Minimum 10% effectiveness
+
+
     async def _process_pres_speech(self, interaction: discord.Interaction, speech_text: str, target_name: str, state_name: str):
         """Process presidential speech submission"""
         # Check if user is a presidential candidate
@@ -1267,7 +1303,7 @@ class PresCampaignActions(commands.Cog):
             f"**Requirements:**\n"
             f"• Speech content (700-3000 characters)\n"
             f"• Reply within 5 minutes\n\n"
-            f"**Potential Bonus:** {'✅ Ideology match (+1.0%)' if state_data.get('ideology', '').lower() == ideology.lower() else '⚠️ No ideology match (+0.5%)'}"
+            f"**Potential Bonus:** {'✅ Ideology match (+0.5%)' if state_data.get('ideology', '').lower() == ideology.lower() else '⚠️ No ideology match (+0.0%)'}"
         )
 
         # Get the response message
@@ -1303,8 +1339,8 @@ class PresCampaignActions(commands.Cog):
             # Create response embed
             embed = discord.Embed(
                 title=f"🎤 Campaign Speech in {state.title()}",
-                description=f"**{interaction.user.display_name}** delivered a campaign speech in {state.title()}!",
-                color=discord.Color.blue() if ideology_match else discord.Color.orange(),
+                description=f"**{interaction.user.display_name}** delivers a compelling speech!",
+                color=discord.Color.green() if ideology_match else discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
 
@@ -1320,17 +1356,17 @@ class PresCampaignActions(commands.Cog):
             )
 
             embed.add_field(
-                name="📍 Campaign Details",
+                name="🎯 Campaign Impact",
                 value=f"**State:** {state.title()}\n"
-                      f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
                       f"**Your Ideology:** {ideology}\n"
-                      f"**Characters:** {char_count:,}",
+                      f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
+                      f"**Ideology Match:** {'✅ Yes (+0.5%)' if ideology_match else '❌ No (+0.0%)'}",
                 inline=True
             )
 
             embed.add_field(
-                name="🎯 Speech Results",
-                value=f"**Ideology Match:** {'✅ Yes' if ideology_match else '❌ No'}\n"
+                name="📊 Speech Metrics",
+                value=f"**Characters:** {char_count:,}\n"
                       f"**Base Bonus:** +{base_bonus:.2f}%\n"
                       f"**Ideology Bonus:** +{ideology_bonus:.2f}%\n"
                       f"**Total Bonus:** +{total_bonus:.2f}%",
@@ -1349,9 +1385,233 @@ class PresCampaignActions(commands.Cog):
             await reply_message.reply(embed=embed)
 
         except asyncio.TimeoutError:
-            await interaction.edit_original_response(
-                content=f"⏰ **{interaction.user.display_name}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
+            try:
+                await interaction.edit_original_response(
+                    content=f"⏰ **{interaction.user.display_name}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
+                )
+            except discord.NotFound:
+                # Interaction message was deleted, ignore
+                pass
+        except Exception as e:
+            try:
+                await interaction.edit_original_response(
+                    content=f"❌ An error occurred while processing your speech. Please try again."
+                )
+            except discord.NotFound:
+                # Interaction message was deleted, ignore
+                pass
+
+    # Autocomplete functions for speech command
+    @speech.autocomplete("state")
+    async def state_autocomplete_speech(self, interaction: discord.Interaction, current: str):
+        """Provide autocomplete options for US states"""
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state.title(), value=state)
+                for state in states if current.upper() in state][:25]
+
+    @speech.autocomplete("ideology")
+    async def ideology_autocomplete_speech(self, interaction: discord.Interaction, current: str):
+        """Provide autocomplete options for ideologies"""
+        # Get all unique ideologies from STATE_DATA
+        ideologies = set()
+        for state_data in STATE_DATA.values():
+            if "ideology" in state_data:
+                ideologies.add(state_data["ideology"])
+
+        ideology_list = sorted(list(ideologies))
+        return [app_commands.Choice(name=ideology, value=ideology)
+                for ideology in ideology_list if current.lower() in ideology.lower()][:25]
+
+    @app_commands.command(
+        name="donor",
+        description="General campaign donor appeal in a U.S. state (400-3000 characters, +1% per 1000 chars)"
+    )
+    @app_commands.describe(
+        state="U.S. state for donor appeal",
+        target="The candidate who will receive benefits (optional)"
+    )
+    async def donor(self, interaction: discord.Interaction, state: str, target: Optional[str] = None):
+        # Validate state
+        state_upper = state.upper()
+        if state_upper not in STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ Invalid state. Please choose from valid US state names.",
+                ephemeral=True
             )
+            return
+
+        # Check if user is a candidate (you may need to adjust this based on your general campaign system)
+        # For now, I'll assume any user can make donor appeals for general campaigns
+        user_name = interaction.user.display_name
+
+        # Check cooldown (24 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "donor", 24):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "donor", 24)
+            if remaining:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                await interaction.response.send_message(
+                    f"❌ You must wait {hours}h {minutes}m before making another donor appeal.",
+                    ephemeral=True
+                )
+                return
+
+        # If no target specified, default to self
+        if target is None:
+            target = user_name
+
+        # Send initial message asking for donor appeal
+        await interaction.response.send_message(
+            f"💰 **{user_name}**, please reply to this message with your donor appeal!\n\n"
+            f"**Target:** {target}\n"
+            f"**State:** {state_upper}\n"
+            f"**Requirements:**\n"
+            f"• Donor appeal content (400-3000 characters)\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Effect:** Up to 3% boost based on length, +5 corruption, -1.5 stamina",
+            ephemeral=False
+        )
+
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id)
+
+        try:
+            # Wait for user to reply with donor appeal
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            donor_appeal = reply_message.content
+            char_count = len(donor_appeal)
+
+            # Check character limits
+            if char_count < 400:
+                await reply_message.reply(f"❌ Donor appeal must be at least 400 characters. You wrote {char_count} characters.")
+                return
+
+            if char_count > 3000:
+                await reply_message.reply(f"❌ Donor appeal must be no more than 3000 characters. You wrote {char_count} characters.")
+                return
+
+            # Set cooldown after successful validation
+            self._set_cooldown(interaction.guild.id, interaction.user.id, "donor")
+
+            # Calculate boost - 1% per 1000 characters  
+            boost = (char_count / 1000) * 1.0
+            boost = min(boost, 3.0)
+
+            # Check for state ideology match (if applicable)
+            state_data = STATE_DATA.get(state_upper, {})
+            state_ideology = state_data.get("ideology", "Unknown")
+
+            # Create response embed
+            embed = discord.Embed(
+                title="💰 General Campaign Donor Appeal",
+                description=f"**{user_name}** makes a donor appeal for **{target}** in {state_upper}!",
+                color=discord.Color.gold(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Truncate appeal for display if too long
+            display_appeal = donor_appeal
+            if len(display_appeal) > 800:
+                display_appeal = display_appeal[:797] + "..."
+
+            embed.add_field(
+                name="📝 Donor Appeal",
+                value=display_appeal,
+                inline=False
+            )
+
+            embed.add_field(
+                name="📊 Campaign Impact",
+                value=f"**Target:** {target}\n"
+                      f"**State:** {state_upper}\n"
+                      f"**State Ideology:** {state_ideology}\n"
+                      f"**Boost:** +{boost:.2f}%\n"
+                      f"**Corruption:** +5\n"
+                      f"**Characters:** {char_count:,}",
+                inline=True
+            )
+
+            embed.add_field(
+                name="⚠️ Warning",
+                value="High corruption may lead to scandals!\nDonor appeals are high-risk, high-reward.",
+                inline=True
+            )
+
+            embed.set_footer(text="Next donor appeal available in 24 hours")
+
+            await reply_message.reply(embed=embed)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{user_name}**, your donor appeal timed out. Please use `/donor` again and reply with your appeal within 5 minutes."
+            )
+
+    def _check_cooldown(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
+        """Check if user is on cooldown for a specific action"""
+        cooldowns_col = self.bot.db["general_action_cooldowns"]
+        cooldown_record = cooldowns_col.find_one({
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "action_type": action_type
+        })
+
+        if not cooldown_record:
+            return True  # No cooldown record, user can proceed
+
+        last_action = cooldown_record["last_action"]
+        cooldown_end = last_action + timedelta(hours=cooldown_hours)
+
+        return datetime.utcnow() >= cooldown_end
+
+    def _set_cooldown(self, guild_id: int, user_id: int, action_type: str):
+        """Set cooldown for a specific action"""
+        cooldowns_col = self.bot.db["general_action_cooldowns"]
+        cooldowns_col.update_one(
+            {"guild_id": guild_id, "user_id": user_id, "action_type": action_type},
+            {
+                "$set": {
+                    "guild_id": guild_id,
+                    "user_id": user_id,
+                    "action_type": action_type,
+                    "last_action": datetime.utcnow()
+                }
+            },
+            upsert=True
+        )
+
+    def _get_cooldown_remaining(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
+        """Get remaining cooldown time"""
+        cooldowns_col = self.bot.db["general_action_cooldowns"]
+        cooldown_record = cooldowns_col.find_one({
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "action_type": action_type
+        })
+
+        if not cooldown_record:
+            return None
+
+        last_action = cooldown_record["last_action"]
+        cooldown_end = last_action + timedelta(hours=cooldown_hours)
+        remaining = cooldown_end - datetime.utcnow()
+
+        if remaining.total_seconds() <= 0:
+            return None
+
+        return remaining
+
+    # State autocomplete for donor command
+    @donor.autocomplete("state")
+    async def state_autocomplete_donor(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state.title(), value=state)
+                for state in states if current.upper() in state][:25]
 
     @app_commands.command(
         name="pres_polling",
@@ -1478,41 +1738,6 @@ class PresCampaignActions(commands.Cog):
             }
             col.insert_one(config)
         return col, config
-
-    def _apply_buff_debuff_multiplier_enhanced(self, base_points: float, user_id: int, guild_id: int, action_type: str) -> float:
-        """Apply any active buffs or debuffs to the points gained with announcements"""
-        buffs_col, buffs_config = self._get_buffs_debuffs_config(guild_id)
-
-        active_effects = buffs_config.get("active_effects", {})
-        multiplier = 1.0
-        current_time = datetime.utcnow()
-
-        # Clean up expired effects
-        expired_effects = []
-        for effect_id, effect in active_effects.items():
-            if effect.get("expires_at", current_time) <= current_time:
-                expired_effects.append(effect_id)
-
-        if expired_effects:
-            for effect_id in expired_effects:
-                buffs_col.update_one(
-                    {"guild_id": guild_id},
-                    {"$unset": {f"active_effects.{effect_id}": ""}}
-                )
-
-        for effect_id, effect in active_effects.items():
-            # Check if effect applies to this user and action
-            if (effect.get("target_user_id") == user_id and 
-                effect.get("expires_at") > current_time and
-                (not effect.get("action_types") or action_type in effect.get("action_types", []))):
-
-                effect_multiplier = effect.get("multiplier", 1.0)
-                if effect.get("effect_type") == "buff":
-                    multiplier += (effect_multiplier - 1.0)
-                elif effect.get("effect_type") == "debuff":
-                    multiplier *= effect_multiplier
-
-        return base_points * max(0.1, multiplier)  # Minimum 10% effectiveness
 
     @app_commands.command(
         name="admin_campaign_buff",
