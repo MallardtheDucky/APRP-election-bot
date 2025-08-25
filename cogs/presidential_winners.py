@@ -317,25 +317,142 @@ class PresidentialWinners(commands.Cog):
                 ephemeral=True
             )
             return
-            
+
         winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
-        
+
         winners_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$set": {"winners": {}}}
         )
-        
+
         # Also reset delegate primary winners
         delegates_col = self.bot.db["delegates_config"]
         delegates_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$set": {"primary_winners": {}}}
         )
-        
+
         await interaction.response.send_message(
             "✅ All primary winners have been reset.",
             ephemeral=True
         )
+
+    @app_commands.command(
+        name="admin_end_presidential_election",
+        description="End presidential election and apply ideology shifts (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_end_presidential_election(
+        self,
+        interaction: discord.Interaction,
+        confirm: bool = False
+    ):
+        """End presidential election, apply ideology shifts, and reset for next cycle"""
+        if not confirm:
+            await interaction.response.send_message(
+                "⚠️ **Warning:** This will:\n"
+                "• Apply permanent ideology shifts to all states\n"
+                "• Reset all candidate points to 0\n"
+                "• Update PRESIDENTIAL_STATE_DATA with current STATE_DATA values\n\n"
+                "To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Apply ideology shift
+        changes = self._apply_post_election_ideology_shift(interaction.guild.id)
+
+        # Reset candidate points
+        points_reset = self._reset_all_candidate_points(interaction.guild.id)
+
+        # Create response embed
+        embed = discord.Embed(
+            title="🗳️ Presidential Election Cycle Ended",
+            color=discord.Color.gold(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📊 Ideology Shifts Applied",
+            value=f"**{len(changes)} states** had their baseline ideology updated\nPRESIDENTIAL_STATE_DATA now reflects current STATE_DATA values",
+            inline=False
+        )
+
+        if changes:
+            changes_text = ""
+            for change in changes[:5]:  # Show first 5 changes
+                old = change["old"]
+                new = change["new"]
+                changes_text += f"**{change['state']}:**\n"
+                changes_text += f"  R: {old['republican']}% → {new['republican']}%\n"
+                changes_text += f"  D: {old['democrat']}% → {new['democrat']}%\n"
+                changes_text += f"  I: {old['other']}% → {new['other']}%\n\n"
+
+            if len(changes) > 5:
+                changes_text += f"... and {len(changes) - 5} more states"
+
+            embed.add_field(
+                name="📈 Sample Changes",
+                value=changes_text[:1024],
+                inline=False
+            )
+
+        embed.add_field(
+            name="🔄 Candidate Points Reset",
+            value="✅ All presidential candidate points reset to 0" if points_reset else "❌ Failed to reset candidate points",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🎯 Next Steps",
+            value="• New election cycle can begin\n• Fresh candidates can sign up\n• Updated state baselines are now in effect",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_view_ideology_changes",
+        description="View recent ideology shift history (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_ideology_changes(
+        self,
+        interaction: discord.Interaction,
+        limit: int = 5
+    ):
+        """View recent ideology shift records"""
+        ideology_shift_col = self.bot.db["ideology_shifts"]
+
+        recent_shifts = list(ideology_shift_col.find(
+            {"guild_id": interaction.guild.id}
+        ).sort("timestamp", -1).limit(limit))
+
+        if not recent_shifts:
+            await interaction.response.send_message(
+                "📊 No ideology shift records found for this server.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="📈 Recent Ideology Shifts",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        for shift in recent_shifts:
+            timestamp = shift["timestamp"].strftime("%Y-%m-%d %H:%M")
+            changes_count = shift.get("total_states_affected", 0)
+            shift_type = shift.get("shift_type", "unknown")
+
+            embed.add_field(
+                name=f"🔄 {shift_type.replace('_', ' ').title()}",
+                value=f"**Date:** {timestamp}\n**States affected:** {changes_count}",
+                inline=True
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="admin_view_state_percentages",
@@ -517,6 +634,91 @@ class PresidentialWinners(commands.Cog):
 
         # Cap bonus at 3%
         return min(bonus, 3.0)
+
+    def _apply_post_election_ideology_shift(self, guild_id: int):
+        """Apply permanent ideology shift after presidential election ends"""
+        global PRESIDENTIAL_STATE_DATA
+
+        try:
+            # Import STATE_DATA from ideology module
+            from cogs.ideology import STATE_DATA
+
+            # Track changes for logging
+            changes_made = []
+
+            # Update PRESIDENTIAL_STATE_DATA with values from STATE_DATA
+            for state_name, state_ideology_data in STATE_DATA.items():
+                if state_name in PRESIDENTIAL_STATE_DATA:
+                    old_data = PRESIDENTIAL_STATE_DATA[state_name].copy()
+
+                    # Update with new ideology-based percentages
+                    PRESIDENTIAL_STATE_DATA[state_name] = {
+                        "republican": state_ideology_data.get("republican", old_data["republican"]),
+                        "democrat": state_ideology_data.get("democrat", old_data["democrat"]),
+                        "other": state_ideology_data.get("other", old_data["other"])
+                    }
+
+                    # Check if values actually changed
+                    new_data = PRESIDENTIAL_STATE_DATA[state_name]
+                    if (old_data["republican"] != new_data["republican"] or 
+                        old_data["democrat"] != new_data["democrat"] or 
+                        old_data["other"] != new_data["other"]):
+                        changes_made.append({
+                            "state": state_name,
+                            "old": old_data,
+                            "new": new_data
+                        })
+
+            # Log the ideology shift in database for tracking
+            ideology_shift_col = self.bot.db["ideology_shifts"]
+            shift_record = {
+                "guild_id": guild_id,
+                "shift_type": "post_presidential_election",
+                "timestamp": datetime.utcnow(),
+                "changes": changes_made,
+                "total_states_affected": len(changes_made)
+            }
+            ideology_shift_col.insert_one(shift_record)
+
+            return changes_made
+
+        except ImportError:
+            print("Warning: Could not import STATE_DATA from ideology module")
+            return []
+        except Exception as e:
+            print(f"Error applying post-election ideology shift: {e}")
+            return []
+
+    def _reset_all_candidate_points(self, guild_id: int):
+        """Reset all presidential candidate points to 0 for new election cycle"""
+        try:
+            # Reset presidential signups points
+            pres_signups_col = self.bot.db["presidential_signups"]
+            pres_signups_col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"candidates.$[].points": 0, "candidates.$[].total_points": 0}}
+            )
+
+            # Reset presidential winners points
+            pres_winners_col = self.bot.db["presidential_winners"]
+            pres_winners_col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"winners.$[].total_points": 0, "winners.$[].state_points": {}}}
+            )
+
+            # Reset delegates points if they exist
+            delegates_col = self.bot.db["delegates_config"]
+            delegates_col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"candidates.$[].points": 0}}
+            )
+
+            return True
+
+        except Exception as e:
+            print(f"Error resetting candidate points: {e}")
+            return False
+
 
 async def setup(bot):
     await bot.add_cog(PresidentialWinners(bot))

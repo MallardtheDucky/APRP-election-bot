@@ -155,6 +155,18 @@ class Delegates(commands.Cog):
         config = col.find_one({"guild_id": guild_id})
         return col, config
 
+    def _calculate_current_rp_time(self, time_config):
+        """Calculate current RP time based on time manager configuration"""
+        last_update = time_config["last_real_update"]
+        current_real_time = datetime.utcnow()
+        real_minutes_elapsed = (current_real_time - last_update).total_seconds() / 60
+
+        minutes_per_rp_day = time_config["minutes_per_rp_day"]
+        rp_days_elapsed = real_minutes_elapsed / minutes_per_rp_day
+
+        current_rp_date = time_config["current_rp_date"] + timedelta(days=rp_days_elapsed)
+        return current_rp_date
+
     def _get_presidential_candidates(self, guild_id: int, party: str, year: int):
         """Get presidential candidates for a specific party and year"""
         candidates = []
@@ -378,6 +390,9 @@ class Delegates(commands.Cog):
         print(f"Sending state announcement for {state_name} ({party})")
         await self._send_state_announcement(guild, state_name, party, total_delegates, allocation)
 
+        # Update voice channel with current RP time if configured
+        await self._update_voice_channel_time(guild)
+
     async def _check_primary_winners(self, guild, guild_id: int, party: str, year: int, delegates_config: dict):
         """Check if any candidate has reached the delegate threshold to win the primary"""
         delegate_totals = delegates_config.get("delegate_totals", {})
@@ -466,6 +481,40 @@ class Delegates(commands.Cog):
 
         # Send primary winner announcement
         await self._send_primary_winner_announcement(guild, winner, party, year)
+
+        # Update voice channel with current RP time
+        await self._update_voice_channel_time(guild)
+
+    async def _update_voice_channel_time(self, guild):
+        """Update voice channel with current RP time if configured"""
+        try:
+            time_col, time_config = self._get_time_config(guild.id)
+            if not time_config:
+                return
+
+            # Check if voice channel updates are enabled and channel is configured
+            if (not time_config.get("update_voice_channels", True) or 
+                not time_config.get("voice_channel_id")):
+                return
+
+            # Calculate current RP time
+            current_rp_date = self._calculate_current_rp_time(time_config)
+            date_string = current_rp_date.strftime("%B %d, %Y")
+
+            # Get the voice channel
+            channel = guild.get_channel(time_config["voice_channel_id"])
+            if not channel or not hasattr(channel, 'edit'):
+                return
+
+            # Update channel name with current date
+            new_name = f"📅 {date_string}"
+            if channel.name != new_name:
+                await channel.edit(name=new_name)
+                print(f"Updated voice channel to: {new_name}")
+
+        except Exception as e:
+            print(f"Failed to update voice channel from delegates: {e}")
+            pass  # Ignore errors to not disrupt delegate functionality
 
     async def _send_primary_winner_announcement(self, guild, winner: dict, party: str, year: int):
         """Send announcement when a primary winner is declared"""
