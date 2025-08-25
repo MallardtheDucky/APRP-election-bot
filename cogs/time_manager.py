@@ -332,12 +332,19 @@ class TimeManager(commands.Cog):
                     if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
                         try:
                             new_name = f"📅 {date_string}"
-                            if channel.name != new_name:
+                            # Force update if names don't match or if there's a significant time difference
+                            current_name = channel.name
+                            should_update = (current_name != new_name or 
+                                           not current_name.startswith("📅") or
+                                           "1999" not in current_name)
+
+                            if should_update:
                                 await channel.edit(name=new_name)
-                                print(f"Updated voice channel to: {new_name}")
+                                print(f"Updated voice channel from '{current_name}' to: {new_name}")
                         except Exception as e:
                             print(f"Failed to update voice channel: {e}")
-                            pass  # Ignore if can't edit channel
+                            # Try again in next loop iteration
+                            pass
 
         except Exception as e:
             print(f"Error in time loop: {e}")
@@ -482,12 +489,19 @@ class TimeManager(commands.Cog):
                     if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
                         try:
                             new_name = f"📅 {date_string}"
-                            if channel.name != new_name:
+                            # Force update if names don't match or if there's a significant time difference
+                            current_name = channel.name
+                            should_update = (current_name != new_name or 
+                                           not current_name.startswith("📅") or
+                                           "1999" not in current_name)
+
+                            if should_update:
                                 await channel.edit(name=new_name)
-                                print(f"Updated voice channel to: {new_name}")
+                                print(f"Updated voice channel from '{current_name}' to: {new_name}")
                         except Exception as e:
                             print(f"Failed to update voice channel: {e}")
-                            pass  # Ignore if can't edit channel
+                            # Try again in next loop iteration
+                            pass
 
         except Exception as e:
             print(f"Error in time loop: {e}")
@@ -942,6 +956,83 @@ class TimeManager(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @time_admin_group.command(
+        name="force_sync_voice",
+        description="Force sync the voice channel name with current RP date (Admin only)"
+    )
+    async def force_sync_voice(self, interaction: discord.Interaction):
+        config = self._get_time_config(interaction.guild.id)
+
+        if not config.get("voice_channel_id"):
+            await interaction.response.send_message(
+                "❌ No voice channel configured. Use `/time admin set_voice_channel` first.",
+                ephemeral=True
+            )
+            return
+
+        current_rp_date, current_phase = self._calculate_current_rp_time(config)
+        date_string = current_rp_date.strftime("%B %d, %Y")
+
+        channel = interaction.guild.get_channel(config["voice_channel_id"])
+        if not channel:
+            await interaction.response.send_message(
+                "❌ Configured voice channel not found. It may have been deleted.",
+                ephemeral=True
+            )
+            return
+
+        if not hasattr(channel, 'edit'):
+            await interaction.response.send_message(
+                "❌ The configured channel is not a voice channel.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            new_name = f"📅 {date_string}"
+            old_name = channel.name
+            await channel.edit(name=new_name)
+            
+            embed = discord.Embed(
+                title="🔄 Voice Channel Synced",
+                description="Successfully updated voice channel with current RP date.",
+                color=discord.Color.green(),
+                timestamp=datetime.utcnow()
+            )
+            
+            embed.add_field(
+                name="Channel Updated",
+                value=f"{channel.mention}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Old Name",
+                value=f"`{old_name}`",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="New Name",
+                value=f"`{new_name}`",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Current RP Date",
+                value=date_string,
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to update voice channel: {str(e)}",
+                ephemeral=True
+            )
 
 async def setup(bot):
     await bot.add_cog(TimeManager(bot))
