@@ -19,6 +19,24 @@ class PresCampaignActions(commands.Cog):
         config = col.find_one({"guild_id": guild_id})
         return col, config
 
+    def _get_user_candidate(self, guild_id: int, user_id: int):
+        """Get user's candidate information from all signups"""
+        signups_col = self.bot.db["all_signups"]
+        signups_config = signups_col.find_one({"guild_id": guild_id})
+
+        if not signups_config:
+            return signups_col, None
+
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        for candidate in signups_config.get("candidates", []):
+            if (candidate["user_id"] == user_id and 
+                candidate["year"] == current_year):
+                return signups_col, candidate
+
+        return signups_col, None
+
     def _get_presidential_config(self, guild_id: int):
         """Get presidential signups configuration"""
         col = self.bot.db["presidential_signups"]
@@ -40,7 +58,7 @@ class PresCampaignActions(commands.Cog):
         if current_phase == "General Campaign":
             # Look in presidential winners collection for general campaign
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
-            
+
             if not winners_config:
                 return None, None
 
@@ -205,15 +223,15 @@ class PresCampaignActions(commands.Cog):
         # For now, we'll use a simplified approach or return the base value.
         # Example: If user has a "Strong Speech" buff, multiplier might be 1.2
         # If user has a "Tired" debuff, multiplier might be 0.8
-        
+
         # Fetch user's active buffs/debuffs from a database or cache
         # For demonstration, let's assume a simple lookup
-        
+
         buffs_debuffs_col = self.bot.db["buffs_debuffs"]
         user_effects = buffs_debuffs_col.find_one({"guild_id": guild_id, "user_id": user_id})
-        
+
         multiplier = 1.0
-        
+
         if user_effects:
             # Example: Check for specific buffs/debuffs related to campaign actions
             # This part would need to be more robust and tailored to your game's mechanics
@@ -362,13 +380,22 @@ class PresCampaignActions(commands.Cog):
             minimum_floor = get_presidential_minimum_floor(candidate)
             current_percentages[candidate_name] = max(current_percentages[candidate_name], minimum_floor)
 
-        # Normalize to ensure total is 100%
-        total = sum(current_percentages.values())
-        if total > 0:
+        # COMPLETE 100% NORMALIZATION - Force total to exactly 100%
+        total_percentage = sum(current_percentages.values())
+        if total_percentage > 0:
             for candidate_name in current_percentages:
-                current_percentages[candidate_name] = (current_percentages[candidate_name] / total) * 100.0
+                current_percentages[candidate_name] = (current_percentages[candidate_name] / total_percentage) * 100.0
 
-        return current_percentages
+        # Final verification and correction for floating point errors
+        final_total = sum(current_percentages.values())
+        if abs(final_total - 100.0) > 0.001:
+            # Apply micro-adjustment to the largest percentage
+            largest_candidate = max(current_percentages.keys(), key=lambda x: current_percentages[x])
+            adjustment = 100.0 - final_total
+            current_percentages[largest_candidate] += adjustment
+
+        final_percentages = current_percentages
+        return final_percentages
 
     def _apply_buff_debuff_multiplier_enhanced(self, base_points: float, user_id: int, guild_id: int, action_type: str) -> float:
         """Apply any active buffs or debuffs to the points gained with announcements"""
@@ -483,11 +510,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "")
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Impact",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
@@ -562,11 +589,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "")
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Impact",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
@@ -686,11 +713,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "")
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Results",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
@@ -729,15 +756,17 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Check if user is a presidential candidate
-        signups_col, candidate = self._get_user_presidential_candidate(interaction.guild.id, interaction.user.id)
+        # Check if user has a registered candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
         if not candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered presidential candidate to make donor appeals. Use `/pres_signup` first.",
+                "❌ You must be a registered candidate to make donor appeals. Use `/signup` to register for an election first.",
                 ephemeral=True
             )
             return
+
+        candidate_name = candidate["name"]
 
         # Check if in campaign phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
@@ -750,7 +779,7 @@ class PresCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = candidate["name"]
+            target = candidate_name
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
@@ -875,8 +904,7 @@ class PresCampaignActions(commands.Cog):
         def check(message):
             return (message.author.id == interaction.user.id and 
                     message.reference and 
-                    message.reference.message_id == response_message.id and
-                    len(message.attachments) > 0)
+                    message.reference.message_id == response_message.id)
 
         try:
             # Wait for user to reply with attachment
@@ -917,11 +945,11 @@ class PresCampaignActions(commands.Cog):
             # For general campaign, show updated percentages
             time_col, time_config = self._get_time_config(interaction.guild.id)
             current_phase = time_config.get("current_phase", "")
-            
+
             if current_phase == "General Campaign":
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
                 updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-                
+
                 embed.add_field(
                     name="📊 Ad Performance",
                     value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
@@ -1070,11 +1098,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "")
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Poster Impact",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
@@ -1175,9 +1203,9 @@ class PresCampaignActions(commands.Cog):
 
         # Send initial message asking for speech
         await interaction.response.send_message(
-            f"🎤 **{candidate['name']}**, please reply to this message with your presidential campaign speech!\n\n"
-            f"**Target:** {target_candidate['name']}\n"
+            f"🎤 **{candidate['name']}**, please reply to this message with your campaign speech!\n\n"
             f"**State:** {state_upper}\n"
+            f"**Your Ideology:** {candidate['ideology']}\n" # Assuming ideology is stored with candidate
             f"**Requirements:**\n"
             f"• Speech content (600-3000 characters)\n"
             f"• Reply within 5 minutes\n\n"
@@ -1266,6 +1294,10 @@ class PresCampaignActions(commands.Cog):
             await interaction.edit_original_response(
                 content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/pres_speech` again and reply with your speech within 5 minutes."
             )
+        except Exception as e:
+            await interaction.edit_original_response(
+                content=f"❌ An error occurred while processing your speech. Please try again."
+            )
 
     @app_commands.command(
         name="speech",
@@ -1292,11 +1324,21 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
+        # Check if user has a registered candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered candidate to give speeches. Use `/signup` to register for an election first.",
+                ephemeral=True
+            )
+            return
+
         state_data = STATE_DATA[state_key]
 
         # Send initial message asking for speech
         await interaction.response.send_message(
-            f"🎤 **{interaction.user.display_name}**, please reply to this message with your campaign speech!\n\n"
+            f"🎤 **{candidate['name']}**, please reply to this message with your campaign speech!\n\n"
             f"**State:** {state.title()}\n"
             f"**Your Ideology:** {ideology}\n"
             f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
@@ -1339,7 +1381,7 @@ class PresCampaignActions(commands.Cog):
             # Create response embed
             embed = discord.Embed(
                 title=f"🎤 Campaign Speech in {state.title()}",
-                description=f"**{interaction.user.display_name}** delivers a compelling speech!",
+                description=f"**{candidate['name']}** delivers a compelling speech!",
                 color=discord.Color.green() if ideology_match else discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
@@ -1385,26 +1427,16 @@ class PresCampaignActions(commands.Cog):
             await reply_message.reply(embed=embed)
 
         except asyncio.TimeoutError:
-            try:
-                await interaction.edit_original_response(
-                    content=f"⏰ **{interaction.user.display_name}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
-                )
-            except discord.NotFound:
-                # Interaction message was deleted, ignore
-                pass
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
+            )
         except Exception as e:
-            try:
-                await interaction.edit_original_response(
-                    content=f"❌ An error occurred while processing your speech. Please try again."
-                )
-            except discord.NotFound:
-                # Interaction message was deleted, ignore
-                pass
+            await interaction.edit_original_response(
+                content=f"❌ An error occurred while processing your speech. Please try again."
+            )
 
-    # Autocomplete functions for speech command
     @speech.autocomplete("state")
     async def state_autocomplete_speech(self, interaction: discord.Interaction, current: str):
-        """Provide autocomplete options for US states"""
         states = list(STATE_DATA.keys())
         return [app_commands.Choice(name=state.title(), value=state)
                 for state in states if current.upper() in state][:25]
@@ -1440,9 +1472,17 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Check if user is a candidate (you may need to adjust this based on your general campaign system)
-        # For now, I'll assume any user can make donor appeals for general campaigns
-        user_name = interaction.user.display_name
+        # Check if user has a registered candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered candidate to make donor appeals. Use `/signup` to register for an election first.",
+                ephemeral=True
+            )
+            return
+
+        candidate_name = candidate["name"]
 
         # Check cooldown (24 hours)
         if not self._check_cooldown(interaction.guild.id, interaction.user.id, "donor", 24):
@@ -1458,11 +1498,11 @@ class PresCampaignActions(commands.Cog):
 
         # If no target specified, default to self
         if target is None:
-            target = user_name
+            target = candidate_name
 
         # Send initial message asking for donor appeal
         await interaction.response.send_message(
-            f"💰 **{user_name}**, please reply to this message with your donor appeal!\n\n"
+            f"💰 **{candidate_name}**, please reply to this message with your donor appeal!\n\n"
             f"**Target:** {target}\n"
             f"**State:** {state_upper}\n"
             f"**Requirements:**\n"
@@ -1510,7 +1550,7 @@ class PresCampaignActions(commands.Cog):
             # Create response embed
             embed = discord.Embed(
                 title="💰 General Campaign Donor Appeal",
-                description=f"**{user_name}** makes a donor appeal for **{target}** in {state_upper}!",
+                description=f"**{candidate_name}** makes a donor appeal for **{target}** in {state_upper}!",
                 color=discord.Color.gold(),
                 timestamp=datetime.utcnow()
             )
@@ -1549,7 +1589,7 @@ class PresCampaignActions(commands.Cog):
 
         except asyncio.TimeoutError:
             await interaction.edit_original_response(
-                content=f"⏰ **{user_name}**, your donor appeal timed out. Please use `/donor` again and reply with your appeal within 5 minutes."
+                content=f"⏰ **{candidate_name}**, your donor appeal timed out. Please use `/donor` again and reply with your appeal within 5 minutes."
             )
 
     def _check_cooldown(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
@@ -1686,11 +1726,11 @@ class PresCampaignActions(commands.Cog):
         # Add poll results with party colors
         results_text = ""
         party_colors = {"Republican": "🔴", "Democrat": "🔵", "Independent": "🟣"}
-        
+
         for party, poll_percentage in sorted_results:
             color_emoji = party_colors.get(party, "⚪")
             progress_bar = create_progress_bar(poll_percentage)
-            
+
             results_text += f"{color_emoji} **{party}**\n"
             results_text += f"{progress_bar} **{poll_percentage:.1f}%**\n\n"
 
@@ -2191,7 +2231,7 @@ class PresCampaignActions(commands.Cog):
         # Find the candidate
         candidate_found = None
         candidate_index = None
-        
+
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
@@ -2486,7 +2526,7 @@ class PresCampaignActions(commands.Cog):
 
         embed = discord.Embed(
             title="🔍 Admin: Presidential Campaign Points",
-            description=f"Detailed view of all presidential campaign points",
+            description=f"Detailed view of all presidential candidate points",
             color=discord.Color.red(),
             timestamp=datetime.utcnow()
         )
@@ -2646,14 +2686,14 @@ class PresCampaignActions(commands.Cog):
     ):
         target_user = user if user else interaction.user
         cooldowns_col = self.bot.db["pres_action_cooldowns"]
-        
+
         if action_type == "all":
             # Reset all cooldowns for the user
             result = cooldowns_col.delete_many({
                 "guild_id": interaction.guild.id,
                 "user_id": target_user.id
             })
-            
+
             await interaction.response.send_message(
                 f"✅ Reset all presidential campaign cooldowns for {target_user.mention}. "
                 f"Removed {result.deleted_count} cooldown record(s).",
@@ -2668,13 +2708,13 @@ class PresCampaignActions(commands.Cog):
                     ephemeral=True
                 )
                 return
-                
+
             result = cooldowns_col.delete_one({
                 "guild_id": interaction.guild.id,
                 "user_id": target_user.id,
                 "action_type": action_type
             })
-            
+
             if result.deleted_count > 0:
                 await interaction.response.send_message(
                     f"✅ Reset {action_type} cooldown for {target_user.mention}.",

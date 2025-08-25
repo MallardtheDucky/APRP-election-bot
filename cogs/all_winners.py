@@ -189,11 +189,19 @@ class AllWinners(commands.Cog):
             final_percentage = max(0.1, final_percentage)
             final_percentages[candidate_name] = final_percentage
 
-        # Final normalization to ensure exactly 100% (handles rounding and guardrails)
+        # COMPLETE 100% NORMALIZATION - Force total to exactly 100%
         total_percentage = sum(final_percentages.values())
         if total_percentage > 0:
             for candidate_name in final_percentages:
                 final_percentages[candidate_name] = (final_percentages[candidate_name] / total_percentage) * 100.0
+
+        # Final verification and correction for floating point errors
+        final_total = sum(final_percentages.values())
+        if abs(final_total - 100.0) > 0.001:
+            # Apply micro-adjustment to the largest percentage
+            largest_candidate = max(final_percentages.keys(), key=lambda x: final_percentages[x])
+            adjustment = 100.0 - final_total
+            final_percentages[largest_candidate] += adjustment
 
         return final_percentages
 

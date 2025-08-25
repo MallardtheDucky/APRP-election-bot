@@ -39,7 +39,7 @@ class PresCampaignActions(commands.Cog):
         if current_phase == "General Campaign":
             # Look in presidential winners collection for general campaign
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
-            
+
             if not winners_config:
                 return None, None
 
@@ -152,15 +152,15 @@ class PresCampaignActions(commands.Cog):
         momentum_cog = self.bot.get_cog('Momentum')
         if not momentum_cog:
             return  # Momentum system not loaded
-        
+
         # Get momentum config
         momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
-        
+
         # Get user's candidate to determine party
         signups_col, candidate = self._get_user_presidential_candidate(guild_id, user_id)
         if not candidate:
             return
-        
+
         # Determine party key
         party = candidate.get("party", "").lower()
         if "republican" in party:
@@ -169,20 +169,20 @@ class PresCampaignActions(commands.Cog):
             party_key = "Democrat"
         else:
             party_key = "Independent"
-        
+
         # Calculate momentum gained (reduced factor to prevent spam)
         momentum_gain_factor = 2.0  # Momentum gained per campaign point
         momentum_gained = points_gained * momentum_gain_factor
-        
+
         # Get current momentum
         current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
         new_momentum = current_momentum + momentum_gained
-        
+
         # Check for auto-collapse
         final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
             momentum_col, guild_id, state_name, party_key, new_momentum
         )
-        
+
         if not collapsed:
             # No collapse occurred, update normally
             momentum_col.update_one(
@@ -194,7 +194,7 @@ class PresCampaignActions(commands.Cog):
                     }
                 }
             )
-            
+
             # Log the momentum gain
             if momentum_gained > 0.1:  # Only log significant gains
                 momentum_cog._add_momentum_event(
@@ -214,7 +214,7 @@ class PresCampaignActions(commands.Cog):
             lean_percentage = state_data["democrat"] - 50
         elif state_data["republican"] > state_data["democrat"]:
             lean_percentage = state_data["republican"] - 50
-        
+
         # Get momentum from database
         momentum_col = self.bot.db["presidential_momentum"]
         momentum_record = momentum_col.find_one({"guild_id": guild_id, "state": state_name.upper()})
@@ -223,7 +223,7 @@ class PresCampaignActions(commands.Cog):
         return lean_percentage, current_momentum, state_data
 
     def _calculate_general_election_percentages(self, guild_id: int, office: str):
-        """Calculate general election percentages using state-based distribution with proportional redistribution"""
+        """Calculate general election percentages using complete proportional redistribution with 100% normalization"""
         time_col, time_config = self._get_time_config(guild_id)
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
@@ -253,7 +253,7 @@ class PresCampaignActions(commands.Cog):
             else:
                 return 2.0   # 2% minimum for independents/third parties
 
-        # Calculate baseline percentages based on party alignment across all states
+        # Calculate baseline percentages based on party alignment
         baseline_percentages = {}
         num_candidates = len(candidates)
 
@@ -294,57 +294,41 @@ class PresCampaignActions(commands.Cog):
         # Start with baseline percentages
         current_percentages = baseline_percentages.copy()
 
-        # Apply campaign effects using proportional redistribution for each state
-        for state_name, state_data in PRESIDENTIAL_STATE_DATA.items():
-            # Get state lean and momentum
-            lean_percentage, current_momentum, _ = self._get_state_lean_and_momentum(guild_id, state_name)
+        # Apply campaign effects using COMPLETE proportional redistribution
+        for candidate in candidates:
+            candidate_name = candidate["name"]
+            total_campaign_points = candidate.get("total_points", 0.0)
 
-            # Calculate total campaign points in this state
-            total_state_campaign_points = sum(
-                candidate.get("state_points", {}).get(state_name, 0.0) for candidate in candidates
-            )
+            if total_campaign_points > 0:
+                # Points gained equals the campaign points directly
+                points_gained = total_campaign_points
 
-            if total_state_campaign_points > 0:
-                # Apply proportional redistribution for this state's impact
-                state_weight = 1.0 / len(PRESIDENTIAL_STATE_DATA)  # Each state contributes equally
+                # Calculate total percentage that can be taken from other candidates
+                total_available_to_take = 0.0
+                for other_candidate in candidates:
+                    if other_candidate != candidate:
+                        other_name = other_candidate["name"]
+                        other_current = current_percentages[other_name]
+                        other_minimum = get_presidential_minimum_floor(other_candidate)
+                        available = max(0, other_current - other_minimum)
+                        total_available_to_take += available
 
-                for candidate in candidates:
-                    candidate_name = candidate["name"]
-                    campaign_points = candidate.get("state_points", {}).get(state_name, 0.0)
+                # Limit gains to what's actually available
+                actual_gain = min(points_gained, total_available_to_take)
+                current_percentages[candidate_name] += actual_gain
 
-                    if campaign_points > 0:
-                        # Calculate how much this candidate can gain from this state
-                        # Each campaign point in a state = 0.01% national impact
-                        points_gained = campaign_points * 0.01 * state_weight * 100
-                        # Add momentum effect
-                        points_gained += current_momentum * state_weight
+                # Distribute losses proportionally among other candidates
+                if total_available_to_take > 0:
+                    for other_candidate in candidates:
+                        if other_candidate != candidate:
+                            other_name = other_candidate["name"]
+                            other_current = current_percentages[other_name]
+                            other_minimum = get_presidential_minimum_floor(other_candidate)
+                            available = max(0, other_current - other_minimum)
 
-                        # Calculate total percentage that can be taken from other candidates
-                        total_available_to_take = 0.0
-                        for other_candidate in candidates:
-                            if other_candidate != candidate:
-                                other_name = other_candidate["name"]
-                                other_current = current_percentages[other_name]
-                                other_minimum = get_presidential_minimum_floor(other_candidate)
-                                available = max(0, other_current - other_minimum)
-                                total_available_to_take += available
-
-                        # Limit gains to what's actually available
-                        actual_gain = min(points_gained, total_available_to_take)
-                        current_percentages[candidate_name] += actual_gain
-
-                        # Distribute losses proportionally among other candidates
-                        if total_available_to_take > 0:
-                            for other_candidate in candidates:
-                                if other_candidate != candidate:
-                                    other_name = other_candidate["name"]
-                                    other_current = current_percentages[other_name]
-                                    other_minimum = get_presidential_minimum_floor(other_candidate)
-                                    available = max(0, other_current - other_minimum)
-
-                                    if available > 0:
-                                        proportional_loss = (available / total_available_to_take) * actual_gain
-                                        current_percentages[other_name] -= proportional_loss
+                            if available > 0:
+                                proportional_loss = (available / total_available_to_take) * actual_gain
+                                current_percentages[other_name] -= proportional_loss
 
         # Ensure minimum floors are respected
         for candidate in candidates:
@@ -352,13 +336,22 @@ class PresCampaignActions(commands.Cog):
             minimum_floor = get_presidential_minimum_floor(candidate)
             current_percentages[candidate_name] = max(current_percentages[candidate_name], minimum_floor)
 
-        # Normalize to ensure total is 100%
-        total = sum(current_percentages.values())
-        if total > 0:
+        # COMPLETE 100% NORMALIZATION - Force total to exactly 100%
+        total_percentage = sum(current_percentages.values())
+        if total_percentage > 0:
             for candidate_name in current_percentages:
-                current_percentages[candidate_name] = (current_percentages[candidate_name] / total) * 100.0
+                current_percentages[candidate_name] = (current_percentages[candidate_name] / total_percentage) * 100.0
 
-        return current_percentages
+        # Final verification and correction for floating point errors
+        final_total = sum(current_percentages.values())
+        if abs(final_total - 100.0) > 0.001:
+            # Apply micro-adjustment to the largest percentage
+            largest_candidate = max(current_percentages.keys(), key=lambda x: current_percentages[x])
+            adjustment = 100.0 - final_total
+            current_percentages[largest_candidate] += adjustment
+
+        final_percentages = current_percentages
+        return final_percentages
 
     class PresidentialSpeechModal(discord.ui.Modal, title='Presidential Campaign Speech'):
         def __init__(self, target_candidate: str, state_name: str):
@@ -476,11 +469,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Impact",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
@@ -546,11 +539,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Impact",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
@@ -667,11 +660,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Results",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +0.1\n**Stamina Cost:** -1",
@@ -989,11 +982,11 @@ class PresCampaignActions(commands.Cog):
             # For general campaign, show updated percentages
             time_col, time_config = self._get_time_config(interaction.guild.id)
             current_phase = time_config.get("current_phase", "") if time_config else ""
-            
+
             if current_phase == "General Campaign":
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
                 updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-                
+
                 embed.add_field(
                     name="📊 Ad Performance",
                     value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
@@ -1139,11 +1132,11 @@ class PresCampaignActions(commands.Cog):
         # For general campaign, show updated percentages
         time_col, time_config = self._get_time_config(interaction.guild.id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
-        
+
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
             updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
-            
+
             embed.add_field(
                 name="📊 Poster Impact",
                 value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",

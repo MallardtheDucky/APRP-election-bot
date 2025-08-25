@@ -545,20 +545,26 @@ class TimeManager(commands.Cog):
         description="Show all available election regions"
     )
     async def show_regions(self, interaction: discord.Interaction):
-        # Get regions from election configuration instead of time config
+        # Get regions from election configuration
         elections_col = self.bot.db["elections_config"]
         elections_config = elections_col.find_one({"guild_id": interaction.guild.id})
 
-        if not elections_config or not elections_config.get("seats"):
-            await interaction.response.send_message("❌ No election regions configured yet.", ephemeral=True)
+        if not elections_config:
+            await interaction.response.send_message("❌ Election system not initialized. Use `/election info show_seats` to initialize.", ephemeral=True)
             return
 
-        # Extract unique states/regions from election seats
-        regions = set()
-        for seat in elections_config["seats"]:
-            regions.add(seat["state"])
+        # Get regions from the elections config or extract from seats
+        regions = elections_config.get("regions")
+        if not regions:
+            # Fallback: extract unique states/regions from election seats
+            regions = set()
+            for seat in elections_config.get("seats", []):
+                regions.add(seat["state"])
+            regions = sorted(list(regions))
 
-        regions = sorted(list(regions))
+        if not regions:
+            await interaction.response.send_message("❌ No election regions configured yet.", ephemeral=True)
+            return
 
         embed = discord.Embed(
             title="🗺️ Election Regions",

@@ -281,14 +281,21 @@ class Polling(commands.Cog):
             minimum_floor = get_minimum_floor(candidate)
             current_percentages[candidate_name] = max(current_percentages[candidate_name], minimum_floor)
 
-        # Normalize to ensure total is 100%
+        # COMPLETE 100% NORMALIZATION - Force total to exactly 100%
         total_percentage = sum(current_percentages.values())
         if total_percentage > 0:
             for candidate_name in current_percentages:
                 current_percentages[candidate_name] = (current_percentages[candidate_name] / total_percentage) * 100.0
 
-        final_percentages = current_percentages
+        # Final verification and correction for floating point errors
+        final_total = sum(current_percentages.values())
+        if abs(final_total - 100.0) > 0.001:
+            # Apply micro-adjustment to the largest percentage instead of equal distribution
+            largest_candidate = max(current_percentages.keys(), key=lambda x: current_percentages[x])
+            adjustment = 100.0 - final_total
+            current_percentages[largest_candidate] += adjustment
 
+        final_percentages = current_percentages
         return final_percentages
 
     def _get_momentum_effects_for_candidates(self, guild_id: int, candidates: list) -> dict:

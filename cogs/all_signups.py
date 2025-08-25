@@ -259,6 +259,17 @@ class AllSignups(commands.Cog):
                     )
                     return
 
+            # Check if user has pending VP requests
+            for vp_request in pres_config.get("pending_vp_requests", []):
+                if (vp_request["user_id"] == interaction.user.id and
+                    vp_request["year"] == current_year and
+                    vp_request["status"] == "pending"):
+                    await interaction.response.send_message(
+                        f"❌ You have a pending VP request with **{vp_request['presidential_candidate']}** for {current_year}. You cannot sign up for regular elections while you have pending VP requests.",
+                        ephemeral=True
+                    )
+                    return
+
         # Create embed showing available seats
         embed = discord.Embed(
             title=f"🗳️ Available Seats in {region}",
@@ -449,11 +460,19 @@ class AllSignups(commands.Cog):
             if c["year"] == current_year
         ]
 
+        # Debug information for admins
         if not current_candidates:
-            await interaction.response.send_message(
-                f"📋 No candidates have signed up for the {current_year} election yet.",
-                ephemeral=True
-            )
+            total_candidates = len(signups_config["candidates"])
+            all_years = list(set(c["year"] for c in signups_config["candidates"])) if signups_config["candidates"] else []
+            
+            debug_text = f"📋 No candidates have signed up for the {current_year} election yet."
+            if total_candidates > 0:
+                debug_text += f"\n\n🔍 **Debug Info:**\n"
+                debug_text += f"• Total candidates in database: {total_candidates}\n"
+                debug_text += f"• Years with candidates: {sorted(all_years)}\n"
+                debug_text += f"• Looking for year: {current_year}"
+            
+            await interaction.response.send_message(debug_text, ephemeral=True)
             return
 
         # Group by region for better display

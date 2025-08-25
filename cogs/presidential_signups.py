@@ -184,10 +184,21 @@ class PresidentialSignups(commands.Cog):
                 if (candidate["user_id"] == interaction.user.id and
                     candidate["year"] == current_year):
                     await interaction.response.send_message(
-                        f"❌ You are already signed up for a regular election as **{candidate['name']}** ({candidate['seat_id']}) in {current_year}. You cannot sign up as a VP candidate while running for another office.",
+                        f"❌ You are already signed up for a regular election as **{candidate['name']}** ({candidate['seat_id']}) in {current_year}. You cannot sign up as a presidential candidate while running for another office.",
                         ephemeral=True
                     )
                     return
+
+        # Check if user has pending VP requests
+        for vp_request in pres_config.get("pending_vp_requests", []):
+            if (vp_request["user_id"] == interaction.user.id and
+                vp_request["year"] == current_year and
+                vp_request["status"] == "pending"):
+                await interaction.response.send_message(
+                    f"❌ You have a pending VP request with **{vp_request['presidential_candidate']}** for {current_year}. You cannot sign up as a presidential candidate while you have pending VP requests.",
+                    ephemeral=True
+                )
+                return
 
         # Create presidential candidate entry
         new_candidate = {

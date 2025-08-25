@@ -720,6 +720,8 @@ class Elections(commands.Cog):
         if not config:
             # Initialize seats in database
             seats_in_db = []
+            default_regions = set()
+
             for seat in self.seats_data:
                 seats_in_db.append({
                     **seat,
@@ -729,10 +731,12 @@ class Elections(commands.Cog):
                     "term_end": None,
                     "up_for_election": True
                 })
+                default_regions.add(seat["state"])
 
             config = {
                 "guild_id": guild_id,
                 "seats": seats_in_db,
+                "regions": sorted(list(default_regions)),  # Default regions from seats
                 "candidates": [],  # List of candidate registrations
                 "elections": []    # List of past/current elections
             }
@@ -1083,6 +1087,12 @@ class Elections(commands.Cog):
             name="ℹ️ Total",
             value=f"**{len(up_for_election)}** seats up for election",
             inline=True
+        )
+
+        embed.add_field(
+            name="📝 Next Steps",
+            value="Candidates can now register for these positions during the signup phase!",
+            inline=False
         )
 
         view = SeatsUpView(office_groups, current_year)
@@ -1743,8 +1753,8 @@ class Elections(commands.Cog):
         description="Bulk set term end years for multiple seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR)"
     )
     async def bulk_set_term_years(
-        self, 
-        interaction: discord.Interaction, 
+        self,
+        interaction: discord.Interaction,
         seat_year_pairs: str
     ):
         col, config = self._get_elections_config(interaction.guild.id)
