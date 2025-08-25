@@ -270,6 +270,14 @@ class AllSignups(commands.Cog):
                     )
                     return
 
+        # Validate party role if configured
+        party_cog = self.bot.get_cog("PartyManagement")
+        if party_cog:
+            is_valid, error_msg = party_cog.validate_user_party_role(interaction.user, party, interaction.guild.id)
+            if not is_valid:
+                await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
+                return
+
         # Create embed showing available seats
         embed = discord.Embed(
             title=f"🗳️ Available Seats in {region}",

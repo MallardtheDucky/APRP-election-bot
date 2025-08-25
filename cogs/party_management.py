@@ -9,12 +9,11 @@ class PartyManagement(commands.Cog):
         self.bot = bot
         print("Party Management cog loaded successfully")
 
-    # Create main command group
+    # Simplified party command structure
     party_group = app_commands.Group(name="party", description="Party management commands")
 
-    # Create subgroups
-    party_admin_group = app_commands.Group(name="admin", description="Party admin commands", parent=party_group)
-    party_member_group = app_commands.Group(name="member", description="Party member commands", parent=party_group)
+    # Combine admin and member commands into single subgroup
+    party_manage_group = app_commands.Group(name="manage", description="Party management commands", parent=party_group)
     party_info_group = app_commands.Group(name="info", description="Party information commands", parent=party_group)
 
     def _get_parties_config(self, guild_id: int):
@@ -52,7 +51,7 @@ class PartyManagement(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="create",
         description="Create a new political party (Admin only)"
     )
@@ -173,7 +172,7 @@ class PartyManagement(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="remove",
         description="Remove a political party (Admin only)"
     )
@@ -225,7 +224,7 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="edit",
         description="Edit an existing political party (Admin only)"
     )
@@ -358,7 +357,7 @@ class PartyManagement(commands.Cog):
             for party in config["parties"]
         ]
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="reset",
         description="Reset all parties to default (Admin only - DESTRUCTIVE)"
     )
@@ -424,7 +423,7 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="bulk_create",
         description="Create multiple parties at once (Admin only)"
     )
@@ -520,7 +519,7 @@ class PartyManagement(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="remove_all_custom",
         description="Remove all custom parties (keep defaults) (Admin only)"
     )
@@ -566,7 +565,7 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="export",
         description="Export party configuration as text (Admin only)"
     )
@@ -617,7 +616,7 @@ class PartyManagement(commands.Cog):
             ephemeral=True
         )
 
-    @party_admin_group.command(
+    @party_manage_group.command(
         name="modify_color",
         description="Change the color of multiple parties at once (Admin only)"
     )
@@ -671,6 +670,140 @@ class PartyManagement(commands.Cog):
             f"✅ Updated color for **{party_name}**: #{old_color:06X} → #{party_color:06X}",
             ephemeral=True
         )
+
+    @party_manage_group.command(
+        name="set_role_ids",
+        description="Set Discord role IDs for party validation (Admin only)"
+    )
+    @app_commands.describe(
+        republican_role="Discord role for Republican Party members",
+        democrat_role="Discord role for Democratic Party members",
+        independent_role="Discord role for Independent members (optional)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_party_role_ids(
+        self,
+        interaction: discord.Interaction,
+        republican_role: discord.Role,
+        democrat_role: discord.Role,
+        independent_role: discord.Role = None
+    ):
+        """Set Discord role IDs for party validation"""
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        # Set role IDs in configuration
+        if "role_validation" not in config:
+            config["role_validation"] = {}
+
+        config["role_validation"]["Republican Party"] = republican_role.id
+        config["role_validation"]["Democratic Party"] = democrat_role.id
+        
+        if independent_role:
+            config["role_validation"]["Independent"] = independent_role.id
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"role_validation": config["role_validation"]}}
+        )
+
+        embed = discord.Embed(
+            title="✅ Party Role IDs Configured",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="🔴 Republican Party",
+            value=f"{republican_role.mention} (ID: {republican_role.id})",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔵 Democratic Party", 
+            value=f"{democrat_role.mention} (ID: {democrat_role.id})",
+            inline=False
+        )
+
+        if independent_role:
+            embed.add_field(
+                name="🟣 Independent",
+                value=f"{independent_role.mention} (ID: {independent_role.id})",
+                inline=False
+            )
+
+        embed.add_field(
+            name="ℹ️ Note",
+            value="Users will now be validated against these roles when signing up for positions with the corresponding parties.",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @party_manage_group.command(
+        name="view_role_config",
+        description="View current party role ID configuration (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def view_party_role_config(self, interaction: discord.Interaction):
+        """View current party role ID configuration"""
+        col, config = self._get_parties_config(interaction.guild.id)
+
+        role_validation = config.get("role_validation", {})
+
+        if not role_validation:
+            await interaction.response.send_message(
+                "❌ No party role IDs configured yet. Use `/party manage set_role_ids` to set them up.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="🎭 Party Role ID Configuration",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        for party_name, role_id in role_validation.items():
+            role = interaction.guild.get_role(role_id)
+            if role:
+                embed.add_field(
+                    name=party_name,
+                    value=f"{role.mention} (ID: {role_id})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name=party_name,
+                    value=f"❌ Role not found (ID: {role_id})",
+                    inline=False
+                )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    def validate_user_party_role(self, user: discord.Member, party_name: str, guild_id: int) -> tuple[bool, str]:
+        """Validate if user has the correct role for the specified party"""
+        col, config = self._get_parties_config(guild_id)
+        role_validation = config.get("role_validation", {})
+
+        # If no role validation configured, allow all
+        if not role_validation:
+            return True, ""
+
+        # Check if party requires role validation
+        if party_name not in role_validation:
+            return True, ""
+
+        required_role_id = role_validation[party_name]
+        required_role = user.guild.get_role(required_role_id)
+
+        if not required_role:
+            return False, f"Party role configuration error: Role ID {required_role_id} not found"
+
+        # Check if user has the required role
+        if required_role not in user.roles:
+            return False, f"You must have the {required_role.name} role to run as {party_name}"
+
+        return True, ""
 
 async def setup(bot):
     await bot.add_cog(PartyManagement(bot))

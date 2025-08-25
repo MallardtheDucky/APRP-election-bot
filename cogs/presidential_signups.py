@@ -160,21 +160,22 @@ class PresidentialSignups(commands.Cog):
 
         pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
 
-        # Check if user already has ANY presidential campaign signup (President or VP)
-        existing_signup = None
-        for candidate in pres_config["candidates"]:
-            if (candidate["user_id"] == interaction.user.id and
-                candidate["year"] == current_year and
-                candidate["office"] in ["President", "Vice President"]):
-                existing_signup = candidate
-                break
+        # Validate party role if configured
+        party_cog = self.bot.get_cog("PartyManagement")
+        if party_cog:
+            is_valid, error_msg = party_cog.validate_user_party_role(interaction.user, party, interaction.guild.id)
+            if not is_valid:
+                await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
+                return
 
-        if existing_signup:
-            await interaction.response.send_message(
-                f"❌ You are already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for {existing_signup['office']} in {current_year}.",
-                ephemeral=True
-            )
-            return
+        # Check if user already signed up
+        for candidate in pres_config["candidates"]:
+            if candidate["user_id"] == interaction.user.id:
+                await interaction.response.send_message(
+                    f"❌ You are already registered as **{candidate['name']}** ({candidate['party']})",
+                    ephemeral=True
+                )
+                return
 
         # Check if user has a regular election signup
         signups_col = self.bot.db["signups"]
@@ -359,6 +360,23 @@ class PresidentialSignups(commands.Cog):
             return
 
         pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+        # Validate party role if configured
+        party_cog = self.bot.get_cog("PartyManagement")
+        if party_cog:
+            is_valid, error_msg = party_cog.validate_user_party_role(interaction.user, party, interaction.guild.id)
+            if not is_valid:
+                await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
+                return
+
+        # Check if user already signed up for VP
+        for candidate in pres_config["candidates"]:
+            if candidate["user_id"] == interaction.user.id:
+                await interaction.response.send_message(
+                    f"❌ You are already registered as VP candidate **{candidate['name']}** ({candidate['party']})",
+                    ephemeral=True
+                )
+                return
 
         # Find the presidential candidate
         presidential_candidate_data = None

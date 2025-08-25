@@ -11,12 +11,11 @@ class Polling(commands.Cog):
         self.bot = bot
         print("Polling cog loaded successfully")
 
-    # Create main poll group
+    # Simplified polling structure
     poll_group = app_commands.Group(name="poll", description="Polling commands")
 
-    # Create subgroups to organize commands
-    poll_admin_group = app_commands.Group(name="admin", description="Admin polling commands", parent=poll_group)
-    poll_info_group = app_commands.Group(name="info", description="Polling information commands", parent=poll_group)
+    # Combine admin and info into single manage group
+    poll_manage_group = app_commands.Group(name="manage", description="Poll management commands", parent=poll_group)
 
 
     def _get_signups_config(self, guild_id: int):

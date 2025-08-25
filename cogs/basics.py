@@ -1129,14 +1129,15 @@ class Basics(commands.Cog):  # Capitalized as per style
         embed = view.get_handbook_embed("getting_started")
         await interaction.followup.send(embed=embed, view=view)
 
-    # Create admin command group
-    admin_group = app_commands.Group(
-        name="admin", 
-        description="Admin-only commands",
-        default_permissions=discord.Permissions(administrator=True)
-    )
+    # Centralized admin command group
+    admin_central = app_commands.Group(name="admin", description="Admin-only commands", default_permissions=discord.Permissions(administrator=True))
 
-    @admin_group.command(
+    # Subgroups for organization
+    admin_campaign_group = app_commands.Group(name="campaign", description="Campaign admin commands", parent=admin_central)
+    admin_system_group = app_commands.Group(name="system", description="System admin commands", parent=admin_central)
+
+    # Move the cooldown command to the system subgroup
+    @admin_system_group.command(
         name="reset_campaign_cooldowns",
         description="Reset general campaign action cooldowns for a user (Admin only)"
     )
@@ -1162,6 +1163,14 @@ class Basics(commands.Cog):  # Capitalized as per style
             "election_cooldowns"
         ]
 
+        # Ensure the collection exists before attempting to delete
+        if collection_name not in self.bot.db.list_collection_names():
+            await interaction.response.send_message(
+                f"Error: Cooldown collection '{collection_name}' does not exist.",
+                ephemeral=True
+            )
+            return
+
         cooldowns_col = self.bot.db[collection_name]
 
         # Reset all cooldowns for the user in the specified collection
@@ -1178,7 +1187,8 @@ class Basics(commands.Cog):  # Capitalized as per style
 
     @admin_reset_campaign_cooldowns.autocomplete("collection_name")
     async def collection_autocomplete(self, interaction: discord.Interaction, current: str):
-        collections = ["action_cooldowns", "campaign_cooldowns", "general_action_cooldowns", "election_cooldowns"]
+        # Dynamically get collection names from the database
+        collections = self.bot.db.list_collection_names()
         return [app_commands.Choice(name=col, value=col)
                 for col in collections if current.lower() in col.lower()][:25]
 

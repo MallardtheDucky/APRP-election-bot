@@ -46,11 +46,11 @@ class SeatsUpDropdown(discord.ui.Select):
                 for seat in state_seats:
                     incumbent = seat.get("current_holder", "Open Seat")
                     seat_list += f"• **{seat['seat_id']}** - Current: {incumbent}\n"
-                
+
                 # Ensure we don't exceed field value limit (1024 chars)
                 if len(seat_list) > 1000:
                     seat_list = seat_list[:1000] + "...\n[More seats in this state]"
-                
+
                 embed.add_field(
                     name=f"📍 {state_name} ({len(state_seats)} seats)",
                     value=seat_list,
@@ -62,7 +62,7 @@ class SeatsUpDropdown(discord.ui.Select):
             for seat in seats:
                 incumbent = seat.get("current_holder", "Open Seat")
                 seat_entry = f"• **{seat['seat_id']}** ({seat['state']})\n  Current: {incumbent}\n"
-                
+
                 # Check if adding this entry would exceed the limit
                 if len(seat_list + seat_entry) > 1000:
                     seat_list += "...\n[Additional seats truncated]"
@@ -168,19 +168,21 @@ class Elections(commands.Cog):
         self.seats_data = self._initialize_seats()
         print("Elections cog loaded successfully")
 
+    # Consolidate into fewer groups to save command slots
+    # Use the admin group from basics.py instead of creating a new one
+
     # Create main command group
     election_group = app_commands.Group(name="election", description="Election management commands")
-    
-    # Create subgroups under election
-    election_admin_group = app_commands.Group(name="admin", description="Election admin commands", parent=election_group)
-    election_info_group = app_commands.Group(name="info", description="Election information commands", parent=election_group)
-    election_seat_group = app_commands.Group(name="seat", description="Seat management commands", parent=election_group)
-    election_state_group = app_commands.Group(name="state", description="State management commands", parent=election_group)
-    
-    # Create vote subgroup under election to consolidate commands
-    election_vote_group = app_commands.Group(name="vote", description="Voting commands", parent=election_group)
 
-    @election_vote_group.command(
+    # Create subgroups - only one level of nesting allowed
+    election_manage_group = app_commands.Group(name="manage", description="Election and seat management", parent=election_group)
+    election_info_group = app_commands.Group(name="info", description="Election information commands", parent=election_group)
+    election_state_group = app_commands.Group(name="state", description="State and region management", parent=election_group)
+
+
+    # Commands formerly under election_vote_group are now directly under election_group
+    # (assuming they are admin or user-facing commands not needing a separate subgroup)
+    @election_group.command(
         name="admin_bulk_set_votes",
         description="Set vote counts for multiple candidates (Admin only)"
     )
@@ -193,23 +195,23 @@ class Elections(commands.Cog):
     ):
         """Set vote counts for candidates in format: candidate1:votes,candidate2:votes"""
         votes_col = self.bot.db["votes"]
-        
+
         # Clear existing votes for this seat
         votes_col.delete_many({
             "guild_id": interaction.guild.id,
             "seat_id": seat_id.upper()
         })
-        
+
         # Parse vote data
         vote_pairs = vote_data.split(",")
         total_votes = 0
         added_candidates = []
-        
+
         for pair in vote_pairs:
             try:
                 candidate, vote_count_str = pair.strip().split(":")
                 vote_count = int(vote_count_str)
-                
+
                 # Create fake votes for this candidate
                 for i in range(vote_count):
                     vote_record = {
@@ -220,35 +222,35 @@ class Elections(commands.Cog):
                         "timestamp": datetime.utcnow()
                     }
                     votes_col.insert_one(vote_record)
-                
+
                 total_votes += vote_count
                 added_candidates.append(f"{candidate.strip()}: {vote_count}")
-                
+
             except (ValueError, IndexError):
                 await interaction.response.send_message(f"❌ Invalid format in: {pair}", ephemeral=True)
                 return
-        
+
         embed = discord.Embed(
             title=f"✅ Votes Set for {seat_id}",
             color=discord.Color.green(),
             timestamp=datetime.utcnow()
         )
-        
+
         embed.add_field(
             name="Vote Counts",
             value="\n".join(added_candidates),
             inline=False
         )
-        
+
         embed.add_field(
             name="Total Votes",
             value=str(total_votes),
             inline=True
         )
-        
+
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @election_vote_group.command(
+    @election_group.command(
         name="admin_set_winner_votes",
         description="Set election winner and vote counts for general elections (Admin only)"
     )
@@ -264,7 +266,7 @@ class Elections(commands.Cog):
         # Check if we're in general election phase
         time_col = self.bot.db["time_configs"]
         time_config = time_col.find_one({"guild_id": interaction.guild.id})
-        
+
         if time_config:
             current_phase = time_config.get("current_phase", "")
             if "General" not in current_phase:
@@ -272,32 +274,32 @@ class Elections(commands.Cog):
                     "⚠️ This command is intended for general elections only.",
                     ephemeral=True
                 )
-        
+
         # Set the votes using the bulk vote function
         votes_col = self.bot.db["votes"]
-        
+
         # Clear existing votes for this seat
         votes_col.delete_many({
             "guild_id": interaction.guild.id,
             "seat_id": seat_id.upper()
         })
-        
+
         # Parse vote data
         vote_pairs = vote_data.split(",")
         total_votes = 0
         added_candidates = []
         winner_votes = 0
-        
+
         for pair in vote_pairs:
             try:
                 candidate, vote_count_str = pair.strip().split(":")
                 vote_count = int(vote_count_str)
                 candidate = candidate.strip()
-                
+
                 # Track winner votes
                 if candidate.lower() == winner_candidate.lower():
                     winner_votes = vote_count
-                
+
                 # Create fake votes for this candidate
                 for i in range(vote_count):
                     vote_record = {
@@ -308,30 +310,30 @@ class Elections(commands.Cog):
                         "timestamp": datetime.utcnow()
                     }
                     votes_col.insert_one(vote_record)
-                
+
                 total_votes += vote_count
                 added_candidates.append(f"{candidate}: {vote_count}")
-                
+
             except (ValueError, IndexError):
                 await interaction.response.send_message(f"❌ Invalid format in: {pair}", ephemeral=True)
                 return
-        
+
         # Update the seat with the winner
         col, config = self._get_elections_config(interaction.guild.id)
-        
+
         # Find and update the seat
         seat_found = None
         for i, seat in enumerate(config["seats"]):
             if seat["seat_id"].upper() == seat_id.upper():
                 seat_found = i
                 break
-        
+
         if seat_found is not None:
             # Get current RP year for term calculation
             current_year = time_config["current_rp_date"].year if time_config else 2024
             term_start = datetime(current_year, 1, 1)
             term_end = datetime(current_year + config["seats"][seat_found]["term_years"], 1, 1)
-            
+
             config["seats"][seat_found].update({
                 "current_holder": winner_candidate,
                 "current_holder_id": None,  # No real user ID for admin-set winners
@@ -339,43 +341,43 @@ class Elections(commands.Cog):
                 "term_end": term_end,
                 "up_for_election": False
             })
-            
+
             col.update_one(
                 {"guild_id": interaction.guild.id},
                 {"$set": {"seats": config["seats"]}}
             )
-        
+
         embed = discord.Embed(
             title=f"🏆 General Election Results: {seat_id}",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
-        
+
         embed.add_field(
             name="🎉 Winner",
             value=f"**{winner_candidate}** ({winner_votes:,} votes)",
             inline=False
         )
-        
+
         embed.add_field(
             name="📊 All Results",
             value="\n".join(added_candidates),
             inline=False
         )
-        
+
         embed.add_field(
             name="📈 Total Votes Cast",
             value=f"{total_votes:,}",
             inline=True
         )
-        
+
         if seat_found is not None:
             embed.add_field(
                 name="🏛️ Seat Assigned",
                 value=f"Winner has been assigned to {seat_id}",
                 inline=True
             )
-        
+
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.Cog.listener()
@@ -591,7 +593,7 @@ class Elections(commands.Cog):
         for i, seat in enumerate(config["seats"]):
             if seat.get("up_for_election"):
                 # Calculate new term end based on current election year + term length
-                new_term_end_year = current_year + seat["term_years"] 
+                new_term_end_year = current_year + seat["term_years"]
                 config["seats"][i]["term_end"] = datetime(new_term_end_year, 12, 31)
                 config["seats"][i]["up_for_election"] = False  # Reset election flag
                 updated_seats.append(f"{seat['seat_id']} -> {new_term_end_year}")
@@ -692,15 +694,15 @@ class Elections(commands.Cog):
             # Senate elections every 6 years, staggered into 3 classes
             # Use seat number to create staggered pattern
             seat_num = int(seat_id.split("-")[-1]) if seat_id.split("-")[-1].isdigit() else 1
-            
+
             # Simplified staggered cycle - ensure there are always seats up for election
             if seat_num % 3 == 1:  # Class 1 seats
                 return election_year % 6 == 0  # 2000, 2006, 2012, etc.
             elif seat_num % 3 == 2:  # Class 2 seats
                 return (election_year - 2) % 6 == 0  # 1998, 2004, 2010, etc.
-            else:  # Class 3 seats  
+            else:  # Class 3 seats
                 return (election_year - 4) % 6 == 0  # 1996, 2002, 2008, etc.
-                
+
         elif office == "Governor":
             # Governor elections every 4 years
             return election_year % 4 == 0  # 2000, 2004, 2008, etc.
@@ -748,8 +750,7 @@ class Elections(commands.Cog):
         description="Show all election seats by state or office type"
     )
     async def show_seats(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         filter_by: str = None,
         state: str = None
     ):
@@ -808,7 +809,7 @@ class Elections(commands.Cog):
             await interaction.followup.send(f"❌ Error loading seats: {str(e)}", ephemeral=True)
 
 
-    @election_admin_group.command(
+    @election_manage_group.command(
         name="fill_vacant_seat",
         description="Fill a vacant seat with a user (Admin only)"
     )
@@ -826,7 +827,7 @@ class Elections(commands.Cog):
         # If no seat_id provided, show available vacant seats
         if not seat_id:
             vacant_seats = [
-                seat for seat in config["seats"] 
+                seat for seat in config["seats"]
                 if not seat.get("current_holder")
             ]
 
@@ -867,7 +868,7 @@ class Elections(commands.Cog):
 
             embed.add_field(
                 name="📝 Usage",
-                value=f"Use: `/election admin fill_vacant_seat user:{user.mention} seat_id:<SEAT_ID>`",
+                value=f"Use: `/election manage fill_vacant_seat user:{user.mention} seat_id:<SEAT_ID>`",
                 inline=False
             )
 
@@ -958,13 +959,12 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="assign",
         description="Assign a user to an election seat"
     )
     async def assign_seat(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         seat_id: str,
         user: discord.Member,
         term_start_year: int = None
@@ -1098,13 +1098,12 @@ class Elections(commands.Cog):
         view = SeatsUpView(office_groups, current_year)
         await interaction.response.send_message(embed=embed, view=view)
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="toggle_election",
         description="Toggle whether a seat is up for election"
     )
     async def toggle_seat_election(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         seat_id: str
     ):
         col, config = self._get_elections_config(interaction.guild.id)
@@ -1137,13 +1136,12 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="vacant",
         description="Mark a seat as vacant (remove current holder)"
     )
     async def vacant_seat(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         seat_id: str
     ):
         col, config = self._get_elections_config(interaction.guild.id)
@@ -1180,13 +1178,12 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="bulk_assign_election",
         description="Mark all seats of a specific type or state as up for election"
     )
     async def bulk_assign_election(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         office_type: str = None,
         state: str = None
     ):
@@ -1234,13 +1231,12 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="modify_term",
         description="Modify the term length for a specific seat type"
     )
     async def modify_seat_term(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         office_type: str,
         new_term_years: int
     ):
@@ -1301,7 +1297,7 @@ class Elections(commands.Cog):
         total_seats = len(seats)
         filled_seats = len([s for s in seats if s.get("current_holder")])
         vacant_seats = total_seats - filled_seats
-        up_for_election = len([s for s in seats if s.get("up_for_election") or 
+        up_for_election = len([s for s in seats if s.get("up_for_election") or
                               (s.get("term_end") and s["term_end"].year == current_year)])
 
         # Count by office type
@@ -1371,8 +1367,8 @@ class Elections(commands.Cog):
         description="Add a new state/region with configurable seats"
     )
     async def add_state(
-        self, 
-        interaction: discord.Interaction, 
+        self,
+        interaction: discord.Interaction,
         state_name: str,
         state_code: str,
         senate_seats: int = 3,
@@ -1471,8 +1467,7 @@ class Elections(commands.Cog):
         description="Add additional house districts to an existing state"
     )
     async def add_districts(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         state_name: str,
         additional_districts: int
     ):
@@ -1484,7 +1479,7 @@ class Elections(commands.Cog):
 
         # Find existing districts for this state
         existing_districts = [
-            seat for seat in config["seats"] 
+            seat for seat in config["seats"]
             if seat["state"] == state_name and "District" in seat["office"]
         ]
 
@@ -1548,8 +1543,7 @@ class Elections(commands.Cog):
         description="Add additional senate seats to an existing state"
     )
     async def add_senate_seats(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         state_name: str,
         additional_seats: int
     ):
@@ -1561,7 +1555,7 @@ class Elections(commands.Cog):
 
         # Find existing senate seats for this state
         existing_senate = [
-            seat for seat in config["seats"] 
+            seat for seat in config["seats"]
             if seat["state"] == state_name and seat["office"] == "Senate"
         ]
 
@@ -1619,13 +1613,12 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="remove",
         description="Remove a specific seat from the election system"
     )
     async def remove_seat(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         seat_id: str
     ):
         col, config = self._get_elections_config(interaction.guild.id)
@@ -1659,8 +1652,8 @@ class Elections(commands.Cog):
         description="Remove an entire state/region and all its seats"
     )
     async def remove_state(
-        self, 
-        interaction: discord.Interaction, 
+        self,
+        interaction: discord.Interaction,
         state_name: str,
         confirm: bool = False
     ):
@@ -1705,13 +1698,12 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_seat_group.command(
+    @election_manage_group.command(
         name="set_term_year",
         description="Set a specific term end year for a seat"
     )
     async def set_seat_term_year(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         seat_id: str,
         term_end_year: int
     ):
@@ -1748,7 +1740,7 @@ class Elections(commands.Cog):
             ephemeral=True
         )
 
-    @election_admin_group.command(
+    @election_manage_group.command(
         name="bulk_set_term_years",
         description="Bulk set term end years for multiple seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR)"
     )
@@ -1806,7 +1798,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @election_admin_group.command(
+    @election_manage_group.command(
         name="advance_all_terms",
         description="Manually advance all seat terms that were up for election"
     )
@@ -1829,7 +1821,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @election_admin_group.command(
+    @election_manage_group.command(
         name="announce_seats_up",
         description="Announce which seats are up for election this cycle (Admin only)"
     )
@@ -1952,8 +1944,7 @@ class Elections(commands.Cog):
         description="Show term end years for all seats or filter by state/office"
     )
     async def show_seat_terms(
-        self, 
-        interaction: discord.Interaction, 
+        self, interaction: discord.Interaction,
         state: str = None,
         office_type: str = None
     ):
@@ -2080,7 +2071,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @election_admin_group.command(
+    @election_manage_group.command(
         name="import_seat_term_years",
         description="Import term end years for specific seats (format: SEAT-ID:YEAR,SEAT-ID:YEAR)"
     )
@@ -2154,7 +2145,7 @@ class Elections(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @election_admin_group.command(
+    @election_manage_group.command(
         name="shift_all_term_years_negative",
         description="Shift all seat term end years by a specified number of years (subtract)"
     )
@@ -2219,7 +2210,7 @@ class Elections(commands.Cog):
             return
 
         col, config = self._get_elections_config(interaction.guild.id)
-        
+
         # Reset to initial state
         seats_in_db = []
         for seat in self.seats_data:
@@ -2329,7 +2320,7 @@ class Elections(commands.Cog):
         col, config = self._get_elections_config(interaction.guild.id)
 
         valid_settings = ["default_senate_term", "default_governor_term", "default_house_term", "default_national_term"]
-        
+
         if setting not in valid_settings:
             await interaction.response.send_message(
                 f"❌ Invalid setting. Valid options: {', '.join(valid_settings)}",
@@ -2391,7 +2382,7 @@ class Elections(commands.Cog):
                 term_end = seat.get("term_end", "").strftime("%Y-%m-%d") if seat.get("term_end") else ""
                 up_for_election = "yes" if seat.get("up_for_election") else "no"
                 lines.append(f"{seat['seat_id']},{seat['office']},{seat['state']},{seat['term_years']},{holder},{term_end},{up_for_election}")
-            
+
             export_text = "\n".join(lines)
         else:
             # JSON-like format
@@ -2402,25 +2393,25 @@ class Elections(commands.Cog):
                 if term_end != "None":
                     term_end = f"'{term_end.strftime('%Y-%m-%d')}'"
                 up_for_election = seat.get("up_for_election", False)
-                
+
                 export_lines.append(
                     f"'{seat['seat_id']}': {seat['office']}, {seat['state']}, "
                     f"{seat['term_years']}yr, Holder: {holder}, Term End: {term_end}, "
                     f"Up: {up_for_election}"
                 )
-            
+
             export_text = "\n".join(export_lines)
 
         # Split into chunks if too long
         if len(export_text) > 1900:
             chunk_size = 1900
             chunks = [export_text[i:i+chunk_size] for i in range(0, len(export_text), chunk_size)]
-            
+
             await interaction.response.send_message(
                 f"📊 Seat Export ({format_type.upper()}) - Part 1/{len(chunks)}:\n```\n{chunks[0]}\n```",
                 ephemeral=True
             )
-            
+
             for i, chunk in enumerate(chunks[1:], 2):
                 await interaction.followup.send(
                     f"📊 Part {i}/{len(chunks)}:\n```\n{chunk}\n```",
