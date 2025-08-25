@@ -1592,63 +1592,277 @@ class PresCampaignActions(commands.Cog):
                 content=f"⏰ **{candidate_name}**, your donor appeal timed out. Please use `/donor` again and reply with your appeal within 5 minutes."
             )
 
-    def _check_cooldown(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
-        """Check if user is on cooldown for a specific action"""
-        cooldowns_col = self.bot.db["general_action_cooldowns"]
-        cooldown_record = cooldowns_col.find_one({
-            "guild_id": guild_id,
-            "user_id": user_id,
-            "action_type": action_type
-        })
-
-        if not cooldown_record:
-            return True  # No cooldown record, user can proceed
-
-        last_action = cooldown_record["last_action"]
-        cooldown_end = last_action + timedelta(hours=cooldown_hours)
-
-        return datetime.utcnow() >= cooldown_end
-
-    def _set_cooldown(self, guild_id: int, user_id: int, action_type: str):
-        """Set cooldown for a specific action"""
-        cooldowns_col = self.bot.db["general_action_cooldowns"]
-        cooldowns_col.update_one(
-            {"guild_id": guild_id, "user_id": user_id, "action_type": action_type},
-            {
-                "$set": {
-                    "guild_id": guild_id,
-                    "user_id": user_id,
-                    "action_type": action_type,
-                    "last_action": datetime.utcnow()
-                }
-            },
-            upsert=True
-        )
-
-    def _get_cooldown_remaining(self, guild_id: int, user_id: int, action_type: str, cooldown_hours: int):
-        """Get remaining cooldown time"""
-        cooldowns_col = self.bot.db["general_action_cooldowns"]
-        cooldown_record = cooldowns_col.find_one({
-            "guild_id": guild_id,
-            "user_id": user_id,
-            "action_type": action_type
-        })
-
-        if not cooldown_record:
-            return None
-
-        last_action = cooldown_record["last_action"]
-        cooldown_end = last_action + timedelta(hours=cooldown_hours)
-        remaining = cooldown_end - datetime.utcnow()
-
-        if remaining.total_seconds() <= 0:
-            return None
-
-        return remaining
-
-    # State autocomplete for donor command
     @donor.autocomplete("state")
     async def state_autocomplete_donor(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state.title(), value=state)
+                for state in states if current.upper() in state][:25]
+
+    @app_commands.command(
+        name="poster",
+        description="Create a campaign poster in a U.S. state (0.25-0.5% points, 1 stamina)"
+    )
+    @app_commands.describe(
+        state="U.S. state for campaign poster",
+        target="The candidate who will receive benefits (optional)",
+        image="Upload your campaign poster image"
+    )
+    async def poster(
+        self, 
+        interaction: discord.Interaction, 
+        state: str,
+        image: discord.Attachment,
+        target: Optional[str] = None
+    ):
+        # Validate state
+        state_upper = state.upper()
+        if state_upper not in STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ Invalid state. Please choose from valid US state names.",
+                ephemeral=True
+            )
+            return
+
+        # Check if user has a registered candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered candidate to create posters. Use `/signup` to register for an election first.",
+                ephemeral=True
+            )
+            return
+
+        candidate_name = candidate["name"]
+
+        # Check cooldown (6 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "poster", 6):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "poster", 6)
+            if remaining:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                await interaction.response.send_message(
+                    f"❌ You must wait {hours}h {minutes}m before creating another poster.",
+                    ephemeral=True
+                )
+                return
+
+        # If no target specified, default to self
+        if target is None:
+            target = candidate_name
+
+        # Check if attachment is an image
+        if not image or not image.content_type or not image.content_type.startswith('image/'):
+            await interaction.response.send_message(
+                "❌ Please upload an image file (PNG, JPG, GIF, etc.).",
+                ephemeral=True
+            )
+            return
+
+        # Check file size
+        if image.size > 10 * 1024 * 1024:
+            await interaction.response.send_message(
+                "❌ Image file too large! Maximum size is 10MB.",
+                ephemeral=True
+            )
+            return
+
+        # Set cooldown after successful validation
+        self._set_cooldown(interaction.guild.id, interaction.user.id, "poster")
+
+        # Random polling boost between 0.25% and 0.5%
+        polling_boost = random.uniform(0.25, 0.5)
+
+        # Apply buff/debuff multipliers
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, candidate.get("user_id"), interaction.guild.id, "poster")
+
+        embed = discord.Embed(
+            title="🖼️ Campaign Poster",
+            description=f"**{candidate_name}** creates campaign materials for **{target}** in {state_upper}!",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Check for state ideology match (if applicable)
+        state_data = STATE_DATA.get(state_upper, {})
+        state_ideology = state_data.get("ideology", "Unknown")
+
+        embed.add_field(
+            name="📊 Campaign Impact",
+            value=f"**Target:** {target}\n"
+                  f"**State:** {state_upper}\n"
+                  f"**State Ideology:** {state_ideology}\n"
+                  f"**Boost:** +{polling_boost:.2f}%\n"
+                  f"**Stamina Cost:** -1",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📍 Distribution",
+            value=f"Posted throughout {state_upper}\nat community centers and events",
+            inline=True
+        )
+
+        embed.add_field(
+            name="⚡ Current Stamina",
+            value=f"{candidate.get('stamina', 200) - 1}/200",
+            inline=True
+        )
+
+        embed.set_image(url=image.url)
+        embed.set_footer(text="Next poster available in 6 hours")
+
+        await interaction.response.send_message(embed=embed)
+
+    @poster.autocomplete("state")
+    async def state_autocomplete_poster(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state.title(), value=state)
+                for state in states if current.upper() in state][:25]
+
+    @app_commands.command(
+        name="ad",
+        description="Create a campaign video ad in a U.S. state (0.5-1% points, 1.5 stamina)"
+    )
+    @app_commands.describe(
+        state="U.S. state for video ad",
+        target="The candidate who will receive benefits (optional)"
+    )
+    async def ad(self, interaction: discord.Interaction, state: str, target: Optional[str] = None):
+        # Validate state
+        state_upper = state.upper()
+        if state_upper not in STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ Invalid state. Please choose from valid US state names.",
+                ephemeral=True
+            )
+            return
+
+        # Check if user has a registered candidate
+        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+        if not candidate:
+            await interaction.response.send_message(
+                "❌ You must be a registered candidate to create ads. Use `/signup` to register for an election first.",
+                ephemeral=True
+            )
+            return
+
+        candidate_name = candidate["name"]
+
+        # Check cooldown (6 hours)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "ad", 6):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "ad", 6)
+            if remaining:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                await interaction.response.send_message(
+                    f"❌ You must wait {hours}h {minutes}m before creating another ad.",
+                    ephemeral=True
+                )
+                return
+
+        # If no target specified, default to self
+        if target is None:
+            target = candidate_name
+
+        # Send initial message asking for video
+        await interaction.response.send_message(
+            f"📺 **{candidate_name}**, please reply to this message with your campaign video!\n\n"
+            f"**Target:** {target}\n"
+            f"**State:** {state_upper}\n"
+            f"**Requirements:**\n"
+            f"• Video file (MP4, MOV, AVI, etc.)\n"
+            f"• Maximum size: 25MB\n"
+            f"• Reply within 5 minutes\n\n"
+            f"**Effect:** 0.5-1% polling boost, -1.5 stamina",
+            ephemeral=False
+        )
+
+        # Get the response message
+        response_message = await interaction.original_response()
+
+        def check(message):
+            return (message.author.id == interaction.user.id and 
+                    message.reference and 
+                    message.reference.message_id == response_message.id and
+                    len(message.attachments) > 0)
+
+        try:
+            # Wait for user to reply with attachment
+            reply_message = await self.bot.wait_for('message', timeout=300.0, check=check)
+
+            video = reply_message.attachments[0]
+
+            # Check if attachment is a video
+            if not video.content_type or not video.content_type.startswith('video/'):
+                await reply_message.reply("❌ Please upload a video file (MP4 format preferred).")
+                return
+
+            # Check file size
+            if video.size > 25 * 1024 * 1024:
+                await reply_message.reply("❌ Video file too large! Maximum size is 25MB.")
+                return
+
+            # Set cooldown after successful validation
+            self._set_cooldown(interaction.guild.id, interaction.user.id, "ad")
+
+            # Random polling boost between 0.5% and 1%
+            polling_boost = random.uniform(0.5, 1.0)
+
+            # Apply buff/debuff multipliers
+            polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, candidate.get("user_id"), interaction.guild.id, "ad")
+
+            embed = discord.Embed(
+                title="📺 Campaign Video Ad",
+                description=f"**{candidate_name}** creates a campaign advertisement for **{target}** in {state_upper}!",
+                color=discord.Color.purple(),
+                timestamp=datetime.utcnow()
+            )
+
+            # Check for state ideology match (if applicable)
+            state_data = STATE_DATA.get(state_upper, {})
+            state_ideology = state_data.get("ideology", "Unknown")
+
+            embed.add_field(
+                name="📊 Ad Performance",
+                value=f"**Target:** {target}\n"
+                      f"**State:** {state_upper}\n"
+                      f"**State Ideology:** {state_ideology}\n"
+                      f"**Boost:** +{polling_boost:.2f}%\n"
+                      f"**Stamina Cost:** -1.5",
+                inline=True
+            )
+
+            embed.add_field(
+                name="📱 Reach",
+                value=f"Broadcast across {state_upper}\nsocial media and local TV",
+                inline=True
+            )
+
+            embed.add_field(
+                name="⚡ Current Stamina",
+                value=f"{candidate.get('stamina', 200) - 1.5:.1f}/200",
+                inline=True
+            )
+
+            embed.set_footer(text="Next ad available in 6 hours")
+
+            await reply_message.reply(embed=embed)
+
+        except asyncio.TimeoutError:
+            await interaction.edit_original_response(
+                content=f"⏰ **{candidate_name}**, your ad creation timed out. Please use `/ad` again and reply with your video within 5 minutes."
+            )
+
+    @poster.autocomplete("state")
+    async def state_autocomplete_poster(self, interaction: discord.Interaction, current: str):
+        states = list(STATE_DATA.keys())
+        return [app_commands.Choice(name=state.title(), value=state)
+                for state in states if current.upper() in state][:25]
+
+    @ad.autocomplete("state")
+    async def state_autocomplete_ad(self, interaction: discord.Interaction, current: str):
         states = list(STATE_DATA.keys())
         return [app_commands.Choice(name=state.title(), value=state)
                 for state in states if current.upper() in state][:25]

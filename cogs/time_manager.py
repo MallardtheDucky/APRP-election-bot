@@ -27,12 +27,12 @@ class TimeManager(commands.Cog):
         if not config:
             config = {
                 "guild_id": guild_id,
-                "minutes_per_rp_day": 28,  # Default: 28 minutes = 1 RP day
+                "minutes_per_rp_day": 1,  # Default: 28 minutes = 1 RP day
                 "current_rp_date": datetime(1999, 2, 1),  # Start at signups phase
                 "current_phase": "Signups",
                 "cycle_year": 1999,
                 "last_real_update": datetime.utcnow(),
-                "last_stamina_regen": datetime(1999, 2, 1),  # Track last stamina regeneration
+                "last_stamina_regen": datetime(1999, 1, 1),  # Track last stamina regeneration
                 "voice_channel_id": None,  # Specific voice channel to update
                 "update_voice_channels": True,  # Enable voice updates by default
                 "time_paused": False,  # Whether time progression is paused
@@ -248,22 +248,22 @@ class TimeManager(commands.Cog):
                         except:
                             pass  # Ignore if can't send message
 
-                # Check if a new day has passed for stamina regeneration
+                # Check if 24 hours have passed for stamina regeneration
                 last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
-                current_date_only = current_rp_date.date()
-                last_regen_date_only = last_stamina_regen.date()
+                current_time = datetime.utcnow()
+                hours_since_last_regen = (current_time - last_stamina_regen).total_seconds() / 3600
 
-                if current_date_only > last_regen_date_only:
-                    # New day - regenerate stamina
+                if hours_since_last_regen >= 24:
+                    # 24 hours have passed - regenerate stamina
                     await self._regenerate_daily_stamina(config["guild_id"])
 
-                    # Update last regeneration date
+                    # Update last regeneration time
                     col.update_one(
                         {"guild_id": config["guild_id"]},
-                        {"$set": {"last_stamina_regen": current_rp_date}}
+                        {"$set": {"last_stamina_regen": current_time}}
                     )
 
-                    print(f"Regenerated daily stamina for guild {config['guild_id']} on {current_date_only}")
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} after {hours_since_last_regen:.1f} hours")
 
                 # Update database
                 col.update_one(
@@ -398,22 +398,22 @@ class TimeManager(commands.Cog):
                         except:
                             pass  # Ignore if can't send message
 
-                # Check if a new day has passed for stamina regeneration
+                # Check if 24 hours have passed for stamina regeneration
                 last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
-                current_date_only = current_rp_date.date()
-                last_regen_date_only = last_stamina_regen.date()
+                current_time = datetime.utcnow()
+                hours_since_last_regen = (current_time - last_stamina_regen).total_seconds() / 3600
 
-                if current_date_only > last_regen_date_only:
-                    # New day - regenerate stamina
+                if hours_since_last_regen >= 24:
+                    # 24 hours have passed - regenerate stamina
                     await self._regenerate_daily_stamina(config["guild_id"])
 
-                    # Update last regeneration date
+                    # Update last regeneration time
                     col.update_one(
                         {"guild_id": config["guild_id"]},
-                        {"$set": {"last_stamina_regen": current_rp_date}}
+                        {"$set": {"last_stamina_regen": current_time}}
                     )
 
-                    print(f"Regenerated daily stamina for guild {config['guild_id']} on {current_date_only}")
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} after {hours_since_last_regen:.1f} hours")
 
                 # Update database
                 col.update_one(
@@ -920,14 +920,12 @@ class TimeManager(commands.Cog):
     async def regenerate_stamina(self, interaction: discord.Interaction):
         await self._regenerate_daily_stamina(interaction.guild.id)
 
-        # Update last regeneration date
+        # Update last regeneration date with current real time
         col = self.bot.db["time_configs"]
-        config = self._get_time_config(interaction.guild.id)
-        current_rp_date, _ = self._calculate_current_rp_time(config)
 
         col.update_one(
             {"guild_id": interaction.guild.id},
-            {"$set": {"last_stamina_regen": current_rp_date}}
+            {"$set": {"last_stamina_regen": datetime.utcnow()}}
         )
 
         embed = discord.Embed(
