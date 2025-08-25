@@ -1268,5 +1268,228 @@ class PresidentialSignups(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(
+        name="admin_view_pres_primary_points",
+        description="View all presidential candidate points during primaries (Admin only)"
+    )
+    @app_commands.describe(
+        filter_party="Filter by party (optional)",
+        year="Year to view points for (optional - uses current year if not specified)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_pres_primary_points(
+        self,
+        interaction: discord.Interaction,
+        filter_party: str = None,
+        year: int = None
+    ):
+        """View all presidential candidate points during primaries"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
+
+        pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+        # Get candidates for target year
+        candidates = [c for c in pres_config["candidates"] if c["year"] == target_year]
+
+        if filter_party:
+            candidates = [c for c in candidates if filter_party.lower() in c["party"].lower()]
+
+        if not candidates:
+            await interaction.response.send_message(
+                f"❌ No presidential candidates found for {target_year}" + 
+                (f" with party filter '{filter_party}'" if filter_party else "") + ".",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"🔍 Admin: Presidential Primary Points ({target_year})",
+            description=f"Detailed view of all presidential candidate points" + 
+                       (f" - Filtered by: {filter_party}" if filter_party else ""),
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Separate by office
+        presidents = [c for c in candidates if c["office"] == "President"]
+        vice_presidents = [c for c in candidates if c["office"] == "Vice President"]
+
+        # Sort by points (highest first)
+        presidents.sort(key=lambda x: x.get("points", 0), reverse=True)
+        vice_presidents.sort(key=lambda x: x.get("points", 0), reverse=True)
+
+        # Display Presidential candidates
+        if presidents:
+            president_text = ""
+            for i, candidate in enumerate(presidents, 1):
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else f"User {candidate['user_id']}"
+
+                president_text += f"**{i}. {candidate['name']}** ({candidate['party']})\n"
+                president_text += f"   Points: {candidate.get('points', 0):.2f}\n"
+                president_text += f"   Stamina: {candidate.get('stamina', 200)}\n"
+                president_text += f"   Corruption: {candidate.get('corruption', 0)}\n"
+                president_text += f"   User: {user_mention}\n"
+                if candidate.get('vp_candidate'):
+                    president_text += f"   VP: {candidate['vp_candidate']}\n"
+                president_text += "\n"
+
+            # Split into chunks if too long
+            if len(president_text) > 1024:
+                chunks = [president_text[i:i+1020] for i in range(0, len(president_text), 1020)]
+                for i, chunk in enumerate(chunks):
+                    field_name = f"🇺🇸 Presidential Candidates" + (f" (Part {i+1})" if len(chunks) > 1 else "")
+                    embed.add_field(
+                        name=field_name,
+                        value=chunk,
+                        inline=False
+                    )
+            else:
+                embed.add_field(
+                    name="🇺🇸 Presidential Candidates",
+                    value=president_text,
+                    inline=False
+                )
+
+        # Display Vice Presidential candidates
+        if vice_presidents:
+            vp_text = ""
+            for i, candidate in enumerate(vice_presidents, 1):
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else f"User {candidate['user_id']}"
+
+                vp_text += f"**{i}. {candidate['name']}** ({candidate['party']})\n"
+                vp_text += f"   Points: {candidate.get('points', 0):.2f}\n"
+                vp_text += f"   Stamina: {candidate.get('stamina', 200)}\n"
+                vp_text += f"   Corruption: {candidate.get('corruption', 0)}\n"
+                vp_text += f"   User: {user_mention}\n"
+                if candidate.get('presidential_candidate'):
+                    vp_text += f"   Running with: {candidate['presidential_candidate']}\n"
+                vp_text += "\n"
+
+            if len(vp_text) > 1024:
+                chunks = [vp_text[i:i+1020] for i in range(0, len(vp_text), 1020)]
+                for i, chunk in enumerate(chunks):
+                    field_name = f"🤝 Vice Presidential Candidates" + (f" (Part {i+1})" if len(chunks) > 1 else "")
+                    embed.add_field(
+                        name=field_name,
+                        value=chunk,
+                        inline=False
+                    )
+            else:
+                embed.add_field(
+                    name="🤝 Vice Presidential Candidates",
+                    value=vp_text,
+                    inline=False
+                )
+
+        # Add summary statistics
+        total_candidates = len(candidates)
+        avg_points = sum(c.get('points', 0) for c in candidates) / total_candidates if total_candidates > 0 else 0
+        highest_points = max(c.get('points', 0) for c in candidates) if candidates else 0
+
+        embed.add_field(
+            name="📊 Statistics",
+            value=f"**Total Candidates:** {total_candidates}\n"
+                  f"**Average Points:** {avg_points:.2f}\n"
+                  f"**Highest Points:** {highest_points:.2f}\n"
+                  f"**Year:** {target_year}",
+            inline=True
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="admin_ideology_modifications_log",
+        description="View log of ideology modifications made (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_ideology_modifications_log(
+        self,
+        interaction: discord.Interaction,
+        limit: int = 10
+    ):
+        """View recent ideology modifications"""
+        if limit > 25:
+            limit = 25
+
+        ideology_col = self.bot.db["ideology_modifications"]
+
+        modifications = list(ideology_col.find(
+            {"guild_id": interaction.guild.id}
+        ).sort("timestamp", -1).limit(limit))
+
+        if not modifications:
+            await interaction.response.send_message(
+                "📝 No ideology modifications found for this server.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="📝 Ideology Modifications Log",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        for mod in modifications:
+            user = interaction.guild.get_member(mod.get("user_id"))
+            user_name = user.display_name if user else f"User {mod.get('user_id', 'Unknown')}"
+
+            timestamp = mod["timestamp"].strftime("%Y-%m-%d %H:%M")
+
+            if mod["action"] == "add_state":
+                value = f"**Added state:** {mod['state_name']}\n"
+                value += f"**Data:** {mod['data']}\n"
+                value += f"**By:** {user_name} on {timestamp}"
+            elif mod["action"] == "modify_state":
+                value = f"**Modified:** {mod['state_name']}\n"
+                value += f"**Field:** {mod['field']}\n"
+                value += f"**Changed:** {mod['old_value']} → {mod['new_value']}\n"
+                value += f"**By:** {user_name} on {timestamp}"
+            elif mod["action"] == "remove_state":
+                value = f"**Removed state:** {mod['state_name']}\n"
+                value += f"**Data:** {mod['removed_data']}\n"
+                value += f"**By:** {user_name} on {timestamp}"
+            else:
+                value = f"**Action:** {mod['action']}\n**By:** {user_name} on {timestamp}"
+
+            embed.add_field(
+                name=f"🔄 {mod['action'].replace('_', ' ').title()}",
+                value=value,
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_view_pres_primary_points.autocomplete("filter_party")
+    async def admin_primary_points_party_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for party filter in admin primary points command"""
+        # Get party choices from party management
+        try:
+            from .party_management import PartyManagement
+            party_cog = self.bot.get_cog("PartyManagement")
+            if party_cog:
+                parties_col = self.bot.db["parties_config"]
+                config = parties_col.find_one({"guild_id": interaction.guild.id})
+                if config and "parties" in config:
+                    party_names = [party["name"] for party in config["parties"]]
+                    return [app_commands.Choice(name=name, value=name) 
+                            for name in party_names if current.lower() in name.lower()][:25]
+        except:
+            pass
+
+        # Fallback to default parties if party management not available
+        default_parties = ["Democratic Party", "Republican Party", "Independent"]
+        return [app_commands.Choice(name=name, value=name) 
+                for name in default_parties if current.lower() in name.lower()][:25]
+
 async def setup(bot):
     await bot.add_cog(PresidentialSignups(bot))

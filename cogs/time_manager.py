@@ -32,6 +32,7 @@ class TimeManager(commands.Cog):
                 "current_phase": "Signups",
                 "cycle_year": 1999,
                 "last_real_update": datetime.utcnow(),
+                "last_stamina_regen": datetime(1999, 2, 1),  # Track last stamina regeneration
                 "voice_channel_id": None,  # Specific voice channel to update
                 "update_voice_channels": True,  # Enable voice updates by default
                 "time_paused": False,  # Whether time progression is paused
@@ -89,14 +90,106 @@ class TimeManager(commands.Cog):
 
     async def _reset_stamina_for_general_campaign(self, guild_id: int, year: int):
         """Resets stamina for all players in the general campaign phase."""
-        players_col = self.bot.db["players"]
-        # Assuming stamina is stored in the player document, reset it to a default value (e.g., 100)
-        # You might need to adjust the field name 'stamina' and the default value based on your schema
-        result = await players_col.update_many(
-            {"guild_id": guild_id},
-            {"$set": {"stamina": 100}} # Assuming stamina is reset to 100
+        # Reset general election candidates to 100 stamina
+        signups_col = self.bot.db["all_signups"]
+        signups_result = signups_col.update_many(
+            {"guild_id": guild_id, "candidates.year": year},
+            {"$set": {"candidates.$.stamina": 100}}
         )
-        print(f"Reset stamina for {result.modified_count} players for guild {guild_id} in year {year}.")
+
+        # Reset presidential candidates to 200 stamina
+        pres_col = self.bot.db["presidential_signups"]
+        pres_result = pres_col.update_many(
+            {"guild_id": guild_id, "candidates.year": year},
+            {"$set": {"candidates.$.stamina": 200}}
+        )
+
+        # Reset presidential winners to 200 stamina
+        winners_col = self.bot.db["presidential_winners"]
+        winners_result = winners_col.update_many(
+            {"guild_id": guild_id, "winners.year": year},
+            {"$set": {"winners.$.stamina": 200}}
+        )
+
+        print(f"Reset stamina for guild {guild_id} in year {year}: {signups_result.modified_count} general candidates, {pres_result.modified_count} presidential candidates, {winners_result.modified_count} presidential winners.")
+
+    async def _regenerate_daily_stamina(self, guild_id: int):
+        """Regenerate stamina for all candidates daily"""
+        # Regenerate stamina for general election candidates in signups (50 per day, max 100)
+        signups_col = self.bot.db["signups"]
+        signups_config = signups_col.find_one({"guild_id": guild_id})
+
+        if signups_config:
+            for i, candidate in enumerate(signups_config.get("candidates", [])):
+                current_stamina = candidate.get("stamina", 100)
+                new_stamina = min(100, current_stamina + 50)  # Add 50, cap at 100
+
+                signups_col.update_one(
+                    {"guild_id": guild_id, f"candidates.{i}.user_id": candidate["user_id"]},
+                    {"$set": {f"candidates.{i}.stamina": new_stamina}}
+                )
+
+        # Regenerate stamina for general winners (50 per day, max 100)
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": guild_id})
+
+        if winners_config:
+            for i, winner in enumerate(winners_config.get("winners", [])):
+                current_stamina = winner.get("stamina", 100)
+                new_stamina = min(100, current_stamina + 50)  # Add 50, cap at 100
+
+                winners_col.update_one(
+                    {"guild_id": guild_id, f"winners.{i}.user_id": winner["user_id"]},
+                    {"$set": {f"winners.{i}.stamina": new_stamina}}
+                )
+
+        # Regenerate stamina for presidential candidates (100 per day, max 200)
+        pres_col = self.bot.db["presidential_signups"]
+        pres_config = pres_col.find_one({"guild_id": guild_id})
+
+        if pres_config:
+            for i, candidate in enumerate(pres_config.get("candidates", [])):
+                current_stamina = candidate.get("stamina", 200)
+                new_stamina = min(200, current_stamina + 100)  # Add 100, cap at 200
+
+                pres_col.update_one(
+                    {"guild_id": guild_id, f"candidates.{i}.user_id": candidate["user_id"]},
+                    {"$set": {f"candidates.{i}.stamina": new_stamina}}
+                )
+
+        # Regenerate stamina for presidential winners (100 per day, max 200)
+        pres_winners_col = self.bot.db["presidential_winners"]
+        pres_winners_config = pres_winners_col.find_one({"guild_id": guild_id})
+
+        if pres_winners_config:
+            # Handle winners stored as dictionary (party -> candidate name)
+            winners_dict = pres_winners_config.get("winners", {})
+            if isinstance(winners_dict, dict):
+                # For dictionary format, we need to find candidates by name in presidential_signups
+                for party, winner_name in winners_dict.items():
+                    # Find the candidate in presidential signups to get their user_id
+                    if pres_config:
+                        for i, candidate in enumerate(pres_config.get("candidates", [])):
+                            if (candidate.get("name") == winner_name and 
+                                candidate.get("office") == "President"):
+                                current_stamina = candidate.get("stamina", 200)
+                                new_stamina = min(200, current_stamina + 100)
+
+                                pres_col.update_one(
+                                    {"guild_id": guild_id, f"candidates.{i}.user_id": candidate["user_id"]},
+                                    {"$set": {f"candidates.{i}.stamina": new_stamina}}
+                                )
+            else:
+                # Handle array format if exists
+                for i, winner in enumerate(winners_dict):
+                    if winner.get("office") in ["President", "Vice President"]:
+                        current_stamina = winner.get("stamina", 200)
+                        new_stamina = min(200, current_stamina + 100)
+
+                        pres_winners_col.update_one(
+                            {"guild_id": guild_id, f"winners.{i}.user_id": winner["user_id"]},
+                            {"$set": {f"winners.{i}.stamina": new_stamina}}
+                        )
 
 
     @tasks.loop(minutes=1)
@@ -154,6 +247,23 @@ class TimeManager(commands.Cog):
                             await channel.send(embed=embed)
                         except:
                             pass  # Ignore if can't send message
+
+                # Check if a new day has passed for stamina regeneration
+                last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
+                current_date_only = current_rp_date.date()
+                last_regen_date_only = last_stamina_regen.date()
+
+                if current_date_only > last_regen_date_only:
+                    # New day - regenerate stamina
+                    await self._regenerate_daily_stamina(config["guild_id"])
+
+                    # Update last regeneration date
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {"$set": {"last_stamina_regen": current_rp_date}}
+                    )
+
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} on {current_date_only}")
 
                 # Update database
                 col.update_one(
@@ -287,6 +397,23 @@ class TimeManager(commands.Cog):
                             await channel.send(embed=embed)
                         except:
                             pass  # Ignore if can't send message
+
+                # Check if a new day has passed for stamina regeneration
+                last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
+                current_date_only = current_rp_date.date()
+                last_regen_date_only = last_stamina_regen.date()
+
+                if current_date_only > last_regen_date_only:
+                    # New day - regenerate stamina
+                    await self._regenerate_daily_stamina(config["guild_id"])
+
+                    # Update last regeneration date
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {"$set": {"last_stamina_regen": current_rp_date}}
+                    )
+
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} on {current_date_only}")
 
                 # Update database
                 col.update_one(
@@ -553,10 +680,9 @@ class TimeManager(commands.Cog):
             await interaction.response.send_message("❌ Election system not initialized. Use `/election info show_seats` to initialize.", ephemeral=True)
             return
 
-        # Get regions from the elections config or extract from seats
+        # Get regions from the elections config or extract unique states/regions from election seats
         regions = elections_config.get("regions")
         if not regions:
-            # Fallback: extract unique states/regions from election seats
             regions = set()
             for seat in elections_config.get("seats", []):
                 regions.add(seat["state"])
@@ -580,7 +706,7 @@ class TimeManager(commands.Cog):
 
         details = ""
         for region in regions:
-            details += f"**{region}**: {region_counts[region]} seats\n"
+            details += f"**{region}**: {region_counts.get(region, 0)} seats\n"
 
         embed.add_field(
             name="📊 Seat Distribution",
@@ -783,6 +909,39 @@ class TimeManager(commands.Cog):
                 value="Time progression has resumed from the current moment.",
                 inline=False
             )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @time_admin_group.command(
+        name="regenerate_stamina",
+        description="Manually regenerate stamina for all candidates (Admin only)"
+    )
+    async def regenerate_stamina(self, interaction: discord.Interaction):
+        await self._regenerate_daily_stamina(interaction.guild.id)
+
+        # Update last regeneration date
+        col = self.bot.db["time_configs"]
+        config = self._get_time_config(interaction.guild.id)
+        current_rp_date, _ = self._calculate_current_rp_time(config)
+
+        col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"last_stamina_regen": current_rp_date}}
+        )
+
+        embed = discord.Embed(
+            title="⚡ Stamina Regenerated",
+            description="Manually regenerated stamina for all candidates.",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="Regeneration Amounts",
+            value="• General candidates: +50 stamina (max 100)\n• Presidential candidates: +100 stamina (max 200)",
+            inline=False
+        )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

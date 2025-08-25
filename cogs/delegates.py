@@ -143,6 +143,7 @@ class Delegates(commands.Cog):
                 "called_states": [],  # List of states that have been called
                 "delegate_totals": {},  # Candidate delegate totals
                 "enabled": True,
+                "paused": False, # Added paused state
                 "last_check": datetime.utcnow()
             }
             col.insert_one(config)
@@ -262,8 +263,10 @@ class Delegates(commands.Cog):
                         delegates_config["enabled"] = True
                         print(f"Auto-enabled delegate system for guild {guild_id} (Presidential primary year {current_year})")
 
-                # Only check during Primary Campaign phase and if enabled
-                if current_phase != "Primary Campaign" or not delegates_config.get("enabled", True):
+                # Only check during Primary Campaign phase, if enabled, and not paused
+                if (current_phase != "Primary Campaign" or 
+                    not delegates_config.get("enabled", True) or
+                    delegates_config.get("paused", False)):
                     continue
 
                 # Only process delegates during presidential election years (odd years)
@@ -634,6 +637,46 @@ class Delegates(commands.Cog):
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(
+        name="pause_delegate_system",
+        description="Pause or resume the automatic delegate checking (Admin only)"
+    )
+    async def pause_delegate_system(self, interaction: discord.Interaction):
+        """Pause or resume the automatic delegate checking system"""
+        delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
+
+        current_paused = delegates_config.get("paused", False)
+        new_paused = not current_paused
+
+        delegates_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"paused": new_paused}}
+        )
+
+        status = "paused" if new_paused else "resumed"
+        embed = discord.Embed(
+            title="⏸️ Delegate System Paused" if new_paused else "▶️ Delegate System Resumed",
+            description=f"Automatic delegate checking has been **{status}**.",
+            color=discord.Color.orange() if new_paused else discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        if new_paused:
+            embed.add_field(
+                name="⚠️ Note",
+                value="Delegate system will not call new states until resumed.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="ℹ️ Note", 
+                value="Delegate system will now check for states to call every 5 minutes.",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(
         name="set_delegate_channel",
         description="Set the channel for delegate and primary winner announcements (Admin only)"
     )
@@ -756,7 +799,8 @@ class Delegates(commands.Cog):
 
             # Remove called states for target year
             delegates_config["called_states"] = [
-                state for state in called_states if f"_{target_year}" not in state
+                state for state in called_states 
+                if f"_{target_year}" not in state
             ]
 
             # Initialize primary_winners if it doesn't exist
