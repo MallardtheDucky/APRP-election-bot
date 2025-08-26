@@ -552,25 +552,27 @@ class Demographics(commands.Cog):
             # First check presidential winners collection for general campaign
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
 
-            if winners_config:
+            if winners_config and isinstance(winners_config, dict):
                 # For general campaign, look for primary winners from the previous year if we're in an even year
                 # Or current year if odd year
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
                 for winner in winners_config.get("winners", []):
-                    if (winner["user_id"] == user_id and 
+                    if (isinstance(winner, dict) and 
+                        winner.get("user_id") == user_id and 
                         winner.get("primary_winner", False) and 
-                        winner["year"] == primary_year):
+                        winner.get("year") == primary_year):
                         return winners_col, winner
 
             # Also check signups collection for admin-created general campaign candidates
             signups_col = self.bot.db["signups"]
             signups_config = signups_col.find_one({"guild_id": guild_id})
-            
-            if signups_config:
+
+            if signups_config and isinstance(signups_config, dict):
                 for candidate in signups_config.get("candidates", []):
-                    if (candidate["user_id"] == user_id and 
-                        candidate["year"] == current_year and
+                    if (isinstance(candidate, dict) and 
+                        candidate.get("user_id") == user_id and 
+                        candidate.get("year") == current_year and
                         candidate.get("phase") == "General Campaign"):
                         return signups_col, candidate
 
@@ -588,25 +590,27 @@ class Demographics(commands.Cog):
             # First check presidential winners collection for general campaign
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
 
-            if winners_config:
+            if winners_config and isinstance(winners_config, dict):
                 # For general campaign, look for primary winners from the previous year if we're in an even year
                 # Or current year if odd year
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
                 for winner in winners_config.get("winners", []):
-                    if (winner["name"].lower() == candidate_name.lower() and 
+                    if (isinstance(winner, dict) and 
+                        winner.get("name", "").lower() == candidate_name.lower() and 
                         winner.get("primary_winner", False) and 
-                        winner["year"] == primary_year):
+                        winner.get("year") == primary_year):
                         return winners_col, winner
 
             # Also check signups collection for admin-created general campaign candidates
             signups_col = self.bot.db["signups"]
             signups_config = signups_col.find_one({"guild_id": guild_id})
-            
-            if signups_config:
+
+            if signups_config and isinstance(signups_config, dict):
                 for candidate in signups_config.get("candidates", []):
-                    if (candidate["name"].lower() == candidate_name.lower() and 
-                        candidate["year"] == current_year and
+                    if (isinstance(candidate, dict) and 
+                        candidate.get("name", "").lower() == candidate_name.lower() and 
+                        candidate.get("year") == current_year and
                         candidate.get("phase") == "General Campaign"):
                         return signups_col, candidate
 
@@ -1596,11 +1600,40 @@ class Demographics(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    async def candidate_autocomplete_reset(self, interaction: discord.Interaction, current: str):
+        winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+
+        if not winners_config:
+            return []
+
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+        candidates = []
+        for winner in winners_config.get("winners", []):
+            if (winner.get("primary_winner", False) and 
+                winner["year"] == primary_year and
+                winner["office"] in ["President", "Vice President"] and
+                current.lower() in winner["name"].lower()):
+                candidates.append(app_commands.Choice(name=winner["name"], value=winner["name"]))
+
+        return candidates[:25]
+
+    async def candidate_autocomplete_modify(self, interaction: discord.Interaction, current: str):
+        return await self.candidate_autocomplete_reset(interaction, current)
+
+    async def demographic_autocomplete_modify(self, interaction: discord.Interaction, current: str):
+        demographics = list(DEMOGRAPHIC_THRESHOLDS.keys())
+        return [app_commands.Choice(name=demo, value=demo)
+                for demo in demographics if current.lower() in demo.lower()][:25]
+
     @admin_demo_group.command(
         name="reset",
         description="Reset all demographic progress for a candidate"
     )
     @app_commands.describe(candidate_name="Name of the candidate to reset")
+    @app_commands.autocomplete(candidate_name=candidate_autocomplete_reset)
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_reset(self, interaction: discord.Interaction, candidate_name: str):
         winners_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, candidate_name)
@@ -1644,6 +1677,7 @@ class Demographics(commands.Cog):
         demographic="Demographic to modify",
         points="Points to set (use negative values to subtract)"
     )
+    @app_commands.autocomplete(candidate_name=candidate_autocomplete_modify, demographic=demographic_autocomplete_modify)
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_modify(self, interaction: discord.Interaction, candidate_name: str, demographic: str, points: float):
         if demographic not in DEMOGRAPHIC_THRESHOLDS:
@@ -1989,37 +2023,7 @@ class Demographics(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # Autocomplete for admin commands
-    @admin_demographic_reset.autocomplete("candidate_name")
-    async def candidate_autocomplete_reset(self, interaction: discord.Interaction, current: str):
-        winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
-
-        if not winners_config:
-            return []
-
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_year = time_config["current_rp_date"].year if time_config else 2024
-        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-
-        candidates = []
-        for winner in winners_config.get("winners", []):
-            if (winner.get("primary_winner", False) and 
-                winner["year"] == primary_year and
-                winner["office"] in ["President", "Vice President"] and
-                current.lower() in winner["name"].lower()):
-                candidates.append(app_commands.Choice(name=winner["name"], value=winner["name"]))
-
-        return candidates[:25]
-
-    @admin_demographic_modify.autocomplete("candidate_name")
-    async def candidate_autocomplete_modify(self, interaction: discord.Interaction, current: str):
-        return await self.candidate_autocomplete_reset(interaction, current)
-
-    @admin_demographic_modify.autocomplete("demographic")
-    async def demographic_autocomplete_modify(self, interaction: discord.Interaction, current: str):
-        demographics = list(DEMOGRAPHIC_THRESHOLDS.keys())
-        return [app_commands.Choice(name=demo, value=demo)
-                for demo in demographics if current.lower() in demo.lower()][:25]
+    
 
     @view_state_demographics.autocomplete("state_name")
     async def state_autocomplete_demographics(self, interaction: discord.Interaction, current: str):
