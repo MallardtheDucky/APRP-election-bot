@@ -866,44 +866,217 @@ class PresidentialSignups(commands.Cog):
             return
 
         current_year = time_config["current_rp_date"].year
+        current_phase = time_config.get("current_phase", "")
         target_year = year if year else current_year
 
-        pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+        # Handle different phases differently
+        if current_phase in ["General Campaign", "General Election"]:
+            # During general campaign/election, show only the nominees who won their primaries
 
-        # Get candidates for target year
-        candidates = [c for c in pres_config["candidates"] if c["year"] == target_year]
+            # Get primary winners who advanced to general election
+            winners_col = self.bot.db["presidential_winners"]
+            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
 
-        presidents = [c for c in candidates if c["office"] == "President"]
-        vps = [c for c in candidates if c["office"] == "Vice President"]
+            # Also check delegate system for primary winners
+            delegates_col = self.bot.db["delegates_config"] 
+            delegates_config = delegates_col.find_one({"guild_id": interaction.guild.id})
 
-        if not presidents and not vps:
-            await interaction.response.send_message(
-                f"❌ No presidential candidates found for {target_year}.",
-                ephemeral=True
+            # For general election, look for primary winners from the signup year
+            primary_year = target_year - 1 if target_year % 2 == 0 else target_year
+            general_candidates = []
+
+            pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+            # First, check presidential_winners collection (primary source)
+            if winners_config and winners_config.get("winners"):
+                party_winners = winners_config.get("winners", {})
+                print(f"Debug: Found presidential winners: {party_winners}")
+                
+                for party, winner_name in party_winners.items():
+                    if pres_config:
+                        for candidate in pres_config.get("candidates", []):
+                            if (candidate["name"] == winner_name and 
+                                candidate["year"] == primary_year and 
+                                candidate["office"] == "President"):
+                                general_candidates.append(candidate)
+                                print(f"Debug: Added general candidate: {candidate['name']}")
+                                break
+
+            # Fallback: get winners from delegates system
+            if not general_candidates and delegates_config and "primary_winners" in delegates_config:
+                primary_winners = delegates_config["primary_winners"]
+                for key, winner_name in primary_winners.items():
+                    if f"_{primary_year}" in key:  # Winner from the right year
+                        party = key.replace(f"_{primary_year}", "")
+                        
+                        # Find the full candidate data
+                        if pres_config:
+                            for candidate in pres_config.get("candidates", []):
+                                if (candidate["name"] == winner_name and 
+                                    candidate["year"] == primary_year and 
+                                    candidate["office"] == "President"):
+                                    general_candidates.append(candidate)
+                                    break
+
+            # Also include qualified independents from delegates system
+            if delegates_config:
+                delegate_totals = delegates_config.get("delegate_totals", {})
+                delegate_threshold = 50  # Threshold for independents to qualify
+
+                # Find independent candidates with enough delegates
+                if pres_config:
+                    for candidate in pres_config.get("candidates", []):
+                        if (candidate.get("year") == primary_year and 
+                            candidate.get("office") == "President"):
+                            
+                            candidate_party = candidate.get("party", "").lower()
+                            is_independent = not ("democrat" in candidate_party or "republican" in candidate_party)
+                            
+                            if is_independent:
+                                candidate_delegates = delegate_totals.get(candidate["name"], 0)
+                                if candidate_delegates >= delegate_threshold:
+                                    # Check if already added
+                                    if not any(gc["name"] == candidate["name"] for gc in general_candidates):
+                                        general_candidates.append(candidate)
+
+            # If no primary winners found, show all presidential candidates as a fallback
+            if not general_candidates and pres_config:
+                print(f"Debug: No primary winners found, showing all presidential candidates for year {primary_year}")
+                all_presidential_candidates = [
+                    c for c in pres_config.get("candidates", [])
+                    if c.get("year") == primary_year and c.get("office") == "President"
+                ]
+                
+                if all_presidential_candidates:
+                    # Show warning that these are all candidates, not confirmed primary winners
+                    embed = discord.Embed(
+                        title=f"⚠️ {target_year} Presidential Candidates (All Registered)",
+                        description=f"Primary winners may not have been declared yet. Showing all registered presidential candidates from {primary_year}:",
+                        color=discord.Color.orange(),
+                        timestamp=datetime.utcnow()
+                    )
+
+                    for candidate in all_presidential_candidates:
+                        vp_name = candidate.get("vp_candidate", "No VP selected")
+                        points = candidate.get("points", 0)
+
+                        # Party color
+                        party_emoji = "🔴" if "republican" in candidate["party"].lower() else "🔵" if "democrat" in candidate["party"].lower() else "🟣"
+
+                        ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
+                        ticket_info += f"**Running Mate:** {vp_name}\n"
+                        ticket_info += f"**Primary Points:** {points:.2f}\n"
+                        ticket_info += f"**Status:** {'🏆 Likely Winner' if points > 0 else 'Registered Candidate'}\n\n"
+                        ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
+                        ticket_info += f"**Economic:** {candidate['economic']}\n"
+                        ticket_info += f"**Social:** {candidate['social']}\n"
+                        ticket_info += f"**Government:** {candidate['government']}"
+
+                        embed.add_field(
+                            name=f"🇺🇸 {candidate['name']}",
+                            value=ticket_info,
+                            inline=False
+                        )
+
+                    embed.add_field(
+                        name="💡 Note",
+                        value="If these candidates should be primary winners, use `/admin_process_pres_primaries` to declare winners.",
+                        inline=False
+                    )
+
+                    await interaction.response.send_message(embed=embed)
+                    return
+
+            if not general_candidates:
+                await interaction.response.send_message(
+                    f"❌ No general election candidates found for {target_year}.\n"
+                    f"Primary winners may not have been declared yet.\n"
+                    f"Use `/admin_process_pres_primaries signup_year:{primary_year} confirm:True` to process primary winners.",
+                    ephemeral=True
+                )
+                return
+
+            embed = discord.Embed(
+                title=f"🗳️ {target_year} General Election Candidates",
+                description=f"Primary winners advancing to the general election",
+                color=discord.Color.red(),
+                timestamp=datetime.utcnow()
             )
-            return
 
-        embed = discord.Embed(
-            title=f"🇺🇸 {target_year} Presidential Race",
-            color=discord.Color.gold(),
-            timestamp=datetime.utcnow()
-        )
+            # Note: For polling percentages, we'll use a simple placeholder since 
+            # the calculation method isn't fully implemented in the provided code
+            total_candidates = len(general_candidates)
+            base_percentage = 100.0 / total_candidates if total_candidates > 0 else 0
 
-        for president in presidents:
-            vp_name = president.get("vp_candidate", "No VP selected")
+            for i, candidate in enumerate(general_candidates):
+                vp_name = candidate.get("vp_candidate", "No VP selected")
+                
+                # Simple polling calculation (you can improve this)
+                polling_percentage = base_percentage + ((-1) ** i) * (i * 2)  # Slight variation
 
-            ticket_info = f"**Party:** {president['party']}\n"
-            ticket_info += f"**Running Mate:** {vp_name}\n"
-            ticket_info += f"**Ideology:** {president['ideology']} ({president['axis']})\n"
-            ticket_info += f"**Economic:** {president['economic']}\n"
-            ticket_info += f"**Social:** {president['social']}\n"
-            ticket_info += f"**Government:** {president['government']}"
+                # Party color
+                party_emoji = "🔴" if "republican" in candidate["party"].lower() else "🔵" if "democrat" in candidate["party"].lower() else "🟣"
 
-            embed.add_field(
-                name=f"🇺🇸 {president['name']}",
-                value=ticket_info,
-                inline=False
+                ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
+                ticket_info += f"**Running Mate:** {vp_name}\n"
+                ticket_info += f"**Estimated Polling:** {polling_percentage:.1f}%\n\n"
+                ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
+                ticket_info += f"**Economic:** {candidate['economic']}\n"
+                ticket_info += f"**Social:** {candidate['social']}\n"
+                ticket_info += f"**Government:** {candidate['government']}"
+
+                # Show delegate count if available
+                if delegates_config:
+                    delegate_totals = delegates_config.get("delegate_totals", {})
+                    candidate_delegates = delegate_totals.get(candidate["name"], 0)
+                    if candidate_delegates > 0:
+                        ticket_info += f"\n**Primary Delegates:** {candidate_delegates}"
+
+                embed.add_field(
+                    name=f"🇺🇸 {candidate['name']}",
+                    value=ticket_info,
+                    inline=False
+                )
+
+        else:
+            # During primary phases, show all registered candidates
+            pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+
+            # Get candidates for target year
+            candidates = [c for c in pres_config["candidates"] if c["year"] == target_year]
+
+            presidents = [c for c in candidates if c["office"] == "President"]
+            vps = [c for c in candidates if c["office"] == "Vice President"]
+
+            if not presidents and not vps:
+                await interaction.response.send_message(
+                    f"❌ No presidential candidates found for {target_year}.",
+                    ephemeral=True
+                )
+                return
+
+            embed = discord.Embed(
+                title=f"🇺🇸 {target_year} Presidential Primary Race",
+                color=discord.Color.gold(),
+                timestamp=datetime.utcnow()
             )
+
+            for president in presidents:
+                vp_name = president.get("vp_candidate", "No VP selected")
+
+                ticket_info = f"**Party:** {president['party']}\n"
+                ticket_info += f"**Running Mate:** {vp_name}\n"
+                ticket_info += f"**Points:** {president.get('points', 0):.2f}\n"
+                ticket_info += f"**Ideology:** {president['ideology']} ({president['axis']})\n"
+                ticket_info += f"**Economic:** {president['economic']}\n"
+                ticket_info += f"**Social:** {president['social']}\n"
+                ticket_info += f"**Government:** {president['government']}"
+
+                embed.add_field(
+                    name=f"🇺🇸 {president['name']}",
+                    value=ticket_info,
+                    inline=False
+                )
 
         await interaction.response.send_message(embed=embed)
 

@@ -56,6 +56,28 @@ PRESIDENTIAL_STATE_DATA = {
     "WYOMING": {"republican": 66, "democrat": 25, "other": 9}
 }
 
+def _calculate_ideology_bonus_standalone(candidate_ideology: dict, state_ideology_data: dict) -> int:
+    """Calculate ideology bonus for a candidate in a state, standalone for testing."""
+    if not candidate_ideology or not state_ideology_data:
+        return 0
+
+    # Simplified bonus calculation: more ideological alignment = higher bonus
+    bonus = 0
+    if "conservative" in candidate_ideology and "conservative" in state_ideology_data:
+        bonus += min(candidate_ideology["conservative"], state_ideology_data["conservative"])
+    if "liberal" in candidate_ideology and "liberal" in state_ideology_data:
+        bonus += min(candidate_ideology["liberal"], state_ideology_data["liberal"])
+    if "moderate" in candidate_ideology and "moderate" in state_ideology_data:
+        bonus += min(candidate_ideology["moderate"], state_ideology_data["moderate"])
+
+    # Add a small bonus for general alignment if specific ideological matches are low
+    if bonus < 5:
+        if candidate_ideology.get("leaning") and state_ideology_data.get("leaning"):
+            if candidate_ideology["leaning"] == state_ideology_data["leaning"]:
+                bonus += 2
+
+    return bonus
+
 def get_state_percentages(state_name: str, candidate_ideologies=None) -> dict:
         """Get the Republican/Democrat/Other percentages for a specific state with ideology bonuses"""
         state_key = state_name.upper()
@@ -135,10 +157,18 @@ class PresidentialWinners(commands.Cog):
     async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
         """Handle phase changes and process presidential primary winners"""
         if old_phase == "Primary Campaign" and new_phase == "Primary Election":
-            # Transition from primary campaign to primary election in the same year
-            # Process signups from the previous year (1999) for the current election year (2000)
-            signup_year = current_year - 1  # 1999 signups for 2000 election
+            # Process presidential signups for primary elections
+            # Handle year logic consistently with regular elections
+            if current_year % 2 == 1:  # Odd year (1999)
+                signup_year = current_year
+            else:  # Even year (2000)
+                signup_year = current_year - 1
+
             await self._process_presidential_primary_winners(guild_id, signup_year)
+
+        elif old_phase == "Primary Election" and new_phase == "General Campaign":
+            # Reset presidential primary winners for general campaign
+            await self._reset_presidential_candidates_for_general_campaign(guild_id, current_year)
 
     async def _process_presidential_primary_winners(self, guild_id: int, signup_year: int):
         """Process presidential primary winners from signups to winners"""
@@ -235,6 +265,128 @@ class PresidentialWinners(commands.Cog):
                 value="Some primaries are still ongoing...",
                 inline=False
             )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="view_general_election_candidates",
+        description="View the final candidates for the general election"
+    )
+    async def view_general_election_candidates(
+        self,
+        interaction: discord.Interaction,
+        year: int = None
+    ):
+        """Show candidates in the general election"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        current_phase = time_config.get("current_phase", "")
+        target_year = year if year else current_year
+
+        if current_phase not in ["General Campaign", "General Election"]:
+            await interaction.response.send_message(
+                "❌ This command can only be used during General Campaign or General Election phases.",
+                ephemeral=True
+            )
+            return
+
+        # Get primary winners who advanced to general election
+        winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+        
+        if not winners_config:
+            await interaction.response.send_message("❌ No presidential winners data found.", ephemeral=True)
+            return
+
+        # For general election, look for primary winners from the signup year
+        primary_year = target_year - 1 if target_year % 2 == 0 else target_year
+        
+        general_candidates = []
+        
+        # Get major party nominees (top 2 from primary winners)
+        party_winners = winners_config.get("winners", {})
+        for party, winner_name in party_winners.items():
+            # Find full candidate data
+            pres_signups_col = self.bot.db["presidential_signups"]
+            pres_signups_config = pres_signups_col.find_one({"guild_id": interaction.guild.id})
+            
+            if pres_signups_config:
+                for candidate in pres_signups_config.get("candidates", []):
+                    if (candidate["name"] == winner_name and 
+                        candidate["year"] == primary_year and 
+                        candidate["office"] == "President"):
+                        general_candidates.append(candidate)
+                        break
+
+        # Also check for independents who qualified through delegates
+        delegates_col = self.bot.db["delegates_config"]
+        delegates_config = delegates_col.find_one({"guild_id": interaction.guild.id})
+        
+        if delegates_config:
+            delegate_threshold = delegates_config.get("delegate_threshold", 100)
+            
+            # Get independent candidates who reached delegate threshold
+            for candidate in delegates_config.get("candidates", []):
+                if (candidate.get("year") == primary_year and 
+                    candidate.get("party", "").lower() not in ["democrats", "democratic party", "republicans", "republican party"] and
+                    candidate.get("delegates", 0) >= delegate_threshold):
+                    
+                    # Find full candidate data
+                    if pres_signups_config:
+                        for pres_candidate in pres_signups_config.get("candidates", []):
+                            if (pres_candidate["name"] == candidate["name"] and 
+                                pres_candidate["year"] == primary_year and 
+                                pres_candidate["office"] == "President"):
+                                general_candidates.append(pres_candidate)
+                                break
+
+        if not general_candidates:
+            await interaction.response.send_message(
+                f"❌ No general election candidates found for {target_year}.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"🗳️ {target_year} General Election Candidates",
+            description=f"Final candidates advancing to the general election",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Calculate general election percentages
+        general_percentages = self._calculate_general_election_percentages(interaction.guild.id, "President")
+
+        for candidate in general_candidates:
+            vp_name = candidate.get("vp_candidate", "No VP selected")
+            polling_percentage = general_percentages.get(candidate["name"], 0.0)
+
+            # Party color
+            party_emoji = "🔴" if "republican" in candidate["party"].lower() else "🔵" if "democrat" in candidate["party"].lower() else "🟣"
+
+            ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
+            ticket_info += f"**Running Mate:** {vp_name}\n"
+            ticket_info += f"**Current Polling:** {polling_percentage:.1f}%\n\n"
+            ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
+            ticket_info += f"**Economic:** {candidate['economic']}\n"
+            ticket_info += f"**Social:** {candidate['social']}\n"
+            ticket_info += f"**Government:** {candidate['government']}"
+
+            embed.add_field(
+                name=f"🇺🇸 {candidate['name']}",
+                value=ticket_info,
+                inline=False
+            )
+
+        embed.add_field(
+            name="📊 Election Status",
+            value=f"**Phase:** {current_phase}\n**Year:** {target_year}\n**Candidates:** {len(general_candidates)}",
+            inline=False
+        )
 
         await interaction.response.send_message(embed=embed)
 
@@ -338,6 +490,29 @@ class PresidentialWinners(commands.Cog):
         except Exception as e:
             print(f"Error resetting candidate points: {e}")
             return False
+
+    def _reset_presidential_candidates_for_general_campaign(self, guild_id: int, current_year: int):
+        """Reset presidential candidates for the general campaign phase."""
+        pres_signups_col = self.bot.db["presidential_signups"]
+        pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
+
+        if not pres_signups_config:
+            return
+
+        # Filter out candidates from the previous election year and reset points
+        updated_candidates = []
+        for candidate in pres_signups_config.get("candidates", []):
+            if candidate.get("year", 0) == current_year:  # Keep candidates from the current year
+                candidate["points"] = 0
+                candidate["total_points"] = 0
+            updated_candidates.append(candidate)
+        
+        pres_signups_col.update_one(
+            {"guild_id": guild_id},
+            {"$set": {"candidates": updated_candidates}}
+        )
+
+        print(f"Reset presidential candidates for general campaign in guild {guild_id}, year {current_year}")
 
     @app_commands.command(
         name="admin_process_pres_primaries",

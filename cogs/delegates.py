@@ -413,31 +413,52 @@ class Delegates(commands.Cog):
         """Check if any candidate has reached the delegate threshold to win the primary"""
         delegate_totals = delegates_config.get("delegate_totals", {})
 
-        # Set delegate thresholds
-        delegate_threshold = 1973 if party == "Democrats" else 1217 if party == "Republican" else 0
-
-        if delegate_threshold == 0:
+        # Set delegate thresholds - these are the actual thresholds needed to win
+        if party == "Democrats":
+            delegate_threshold = 1991  # Majority of 3979 total delegates
+        elif party == "Republican":
+            delegate_threshold = 1215  # Majority of 2429 total delegates  
+        else:
             return  # No threshold for other parties
+
+        print(f"Checking primary winners for {party} {year}: threshold = {delegate_threshold}")
 
         # Find candidates for this party
         candidates = self._get_presidential_candidates(guild_id, party, year)
-        party_candidates = [c for c in candidates if c.get("party", "").lower() == party.lower()]
+        party_candidates = []
+        for c in candidates:
+            candidate_party = c.get("party", "").lower()
+            if party.lower() == "democrats" or party.lower() == "democratic":
+                party_match = "democrat" in candidate_party
+            elif party.lower() == "republicans" or party.lower() == "republican":
+                party_match = "republican" in candidate_party
+            else:
+                party_match = candidate_party == party.lower()
+            
+            if party_match:
+                party_candidates.append(c)
+
+        print(f"Found {len(party_candidates)} candidates for {party}")
 
         # Check if any candidate reached the threshold
         winner = None
         for candidate in party_candidates:
             candidate_delegates = delegate_totals.get(candidate["name"], 0)
+            print(f"  {candidate['name']}: {candidate_delegates} delegates (need {delegate_threshold})")
             if candidate_delegates >= delegate_threshold:
                 winner = candidate
+                print(f"  -> WINNER! {candidate['name']} has reached the threshold!")
                 break
 
         if winner:
-            # Mark primary as won to prevent further processing
+            # Check if already declared winner to prevent duplicate announcements
             if "primary_winners" not in delegates_config:
                 delegates_config["primary_winners"] = {}
 
-            if f"{party}_{year}" not in delegates_config["primary_winners"]:
-                delegates_config["primary_winners"][f"{party}_{year}"] = winner["name"]
+            primary_key = f"{party}_{year}"
+            if primary_key not in delegates_config["primary_winners"]:
+                print(f"Declaring new primary winner: {winner['name']} for {party} {year}")
+                delegates_config["primary_winners"][primary_key] = winner["name"]
 
                 # Update presidential_winners
                 await self._declare_primary_winner(guild, guild_id, winner, party, year)
@@ -448,6 +469,8 @@ class Delegates(commands.Cog):
                     {"guild_id": guild_id},
                     {"$set": {"primary_winners": delegates_config["primary_winners"]}}
                 )
+            else:
+                print(f"Primary winner already declared for {party} {year}: {delegates_config['primary_winners'][primary_key]}")
 
     async def _declare_primary_winner(self, guild, guild_id: int, winner: dict, party: str, year: int):
         """Declare a primary winner and update presidential_winners"""
