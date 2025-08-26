@@ -72,74 +72,123 @@ class PresCampaignActions(commands.Cog):
 
     def _get_presidential_candidate_by_name(self, guild_id: int, candidate_name: str):
         """Get presidential candidate by name"""
-        time_col, time_config = self._get_time_config(guild_id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
-        current_year = time_config["current_rp_date"].year if time_config else 2024
+        try:
+            time_col, time_config = self._get_time_config(guild_id)
+            current_phase = time_config.get("current_phase", "") if time_config else ""
+            current_year = time_config["current_rp_date"].year if time_config else 2024
 
-        if current_phase == "General Campaign":
-            # For general campaign, look in all_winners system first
-            all_winners_col = self.bot.db["winners"]
-            all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
+            if current_phase == "General Campaign":
+                # For general campaign, check presidential winners collection first
+                winners_col, winners_config = self._get_presidential_winners_config(guild_id)
+                if winners_config:
+                    winners_data = winners_config.get("winners", [])
+                    
+                    # Handle both list and dict formats for winners
+                    if isinstance(winners_data, list):
+                        # New list format
+                        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                        
+                        for winner in winners_data:
+                            if (isinstance(winner, dict) and
+                                winner.get("name", "").lower() == candidate_name.lower() and
+                                winner.get("primary_winner", False) and
+                                winner.get("year") == primary_year and
+                                winner.get("office") in ["President", "Vice President"]):
+                                return winners_col, winner
+                    
+                    elif isinstance(winners_data, dict):
+                        # Old dict format: {party: candidate_name}
+                        for party, winner_name in winners_data.items():
+                            if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
+                                # Get full candidate data from presidential signups
+                                signups_col, signups_config = self._get_presidential_config(guild_id)
+                                if signups_config:
+                                    election_year = winners_config.get("election_year", current_year)
+                                    signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+                                    
+                                    candidates_list = signups_config.get("candidates", [])
+                                    if isinstance(candidates_list, list):
+                                        for candidate in candidates_list:
+                                            if (isinstance(candidate, dict) and
+                                                candidate.get("name", "").lower() == candidate_name.lower() and
+                                                candidate.get("year") == signup_year and
+                                                candidate.get("office") in ["President", "Vice President"]):
+                                                # Create a copy and add general campaign specific fields
+                                                general_candidate = candidate.copy()
+                                                general_candidate["primary_winner"] = True
+                                                general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                                general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                                return signups_col, general_candidate
+                                
+                                # If not found in signups, create a basic candidate object
+                                basic_candidate = {
+                                    "name": winner_name,
+                                    "user_id": 0,  # Will need to be populated
+                                    "party": party,
+                                    "office": "President",
+                                    "year": signup_year if 'signup_year' in locals() else current_year,
+                                    "stamina": 200,
+                                    "corruption": 0,
+                                    "total_points": 0.0,
+                                    "state_points": {},
+                                    "primary_winner": True
+                                }
+                                return winners_col, basic_candidate
 
-            if all_winners_config:
-                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                # Fallback to all_winners system
+                all_winners_col = self.bot.db["winners"]
+                all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
 
-                for winner in all_winners_config.get("winners", []):
-                    if (winner.get("candidate", "").lower() == candidate_name.lower() and 
-                        winner.get("primary_winner", False) and
-                        winner.get("year") == primary_year and
-                        winner.get("office") in ["President", "Vice President"]):
-                        # Convert all_winners format to expected format
-                        candidate_dict = {
-                            "name": winner.get("candidate"),
-                            "user_id": winner.get("user_id"),
-                            "party": winner.get("party"),
-                            "office": winner.get("office"),
-                            "year": winner.get("year"),
-                            "stamina": winner.get("stamina", 200),
-                            "corruption": winner.get("corruption", 0),
-                            "total_points": winner.get("points", 0.0),
-                            "state_points": winner.get("state_points", {}),
-                            "primary_winner": True
-                        }
-                        return all_winners_col, candidate_dict
+                if all_winners_config:
+                    primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                    winners_list = all_winners_config.get("winners", [])
+                    
+                    if isinstance(winners_list, list):
+                        for winner in winners_list:
+                            if (isinstance(winner, dict) and
+                                winner.get("candidate", "").lower() == candidate_name.lower() and 
+                                winner.get("primary_winner", False) and
+                                winner.get("year") == primary_year and
+                                winner.get("office") in ["President", "Vice President"]):
+                                # Convert all_winners format to expected format
+                                candidate_dict = {
+                                    "name": winner.get("candidate"),
+                                    "user_id": winner.get("user_id"),
+                                    "party": winner.get("party"),
+                                    "office": winner.get("office"),
+                                    "year": winner.get("year"),
+                                    "stamina": winner.get("stamina", 200),
+                                    "corruption": winner.get("corruption", 0),
+                                    "total_points": winner.get("points", 0.0),
+                                    "state_points": winner.get("state_points", {}),
+                                    "primary_winner": True
+                                }
+                                return all_winners_col, candidate_dict
 
-            # Fallback to presidential winners collection
-            winners_col, winners_config = self._get_presidential_winners_config(guild_id)
-            if winners_config:
-                # Check if candidate name is in the winners dictionary
-                party_winners = winners_config.get("winners", {})
-                for party, winner_name in party_winners.items():
-                    if winner_name.lower() == candidate_name.lower():
-                        # Need to get full candidate data from presidential signups
-                        signups_col, signups_config = self._get_presidential_config(guild_id)
-                        if signups_config:
-                            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-                            for candidate in signups_config.get("candidates", []):
-                                if (candidate["name"].lower() == candidate_name.lower() and
-                                    candidate["year"] == primary_year and
-                                    candidate["office"] in ["President", "Vice President"]):
-                                    # Add primary winner flag
-                                    candidate["primary_winner"] = True
-                                    candidate["total_points"] = candidate.get("points", 0.0)
-                                    candidate["state_points"] = candidate.get("state_points", {})
-                                    return signups_col, candidate
-
-            return None, None
-        else:
-            # Look in presidential signups collection for primary campaign
-            signups_col, signups_config = self._get_presidential_config(guild_id)
-
-            if not signups_config:
                 return None, None
+            else:
+                # Look in presidential signups collection for primary campaign
+                signups_col, signups_config = self._get_presidential_config(guild_id)
 
-            for candidate in signups_config.get("candidates", []):
-                if (candidate["name"].lower() == candidate_name.lower() and 
-                    candidate["year"] == current_year and
-                    candidate["office"] in ["President", "Vice President"]):
-                    return signups_col, candidate
+                if not signups_config:
+                    return None, None
 
-            return signups_col, None
+                candidates_list = signups_config.get("candidates", [])
+                if isinstance(candidates_list, list):
+                    for candidate in candidates_list:
+                        if (isinstance(candidate, dict) and
+                            candidate.get("name", "").lower() == candidate_name.lower() and 
+                            candidate.get("year") == current_year and
+                            candidate.get("office") in ["President", "Vice President"]):
+                            return signups_col, candidate
+
+                return signups_col, None
+                
+        except Exception as e:
+            print(f"Error in _get_presidential_candidate_by_name: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
 
     def _update_presidential_candidate_stats(self, collection, guild_id: int, user_id: int, 
                                            state_name: str, polling_boost: float = 0, 
@@ -527,7 +576,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target_name)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target_name}' not found.",
                 ephemeral=True
@@ -536,7 +585,7 @@ class PresCampaignActions(commands.Cog):
 
         # Estimate stamina cost
         estimated_stamina = 2.25
-        if target_candidate["stamina"] < estimated_stamina:
+        if target_candidate.get("stamina", 200) < estimated_stamina:
             await interaction.response.send_message(
                 f"❌ {target_candidate['name']} doesn't have enough stamina for a speech! They need at least {estimated_stamina} stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
@@ -576,7 +625,8 @@ class PresCampaignActions(commands.Cog):
         current_phase = time_config.get("current_phase", "") if time_config else ""
 
         if current_phase == "General Campaign":
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+            target_office = target_candidate.get("office", "President")
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
             updated_percentage = general_percentages.get(target_name, 50.0)
 
             embed.add_field(
@@ -619,8 +669,15 @@ class PresCampaignActions(commands.Cog):
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target_name)
 
+        if not target_candidate or not isinstance(target_candidate, dict):
+            await interaction.response.send_message(
+                f"❌ Target presidential candidate '{target_name}' not found.",
+                ephemeral=True
+            )
+            return
+
         # Update target candidate stats
-        self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+        self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate.get("user_id"), 
                                                  state_name, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5)
 
         embed = discord.Embed(
@@ -646,7 +703,8 @@ class PresCampaignActions(commands.Cog):
         current_phase = time_config.get("current_phase", "") if time_config else ""
 
         if current_phase == "General Campaign":
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+            target_office = target_candidate.get("office", "President")
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
             updated_percentage = general_percentages.get(target_name, 50.0)
 
             embed.add_field(
@@ -721,7 +779,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target}' not found.",
                 ephemeral=True
@@ -738,7 +796,7 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate["stamina"] < 1:
+        if target_candidate.get("stamina", 200) < 1:
             await interaction.response.send_message(
                 f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1 stamina for canvassing.",
                 ephemeral=True
@@ -770,7 +828,8 @@ class PresCampaignActions(commands.Cog):
         current_phase = time_config.get("current_phase", "") if time_config else ""
 
         if current_phase == "General Campaign":
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+            target_office = target_candidate.get("office", "President")
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
             updated_percentage = general_percentages.get(target, 50.0)
 
             embed.add_field(
@@ -838,7 +897,7 @@ class PresCampaignActions(commands.Cog):
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target}' not found.",
                 ephemeral=True
@@ -857,7 +916,7 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate["stamina"] < 1.5:
+        if target_candidate.get("stamina", 200) < 1.5:
             await interaction.response.send_message(
                 f"❌ {target_candidate['name']} doesn't have enough stamina for a donor appeal! They need at least 1.5 stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
@@ -909,7 +968,7 @@ class PresCampaignActions(commands.Cog):
             polling_boost = min(polling_boost, 3.0)
 
             # Update target candidate stats
-            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate.get("user_id"), 
                                                      state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5)
 
             embed = discord.Embed(
@@ -935,7 +994,8 @@ class PresCampaignActions(commands.Cog):
             current_phase = time_config.get("current_phase", "") if time_config else ""
 
             if current_phase == "General Campaign":
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+                target_office = target_candidate.get("office", "President")
+                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
                 updated_percentage = general_percentages.get(target, 50.0)
 
                 embed.add_field(
@@ -1008,7 +1068,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target}' not found.",
                 ephemeral=True
@@ -1016,7 +1076,7 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate["stamina"] < 1.5:
+        if target_candidate.get("stamina", 200) < 1.5:
             await interaction.response.send_message(
                 f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1.5 stamina to create an ad.",
                 ephemeral=True
@@ -1094,7 +1154,8 @@ class PresCampaignActions(commands.Cog):
             current_phase = time_config.get("current_phase", "") if time_config else ""
 
             if current_phase == "General Campaign":
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+                target_office = target_candidate.get("office", "President")
+                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
                 updated_percentage = general_percentages.get(target, 50.0)
 
                 embed.add_field(
@@ -1190,7 +1251,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get target candidate
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target}' not found.",
                 ephemeral=True
@@ -1198,16 +1259,16 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Ensure target candidate is properly structured
-        if not isinstance(target_candidate, dict):
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
-                f"❌ Error retrieving target candidate data. Expected candidate object but got: {type(target_candidate).__name__}. Please contact an administrator.",
+                f"❌ Error retrieving target candidate data. Please contact an administrator.",
                 ephemeral=True
             )
             return
 
         # Validate required fields exist and handle missing fields gracefully
         required_fields = ["name", "user_id"]
-        missing_fields = [field for field in required_fields if field not in target_candidate]
+        missing_fields = [field for field in required_fields if not target_candidate.get(field)]
         if missing_fields:
             await interaction.response.send_message(
                 f"❌ Target candidate data is incomplete. Missing fields: {', '.join(missing_fields)}. Please contact an administrator.",
@@ -1263,6 +1324,14 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
+        # Ensure target_signups_col is valid
+        if not target_signups_col:
+            await interaction.response.send_message(
+                "❌ Error: Unable to update candidate stats. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_user_id, 
                                                  state_upper, polling_boost=polling_boost, stamina_cost=1)
 
@@ -1281,7 +1350,8 @@ class PresCampaignActions(commands.Cog):
         current_phase = time_config.get("current_phase", "") if time_config else ""
 
         if current_phase == "General Campaign":
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+            target_office = target_candidate.get("office", "President")
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
             updated_percentage = general_percentages.get(target, 50.0)
 
             embed.add_field(
@@ -1367,7 +1437,7 @@ class PresCampaignActions(commands.Cog):
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target}' not found.",
                 ephemeral=True
@@ -1386,7 +1456,7 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate["stamina"] < 2.25:
+        if target_candidate.get("stamina", 200) < 2.25:
             await interaction.response.send_message(
                 f"❌ {target_candidate['name']} doesn't have enough stamina for a speech! They need at least 2.25 stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
@@ -1460,7 +1530,8 @@ class PresCampaignActions(commands.Cog):
             current_phase = time_config.get("current_phase", "") if time_config else ""
 
             if current_phase == "General Campaign":
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
+                target_office = target_candidate.get("office", "President")
+                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
                 updated_percentage = general_percentages.get(target, 50.0)
 
                 embed.add_field(
@@ -1544,89 +1615,138 @@ class PresCampaignActions(commands.Cog):
     async def _get_presidential_candidate_choices(self, interaction: discord.Interaction, current: str):
         """Get presidential candidate choices for autocomplete"""
         try:
+            # Get time config for current year/phase context
             time_col, time_config = self._get_time_config(interaction.guild.id)
+            
             if not time_config:
-                # Fallback: try to get candidates from current year (2024 default)
-                signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
-                if signups_config:
-                    candidate_names = [
-                        c["name"] for c in signups_config.get("candidates", [])
-                        if c["office"] in ["President", "Vice President"]
-                    ]
-                    return [app_commands.Choice(name=name, value=name)
-                            for name in candidate_names if current.lower() in name.lower()][:25]
+                print("No time config found")
                 return []
 
             current_year = time_config["current_rp_date"].year
             current_phase = time_config.get("current_phase", "")
             candidate_names = []
 
+            print(f"Debug: Current phase: {current_phase}, Current year: {current_year}")
+
             if current_phase == "General Campaign":
-                # Calculate primary year correctly
-                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                # For general campaign, only show primary winners who advanced to general election
+                print(f"General Campaign phase detected, showing only primary winners")
                 
-                # First try all_winners system
-                all_winners_col = self.bot.db["winners"]
-                all_winners_config = all_winners_col.find_one({"guild_id": interaction.guild.id})
-                if all_winners_config:
-                    candidate_names = [
-                        w["candidate"] for w in all_winners_config.get("winners", [])
-                        if (w.get("primary_winner", False) and 
-                            w.get("year") == primary_year and 
-                            w.get("office") in ["President", "Vice President"])
-                    ]
+                # First, try to get from presidential winners collection
+                winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+                
+                print(f"Debug: winners_config type: {type(winners_config)}")
+                print(f"Debug: winners_config content: {winners_config}")
+                
+                if winners_config and winners_config.get("winners"):
+                    party_winners = winners_config.get("winners", {})
+                    print(f"Debug: party_winners type: {type(party_winners)}")
+                    print(f"Debug: party_winners content: {party_winners}")
+                    
+                    if isinstance(party_winners, dict):
+                        for party, winner_name in party_winners.items():
+                            print(f"Debug: Processing party: {party}, winner_name type: {type(winner_name)}, value: {winner_name}")
+                            if winner_name and isinstance(winner_name, str):
+                                candidate_names.append(winner_name)
+                                print(f"Added general campaign candidate from presidential_winners: {winner_name}")
+                    else:
+                        print(f"Error: party_winners is not a dict, it's {type(party_winners)}: {party_winners}")
 
-                # If no candidates from all_winners, check presidential winners collection
+                # If no winners from presidential_winners, check all_winners system as fallback
                 if not candidate_names:
-                    winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
-                    if winners_config and winners_config.get("winners"):
-                        signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
-                        if signups_config:
-                            party_winners = winners_config.get("winners", {})
-                            # Get all candidates from that primary year
-                            for candidate in signups_config.get("candidates", []):
-                                if (candidate["year"] == primary_year and 
-                                    candidate["office"] in ["President", "Vice President"] and
-                                    candidate["name"] in party_winners.values()):
-                                    candidate_names.append(candidate["name"])
+                    all_winners_col = self.bot.db["winners"]
+                    all_winners_config = all_winners_col.find_one({"guild_id": interaction.guild.id})
 
-                # If still no candidates, get all from primary year as fallback
-                if not candidate_names:
-                    signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
-                    if signups_config:
-                        candidate_names = [
-                            c["name"] for c in signups_config.get("candidates", [])
-                            if c["year"] == primary_year and c["office"] in ["President", "Vice President"]
-                        ]
+                    print(f"Debug: all_winners_config type: {type(all_winners_config)}")
+                    
+                    if all_winners_config:
+                        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                        print(f"Debug: primary_year calculated as: {primary_year}")
+                        
+                        winners_list = all_winners_config.get("winners", [])
+                        print(f"Debug: winners_list type: {type(winners_list)}, length: {len(winners_list) if isinstance(winners_list, list) else 'N/A'}")
+                        
+                        if isinstance(winners_list, list):
+                            for i, winner in enumerate(winners_list):
+                                print(f"Debug: Processing winner {i}: type: {type(winner)}, content: {winner}")
+                                
+                                # Ensure winner is a dictionary before accessing dict methods
+                                if isinstance(winner, dict):
+                                    office = winner.get("office")
+                                    primary_winner = winner.get("primary_winner", False)
+                                    year = winner.get("year")
+                                    candidate_name = winner.get("candidate")
+                                    
+                                    print(f"Debug: office: {office}, primary_winner: {primary_winner}, year: {year}, candidate: {candidate_name}")
+                                    
+                                    if (office in ["President", "Vice President"] and 
+                                        primary_winner and
+                                        year == primary_year and
+                                        candidate_name):
+                                        candidate_names.append(candidate_name)
+                                        print(f"Added general campaign candidate from all_winners: {candidate_name}")
+                                else:
+                                    print(f"Error: winner is not a dict, it's {type(winner)}: {winner}")
+                        else:
+                            print(f"Error: winners_list is not a list, it's {type(winners_list)}: {winners_list}")
+
             else:
-                # For Primary Campaign or other phases, get from presidential signups
+                # For primary campaign or other phases, show all registered candidates
+                print(f"Primary/Other phase detected ({current_phase}), showing all registered candidates")
+                
                 signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                
+                print(f"Debug: signups_config type: {type(signups_config)}")
+                
                 if signups_config:
-                    candidate_names = [
-                        c["name"] for c in signups_config.get("candidates", [])
-                        if c["year"] == current_year and c["office"] in ["President", "Vice President"]
-                    ]
+                    target_year = current_year
+                    
+                    candidates_list = signups_config.get("candidates", [])
+                    print(f"Debug: candidates_list type: {type(candidates_list)}, length: {len(candidates_list) if isinstance(candidates_list, list) else 'N/A'}")
+                    
+                    if isinstance(candidates_list, list):
+                        for i, candidate in enumerate(candidates_list):
+                            print(f"Debug: Processing candidate {i}: type: {type(candidate)}, content: {candidate}")
+                            
+                            try:
+                                # Ensure candidate is a dictionary before accessing dict methods
+                                if isinstance(candidate, dict):
+                                    year = candidate.get("year")
+                                    office = candidate.get("office")
+                                    name = candidate.get("name")
+                                    
+                                    print(f"Debug: year: {year}, office: {office}, name: {name}")
+                                    
+                                    if (year == target_year and 
+                                        office in ["President", "Vice President"] and
+                                        name):
+                                        candidate_names.append(name)
+                                        print(f"Added primary campaign candidate: {name}")
+                                else:
+                                    print(f"Error: candidate is not a dict, it's {type(candidate)}: {candidate}")
+                            except (KeyError, TypeError, AttributeError) as e:
+                                print(f"Error processing candidate: {candidate}, error: {e}")
+                                continue
+                    else:
+                        print(f"Error: candidates_list is not a list, it's {type(candidates_list)}: {candidates_list}")
 
             # Remove duplicates and filter by current input
             candidate_names = list(set(candidate_names))
-            return [app_commands.Choice(name=name, value=name)
-                    for name in candidate_names if current.lower() in name.lower()][:25]
+            
+            # Filter by what the user has typed
+            if current:
+                filtered_names = [name for name in candidate_names if current.lower() in name.lower()]
+            else:
+                filtered_names = candidate_names
+
+            print(f"Final result - Phase: {current_phase}, Found {len(filtered_names)} candidates for autocomplete: {filtered_names[:5]}")
+            
+            return [app_commands.Choice(name=name, value=name) for name in filtered_names[:25]]
                     
         except Exception as e:
             print(f"Error in _get_presidential_candidate_choices: {e}")
-            # Fallback: get all presidential candidates regardless of year/phase
-            try:
-                signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
-                if signups_config:
-                    candidate_names = [
-                        c["name"] for c in signups_config.get("candidates", [])
-                        if c["office"] in ["President", "Vice President"]
-                    ]
-                    candidate_names = list(set(candidate_names))  # Remove duplicates
-                    return [app_commands.Choice(name=name, value=name)
-                            for name in candidate_names if current.lower() in name.lower()][:25]
-            except:
-                pass
+            import traceback
+            traceback.print_exc()
             return []
 
     @app_commands.command(
@@ -1976,7 +2096,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get the presidential candidate
         signups_col, candidate = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
-        if not candidate:
+        if not candidate or not isinstance(candidate, dict):
             await interaction.response.send_message(
                 f"❌ Presidential candidate '{candidate_name}' not found.",
                 ephemeral=True
@@ -2264,7 +2384,7 @@ class PresCampaignActions(commands.Cog):
     ):
         # Get target candidate
         target_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Presidential candidate '{candidate_name}' not found.",
                 ephemeral=True
@@ -2335,12 +2455,13 @@ class PresCampaignActions(commands.Cog):
             )
 
             # Get updated points
-            updated_candidate = target_col.find_one({"guild_id": interaction.guild.id})
+            updated_candidate_data = target_col.find_one({"guild_id": interaction.guild.id})
             updated_points = 0
-            for candidate in updated_candidate.get("candidates", []):
-                if candidate["user_id"] == target_candidate["user_id"]:
-                    updated_points = candidate.get("points", 0)
-                    break
+            if updated_candidate_data and "candidates" in updated_candidate_data:
+                for candidate_data in updated_candidate_data.get("candidates", []):
+                    if candidate_data.get("user_id") == target_candidate["user_id"]:
+                        updated_points = candidate_data.get("points", 0)
+                        break
 
             embed = discord.Embed(
                 title="⚙️ Presidential Points Added (Primary Campaign)",
