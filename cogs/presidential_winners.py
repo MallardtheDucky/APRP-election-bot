@@ -125,7 +125,67 @@ class PresidentialWinners(commands.Cog):
             col.insert_one(config)
         return col, config
 
-    
+    def _get_time_config(self, guild_id: int):
+        """Get time configuration for a guild"""
+        col = self.bot.db["time_configs"]
+        config = col.find_one({"guild_id": guild_id})
+        return col, config
+
+    @commands.Cog.listener()
+    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
+        """Handle phase changes and process presidential primary winners"""
+        if old_phase == "Primary Campaign" and new_phase == "Primary Election":
+            # Transition from primary campaign to primary election in the same year
+            # Process signups from the previous year (1999) for the current election year (2000)
+            signup_year = current_year - 1  # 1999 signups for 2000 election
+            await self._process_presidential_primary_winners(guild_id, signup_year)
+
+    async def _process_presidential_primary_winners(self, guild_id: int, signup_year: int):
+        """Process presidential primary winners from signups to winners"""
+        # Get presidential signups
+        pres_signups_col = self.bot.db["presidential_signups"]
+        pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
+
+        if not pres_signups_config:
+            return
+
+        # Get candidates from signup year
+        candidates = [c for c in pres_signups_config.get("candidates", []) if c["year"] == signup_year]
+
+        if not candidates:
+            return
+
+        # Get or create presidential winners config
+        pres_winners_col, pres_winners_config = self._get_presidential_winners_config(guild_id)
+
+        # Group candidates by party for primary winners
+        party_candidates = {}
+        for candidate in candidates:
+            party = candidate["party"]
+            if party not in party_candidates:
+                party_candidates[party] = []
+            party_candidates[party].append(candidate)
+
+        # Determine winner for each party (highest points)
+        winners = {}
+        for party, party_cands in party_candidates.items():
+            if len(party_cands) == 1:
+                winner = party_cands[0]
+            else:
+                winner = max(party_cands, key=lambda x: x.get("points", 0))
+            winners[party] = winner["name"]
+
+        # Update presidential winners with election year (signup_year + 1)
+        election_year = signup_year + 1
+        pres_winners_config["winners"] = winners
+        pres_winners_config["election_year"] = election_year
+
+        pres_winners_col.update_one(
+            {"guild_id": guild_id},
+            {"$set": {"winners": winners, "election_year": election_year}}
+        )
+
+        print(f"Processed {len(winners)} presidential primary winners for guild {guild_id}, election year {election_year}")
 
     @app_commands.command(
         name="show_primary_winners",
@@ -138,29 +198,29 @@ class PresidentialWinners(commands.Cog):
     ):
         """Show the current primary winners"""
         winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
-        
+
         winners = winners_config.get("winners", {})
-        
+
         if not winners:
             await interaction.response.send_message(
                 "📊 No primary winners declared yet.",
                 ephemeral=True
             )
             return
-            
+
         embed = discord.Embed(
             title="🏆 Presidential Primary Winners",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
-        
+
         # Show winners by party
         party_colors = {
             "Democrats": "🔵",
             "Republican": "🔴", 
             "Others": "🟣"
         }
-        
+
         for party, winner_name in winners.items():
             emoji = party_colors.get(party, "⚪")
             embed.add_field(
@@ -168,19 +228,16 @@ class PresidentialWinners(commands.Cog):
                 value=f"**{winner_name}**",
                 inline=True
             )
-            
+
         if len(winners) < 3:
             embed.add_field(
                 name="📋 Status",
                 value="Some primaries are still ongoing...",
                 inline=False
             )
-            
+
         await interaction.response.send_message(embed=embed)
 
-    
-
-    
 
     def _get_presidential_candidates(self, guild_id: int, party: str, year: int):
         """Get presidential candidates for a specific party and year"""
@@ -281,6 +338,92 @@ class PresidentialWinners(commands.Cog):
         except Exception as e:
             print(f"Error resetting candidate points: {e}")
             return False
+
+    @app_commands.command(
+        name="admin_process_pres_primaries",
+        description="Manually process presidential primary winners (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_process_pres_primaries(
+        self,
+        interaction: discord.Interaction,
+        signup_year: int = None,
+        confirm: bool = False
+    ):
+        """Manually process presidential primary winners from signups"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        # If signup_year is not provided, determine it based on the current year.
+        # If current_year is even (e.g., 2000), signups were in the previous odd year (1999).
+        # If current_year is odd (e.g., 2001), signups were in the previous even year (2000).
+        # This assumes elections happen every two years, and signups precede the election year.
+        target_signup_year = signup_year if signup_year else current_year - 1
+
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will process presidential signups from {target_signup_year} and declare primary winners for {current_year}.\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        await self._process_presidential_primary_winners(interaction.guild.id, target_signup_year)
+
+        await interaction.response.send_message(
+            f"✅ Successfully processed presidential primary winners from {target_signup_year} signups!",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_transition_pres_candidates",
+        description="Manually transition presidential candidates between years (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_transition_pres_candidates(
+        self,
+        interaction: discord.Interaction,
+        from_year: int,
+        to_year: int,
+        confirm: bool = False
+    ):
+        """Manually transition presidential candidates between years"""
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will transition presidential candidates from {from_year} to {to_year}.\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Get presidential signups from from_year
+        pres_signups_col = self.bot.db["presidential_signups"]
+        pres_signups_config = pres_signups_col.find_one({"guild_id": interaction.guild.id})
+
+        if not pres_signups_config:
+            await interaction.response.send_message("❌ No presidential signups found.", ephemeral=True)
+            return
+
+        candidates = [c for c in pres_signups_config.get("candidates", []) if c["year"] == from_year]
+
+        if not candidates:
+            await interaction.response.send_message(
+                f"❌ No presidential candidates found for {from_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Process them as primary winners for to_year
+        await self._process_presidential_primary_winners(interaction.guild.id, from_year)
+
+        await interaction.response.send_message(
+            f"✅ Successfully transitioned {len(candidates)} presidential candidates from {from_year} to {to_year}!",
+            ephemeral=True
+        )
 
 
 async def setup(bot):

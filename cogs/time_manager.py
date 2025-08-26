@@ -229,6 +229,26 @@ class TimeManager(commands.Cog):
                             current_rp_date.year
                         )
 
+                    # Dispatch event to all_winners cog for automatic handling
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to presidential_winners cog for automatic handling
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
                     # Find a general channel to announce phase change
                     channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
                     if channel:
@@ -299,6 +319,26 @@ class TimeManager(commands.Cog):
                     elections_cog = self.bot.get_cog("Elections")
                     if elections_cog:
                         await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to all_winners cog for new cycle automation
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to presidential_winners cog for new cycle automation
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
                             config["guild_id"], 
                             "General Election", 
                             "Signups", 
@@ -386,6 +426,26 @@ class TimeManager(commands.Cog):
                             current_rp_date.year
                         )
 
+                    # Dispatch event to all_winners cog for automatic handling
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to presidential_winners cog for automatic handling
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
                     # Find a general channel to announce phase change
                     channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
                     if channel:
@@ -456,6 +516,26 @@ class TimeManager(commands.Cog):
                     elections_cog = self.bot.get_cog("Elections")
                     if elections_cog:
                         await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to all_winners cog for new cycle automation
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to presidential_winners cog for new cycle automation
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
                             config["guild_id"], 
                             "General Election", 
                             "Signups", 

@@ -40,11 +40,14 @@ class AllWinners(commands.Cog):
         return col, config
 
     @commands.Cog.listener()
-    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: int, current_year: int):
+    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
         """Handle phase changes and process primary winners"""
-        if old_phase == "Primary Election" and new_phase == "General Campaign":
-            await self._process_primary_winners(guild_id, current_year)
-
+        if old_phase == "Primary Campaign" and new_phase == "Primary Election":
+            # Transition from primary campaign (1999) to primary election (2000)
+            await self._process_primary_winners(guild_id, current_year - 1, current_year)  # Process 1999 signups for 2000 elections
+        elif old_phase == "Primary Election" and new_phase == "General Campaign":
+            # Ensure primary winners are ready for general campaign
+            await self._ensure_general_campaign_candidates(guild_id, current_year)
 
     def _calculate_ideology_points(self, winner, state_data, region_medians, state_to_seat):
         """Calculate ideology-based baseline percentage for a candidate based on their seat and party"""
@@ -269,16 +272,19 @@ class AllWinners(commands.Cog):
             # For 5+ parties, split evenly
             return 100.0 / num_parties
 
-    async def _process_primary_winners(self, guild_id: int, current_year: int):
-        """Process primary election results and determine winners"""
+    async def _process_primary_winners(self, guild_id: int, signup_year: int, election_year: int = None):
+        """Process primary winners from signups"""
+        if election_year is None:
+            election_year = signup_year + 1
+
         signups_col, signups_config = self._get_signups_config(guild_id)
         winners_col, winners_config = self._get_winners_config(guild_id)
 
         if not signups_config:
             return
 
-        # Get all candidates for current year
-        candidates = [c for c in signups_config.get("candidates", []) if c["year"] == current_year]
+        # Get all candidates for the signup year (previous year for even election years)
+        candidates = [c for c in signups_config.get("candidates", []) if c["year"] == signup_year]
 
         # Group candidates by seat and party
         seat_party_groups = {}
@@ -317,7 +323,7 @@ class AllWinners(commands.Cog):
 
             # Create winner entry
             winner_entry = {
-                "year": current_year,
+                "year": election_year,  # Use election year, not signup year
                 "user_id": winner["user_id"],
                 "office": winner["office"],
                 "state": winner.get("region", "Unknown State"), # Use 'region' from signup if available
@@ -352,7 +358,7 @@ class AllWinners(commands.Cog):
         # Send announcement
         guild = self.bot.get_guild(guild_id)
         if guild:
-            await self._announce_primary_results(guild, primary_winners, current_year)
+            await self._announce_primary_results(guild, primary_winners, election_year)
 
     async def _announce_primary_results(self, guild: discord.Guild, winners: List[dict], year: int):
         """Announce primary election results"""
@@ -409,6 +415,38 @@ class AllWinners(commands.Cog):
         except Exception as e:
             print(f"Error sending primary results announcement: {e}")
 
+    async def _ensure_general_campaign_candidates(self, guild_id: int, current_year: int):
+        """Ensure primary winners are properly transitioned to general campaign"""
+        winners_col, winners_config = self._get_winners_config(guild_id)
+
+        # Find primary winners from the previous year who should now be in general campaign
+        primary_winners = [
+            w for w in winners_config.get("winners", [])
+            if w.get("year") == current_year and w.get("primary_winner", False)
+        ]
+
+        if not primary_winners:
+            print(f"No primary winners found for general campaign transition in guild {guild_id}")
+            return
+
+        # Reset points and stamina for general campaign
+        updated_count = 0
+        for i, winner in enumerate(winners_config["winners"]):
+            if (winner.get("year") == current_year and
+                winner.get("primary_winner", False)):
+
+                winners_config["winners"][i]["points"] = 0.0  # Reset points for general campaign
+                winners_config["winners"][i]["stamina"] = 100  # Reset stamina
+                winners_config["winners"][i]["phase"] = "General Campaign"
+                updated_count += 1
+
+        if updated_count > 0:
+            winners_col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"winners": winners_config["winners"]}}
+            )
+            print(f"Updated {updated_count} primary winners for general campaign in guild {guild_id}")
+
     @app_commands.command(
         name="view_primary_winners",
         description="View all primary election winners for the current year"
@@ -423,11 +461,8 @@ class AllWinners(commands.Cog):
         current_year = time_config["current_rp_date"].year
         current_phase = time_config.get("current_phase", "")
 
-        # If we're in a general election year (even year), look for primary winners from previous year
-        if current_year % 2 == 0:  # Even year (general election year)
-            target_year = year if year else (current_year - 1)  # Look at previous year's primaries
-        else:  # Odd year (primary year)
-            target_year = year if year else current_year
+        # Look for primary winners for the specified year or current year
+        target_year = year if year else current_year
 
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
@@ -581,14 +616,6 @@ class AllWinners(commands.Cog):
 
         current_year = time_config["current_rp_date"].year
         target_year = year if year else current_year
-
-        if not confirm:
-            await interaction.response.send_message(
-                f"⚠️ **Warning:** This will declare general election winners for {target_year} based on final scores.\n"
-                f"To confirm, run with `confirm:True`",
-                ephemeral=True
-            )
-            return
 
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
@@ -890,16 +917,11 @@ class AllWinners(commands.Cog):
 
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
-        # Get primary winners (candidates in general election)
-        # If we're in a general election year (even), look for primary winners from previous year
-        if target_year % 2 == 0:  # Even year (general election year)
-            primary_year = target_year - 1  # Look at previous year's primaries
-        else:  # Odd year (primary year)
-            primary_year = target_year
-
+        # Get primary winners (candidates in general election)  
+        # Look for primary winners with the target year (they were transitioned to have the election year)
         candidates = [
             w for w in winners_config.get("winners", [])
-            if w["year"] == primary_year and w.get("primary_winner", False)
+            if w["year"] == target_year and w.get("primary_winner", False)
         ]
 
         if not candidates:
@@ -1131,10 +1153,10 @@ class AllWinners(commands.Cog):
         description="Force declare primary winners from current signups (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def admin_force_declare_primary_winners(
+    async def admin_force_primary_winners(
         self,
         interaction: discord.Interaction,
-        year: int = None,
+        signup_year: int = None,
         confirm: bool = False
     ):
         """Manually trigger primary winner processing"""
@@ -1145,22 +1167,187 @@ class AllWinners(commands.Cog):
             return
 
         current_year = time_config["current_rp_date"].year
-        target_year = year if year else current_year
+        # Default to processing previous year's signups for current year elections
+        target_signup_year = signup_year if signup_year else (current_year - 1 if current_year % 2 == 0 else current_year)
 
         if not confirm:
             await interaction.response.send_message(
-                f"⚠️ **Warning:** This will process all signups for {target_year} and declare primary winners.\n"
+                f"⚠️ **Warning:** This will process all signups from {target_signup_year} and declare primary winners for {current_year} elections.\n"
                 f"This will move candidates from signups to winners with ideology-based points.\n"
                 f"To confirm, run with `confirm:True`",
                 ephemeral=True
             )
             return
 
-        await self._process_primary_winners(interaction.guild.id, target_year)
+        await self._process_primary_winners(interaction.guild.id, target_signup_year, current_year)
 
         await interaction.response.send_message(
-            f"✅ Successfully processed primary winners for {target_year}!\n"
+            f"✅ Successfully processed primary winners from {target_signup_year} signups for {current_year} elections!\n"
             f"Check the announcements channel for results.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_transition_candidates",
+        description="Manually transition candidates from signups to primary winners (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_transition_candidates(
+        self,
+        interaction: discord.Interaction,
+        from_year: int,
+        to_year: int,
+        confirm: bool = False
+    ):
+        """Manually transition candidates between years"""
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will transition all candidates from {from_year} signups to {to_year} primary winners.\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Get signups from from_year
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+        candidates = [c for c in signups_config.get("candidates", []) if c["year"] == from_year]
+
+        if not candidates:
+            await interaction.response.send_message(
+                f"❌ No candidates found for {from_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Process them as primary winners for to_year
+        await self._process_primary_winners(interaction.guild.id, from_year, to_year)
+
+        # Update the year in winners to to_year
+        winners_col, winners_config = self._get_winners_config(interaction.guild.id)
+        updated_count = 0
+        for i, winner in enumerate(winners_config.get("winners", [])):
+            if winner.get("year") == to_year and winner.get("primary_winner", False):
+                # This part needs careful consideration. If _process_primary_winners was just called,
+                # the 'year' field should already be set to 'to_year'.
+                # We are essentially ensuring that stats like points/stamina are reset for the next phase.
+
+                # Reset stats for general campaign phase if 'to_year' is an election year
+                if to_year % 2 == 0: # General Election Year
+                    winners_config["winners"][i]["points"] = 0.0
+                    winners_config["winners"][i]["stamina"] = 100
+                    winners_config["winners"][i]["phase"] = "General Campaign"
+                else: # Primary Election Year
+                    # For primary election years, we might still reset points/stamina for consistency or next primary stage.
+                    winners_config["winners"][i]["points"] = 0.0
+                    winners_config["winners"][i]["stamina"] = 100
+                    winners_config["winners"][i]["phase"] = "Primary Election"
+
+                updated_count += 1
+
+
+        if updated_count > 0:
+            winners_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"winners": winners_config["winners"]}}
+            )
+
+        await interaction.response.send_message(
+            f"✅ Successfully transitioned {len(candidates)} candidates from {from_year} signups to {to_year} primary winners!\n"
+            f"Updated {updated_count} winners for general campaign.",
+            ephemeral=True
+        )
+
+    @app_commands.command(
+        name="admin_force_year_transition",
+        description="Force transition candidates from one year to another (Admin only)"
+    )
+    @app_commands.describe(
+        from_year="Year to transition candidates from",
+        to_year="Year to transition candidates to",
+        confirm="Set to True to confirm the transition"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_force_year_transition(
+        self,
+        interaction: discord.Interaction,
+        from_year: int,
+        to_year: int,
+        confirm: bool = False
+    ):
+        """Force transition all candidates from one year to another"""
+        # Defer the response immediately to prevent timeout
+        await interaction.response.defer(ephemeral=True)
+
+        if not confirm:
+            await interaction.followup.send(
+                f"⚠️ **Warning:** This will transition ALL candidates from {from_year} to {to_year}.\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Process signups to primary winners if needed
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        if not signups_config:
+            await interaction.followup.send("❌ No signups found.", ephemeral=True)
+            return
+
+        candidates_to_transition = [
+            c for c in signups_config.get("candidates", [])
+            if c["year"] == from_year
+        ]
+
+        if not candidates_to_transition:
+            await interaction.followup.send(
+                f"❌ No candidates found for year {from_year}.",
+                ephemeral=True
+            )
+            return
+
+        # Process the candidates from 'from_year' signups to become primary winners for 'to_year'
+        # We need to adjust the _process_primary_winners call to reflect this
+        # It expects the CURRENT election year, and it processes the PREVIOUS year's signups.
+        # So, if we want to transition from year X to year Y, we call it with Y as the current year.
+        await self._process_primary_winners(interaction.guild.id, from_year, to_year)
+
+
+        # Update the year in winners to to_year and reset stats for general campaign phase if applicable
+        winners_col, winners_config = self._get_winners_config(interaction.guild.id)
+        updated_winners = 0
+        for i, winner in enumerate(winners_config.get("winners", [])):
+            # Check if this winner was processed from the 'from_year' signups
+            # This logic assumes _process_primary_winners correctly sets the 'year' field
+            if winner.get("year") == to_year and winner.get("primary_winner", False):
+                 # Ensure the winner actually originated from the from_year signups.
+                 # This is a bit tricky without explicitly storing the original signup year.
+                 # A more robust approach might involve a temporary collection or more explicit tracking.
+                 # For now, we'll assume if they are in the 'to_year' as primary winners, they are the ones we transitioned.
+
+                 # Reset stats if the target phase is General Campaign
+                 # We need to know the target phase based on 'to_year'. Assuming 'to_year' is an election year (even).
+                 if to_year % 2 == 0: # General Election Year
+                     winners_config["winners"][i]["points"] = 0.0
+                     winners_config["winners"][i]["stamina"] = 100
+                     winners_config["winners"][i]["phase"] = "General Campaign"
+                 else: # Primary Election Year
+                     # For primary election years, we might still reset points/stamina for consistency or next primary stage.
+                     winners_config["winners"][i]["points"] = 0.0 # Reset points for next primary stage if applicable
+                     winners_config["winners"][i]["stamina"] = 100 # Reset stamina
+                     winners_config["winners"][i]["phase"] = "Primary Election" # Set phase appropriately
+
+                 updated_winners += 1
+
+
+        if updated_winners > 0:
+            winners_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"winners": winners_config["winners"]}}
+            )
+
+        await interaction.followup.send(
+            f"✅ Successfully transitioned candidates from {from_year} signups to {to_year} primary winners!\n"
+            f"Updated {updated_winners} winners for the {to_year} election cycle.",
             ephemeral=True
         )
 
@@ -1234,7 +1421,7 @@ class AllWinners(commands.Cog):
         year: int = None,
         confirm: bool = False
     ):
-        """Reset general election by clearing all primary winners and general winners"""
+        """Reset general election by clearing all primary winners"""
         time_col, time_config = self._get_time_config(interaction.guild.id)
 
         if not time_config:
@@ -1281,6 +1468,7 @@ class AllWinners(commands.Cog):
 
         # Reset election seats that were won in this year
         elections_col, elections_config = self._get_elections_config(interaction.guild.id)
+
         seats_reset = 0
 
         if elections_config and "seats" in elections_config:
@@ -1330,15 +1518,10 @@ class AllWinners(commands.Cog):
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
         # Get primary winners (candidates in general campaign) for target year
-        # If we're in a general election year (even), look for primary winners from previous year
-        if target_year % 2 == 0:  # Even year (general election year)
-            primary_year = target_year - 1  # Look at previous year's primaries
-        else:  # Odd year (primary year)
-            primary_year = target_year
-
+        # Look for primary winners with the target year (they were transitioned to have the election year)
         general_candidates = [
             w for w in winners_config.get("winners", [])
-            if w["year"] == primary_year and w.get("primary_winner", False)
+            if w["year"] == target_year and w.get("primary_winner", False)
         ]
 
         if not general_candidates:
@@ -1447,8 +1630,8 @@ class AllWinners(commands.Cog):
             inline=False
         )
 
-        if target_year % 2 == 0 and not year:  # Even year, showing previous year's winners
-            embed.set_footer(text=f"Showing {primary_year} primary winners advancing to {target_year} general election")
+        if target_year % 2 == 0 and not year:  # Even year, showing current year's winners
+            embed.set_footer(text=f"Showing {target_year} primary winners advancing to general election")
         else:
             embed.set_footer(text=f"General campaign candidates for {target_year}")
 
