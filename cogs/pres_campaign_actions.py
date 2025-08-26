@@ -754,9 +754,11 @@ class PresCampaignActions(commands.Cog):
                 inline=True
             )
 
+        # Safe access for stamina display
+        current_stamina = target_candidate.get("stamina", 0) if isinstance(target_candidate, dict) else 0
         embed.add_field(
             name="⚡ Target's Current Stamina",
-            value=f"{target_candidate['stamina'] - 1}/200",
+            value=f"{current_stamina - 1}/200",
             inline=True
         )
 
@@ -1082,9 +1084,11 @@ class PresCampaignActions(commands.Cog):
                 inline=True
             )
 
+            # Safe access for stamina display
+            current_stamina = target_candidate.get("stamina", 0) if isinstance(target_candidate, dict) else 0
             embed.add_field(
                 name="⚡ Target's Current Stamina",
-                value=f"{target_candidate['stamina'] - 1.5:.1f}/200",
+                value=f"{current_stamina - 1.5:.1f}/200",
                 inline=True
             )
 
@@ -1132,6 +1136,14 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
+        # Ensure candidate is properly structured
+        if not isinstance(candidate, dict):
+            await interaction.response.send_message(
+                "❌ Error retrieving candidate data. Please try again.",
+                ephemeral=True
+            )
+            return
+
         # Check if in campaign phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
         if not time_config or time_config["current_phase"] not in ["Primary Campaign", "General Campaign"]:
@@ -1150,6 +1162,14 @@ class PresCampaignActions(commands.Cog):
         if not target_candidate:
             await interaction.response.send_message(
                 f"❌ Target presidential candidate '{target}' not found.",
+                ephemeral=True
+            )
+            return
+
+        # Ensure target candidate is properly structured
+        if not isinstance(target_candidate, dict):
+            await interaction.response.send_message(
+                "❌ Error retrieving target candidate data. Please try again.",
                 ephemeral=True
             )
             return
@@ -1193,7 +1213,15 @@ class PresCampaignActions(commands.Cog):
         polling_boost = random.uniform(0.2, 0.4)
 
         # Update target candidate stats
-        self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+        target_user_id = target_candidate.get("user_id") if isinstance(target_candidate, dict) else None
+        if not target_user_id:
+            await interaction.response.send_message(
+                "❌ Error: Invalid candidate data structure. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_user_id, 
                                                  state_upper, polling_boost=polling_boost, stamina_cost=1)
 
         # Set cooldown
@@ -1232,11 +1260,22 @@ class PresCampaignActions(commands.Cog):
             inline=True
         )
 
-        embed.add_field(
-            name="⚡ Target's Current Stamina",
-            value=f"{target_candidate['stamina'] - 1}/200",
-            inline=True
-        )
+        # Safe access for stamina display with proper validation
+        try:
+            current_stamina = target_candidate.get("stamina", 200)
+            embed.add_field(
+                name="⚡ Target's Current Stamina",
+                value=f"{current_stamina - 1}/200",
+                inline=True
+            )
+        except (AttributeError, TypeError):
+            # Fallback if target_candidate is not a proper dict
+            embed.add_field(
+                name="⚡ Target's Current Stamina",
+                value="199/200",
+                inline=True
+            )
+
 
         embed.set_image(url=image.url)
         embed.set_footer(text="Next poster available in 6 hours")
