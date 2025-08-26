@@ -1623,108 +1623,164 @@ class AllSignups(commands.Cog):
                 )
             return
 
-        # Check if user already has a signup for this election cycle
-        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
-
-        existing_signup = None
-        for candidate in signups_config["candidates"]:
-            if (candidate["user_id"] == user.id and
-                candidate["year"] == current_year):
-                existing_signup = candidate
-                break
-
-        if existing_signup:
-            await interaction.response.send_message(
-                f"❌ {user.mention} is already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for {existing_signup['region']} - {existing_signup['office']} in {current_year}.",
-                ephemeral=True
-            )
-            return
-
         # Determine current phase for appropriate starting stats
         current_phase = time_config.get("current_phase", "")
-        if current_phase in ["Primary Campaign", "Primary Election"]:
-            phase = "Primary Campaign"
-            points = 0.0  # Start with 0 points for primary
-        elif current_phase in ["General Campaign", "General Election"]:
-            phase = "General Campaign"
-            # For general campaign, we should check if they won a primary first
-            # For admin signup, we'll give them baseline points
-            points = 50.0  # Give baseline points for general campaign
+        
+        # During General Campaign phase, add directly to all_winners as a primary winner
+        if current_phase == "General Campaign":
+            # Get all_winners configuration
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+            if not winners_config:
+                winners_config = {
+                    "guild_id": interaction.guild.id,
+                    "winners": []
+                }
+                winners_col.insert_one(winners_config)
+
+            # Check if user already has a winner entry for this year
+            for winner in winners_config.get("winners", []):
+                if winner.get("user_id") == user.id and winner.get("year") == current_year:
+                    await interaction.response.send_message(
+                        f"❌ {user.mention} is already registered as **{winner['candidate']}** for {winner['seat_id']} in the general campaign.",
+                        ephemeral=True
+                    )
+                    return
+
+            # Determine political party category
+            party_lower = party.lower()
+            if "republican" in party_lower:
+                political_party = "Republican Party"
+            elif "democrat" in party_lower:
+                political_party = "Democratic Party"
+            else:
+                political_party = "Independents"
+
+            # Create winner entry directly in all_winners
+            winner_entry = {
+                "year": current_year,
+                "user_id": user.id,
+                "office": selected_seat["office"],
+                "state": selected_seat["region"],
+                "seat_id": seat_id,
+                "candidate": candidate_name,
+                "party": party,
+                "political_party": political_party,
+                "points": 0.0,  # Reset for general campaign
+                "baseline_percentage": 50.0,  # Default baseline
+                "votes": 0,
+                "corruption": 0,
+                "final_score": 0,
+                "stamina": 100,
+                "winner": False,
+                "phase": "General Campaign",
+                "primary_winner": True,
+                "general_winner": False,
+                "created_date": datetime.utcnow()
+            }
+
+            winners_config["winners"].append(winner_entry)
+
+            winners_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"winners": winners_config["winners"]}}
+            )
+
+            await interaction.response.send_message(
+                f"✅ Successfully added {user.mention} as **{candidate_name}** ({party}) for **{seat_id}** to the general campaign!",
+                ephemeral=True
+            )
+
         else:
-            # Default to primary campaign phase
-            phase = "Primary Campaign"
-            points = 0.0
+            # During primary phases, add to signups as normal
+            # Get signups configuration
+            signups_col, signups_config = self._get_signups_config(interaction.guild.id)
 
-        # Create candidate entry
-        new_candidate = {
-            "user_id": user.id,
-            "name": candidate_name,
-            "party": party,
-            "region": region,
-            "seat_id": selected_seat["seat_id"],
-            "office": selected_seat["office"],
-            "year": current_year,
-            "signup_date": datetime.utcnow(),
-            "points": points,
-            "stamina": 100,
-            "corruption": 0,
-            "phase": phase
-        }
+            # Check if user already has a signup for this election cycle
+            existing_signup = None
+            for candidate in signups_config["candidates"]:
+                if (candidate["user_id"] == user.id and
+                    candidate["year"] == current_year):
+                    existing_signup = candidate
+                    break
 
-        signups_config["candidates"].append(new_candidate)
+            if existing_signup:
+                await interaction.response.send_message(
+                    f"❌ {user.mention} is already signed up as **{existing_signup['name']}** ({existing_signup['party']}) for {existing_signup['region']} - {existing_signup['office']} in {current_year}.",
+                    ephemeral=True
+                )
+                return
 
-        signups_col.update_one(
-            {"guild_id": interaction.guild.id},
-            {"$set": {"candidates": signups_config["candidates"]}}
-        )
+            # Create candidate entry
+            new_candidate = {
+                "user_id": user.id,
+                "name": candidate_name,
+                "party": party,
+                "region": selected_seat["region"],
+                "seat_id": selected_seat["seat_id"],
+                "office": selected_seat["office"],
+                "year": current_year,
+                "signup_date": datetime.utcnow(),
+                "points": 0.0,  # Start with 0 points for primary
+                "stamina": 100,
+                "corruption": 0,
+                "phase": current_phase
+            }
 
-        # Create success embed
-        success_embed = discord.Embed(
-            title="✅ Admin Signup Successful!",
-            description=f"Successfully signed up {user.mention} for the {current_year} election!",
-            color=discord.Color.green(),
-            timestamp=datetime.utcnow()
-        )
+            signups_config["candidates"].append(new_candidate)
 
-        success_embed.add_field(
-            name="📋 Campaign Details",
-            value=f"**Name:** {candidate_name}\n"
-                  f"**User:** {user.mention}\n"
-                  f"**Party:** {party}\n"
-                  f"**Seat:** {selected_seat['seat_id']}\n"
-                  f"**Office:** {selected_seat['office']}\n"
-                  f"**Region:** {region}\n"
-                  f"**Term:** {selected_seat['term_years']} years",
-            inline=True
-        )
+            signups_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": {"candidates": signups_config["candidates"]}}
+            )
 
-        success_embed.add_field(
-            name="📊 Starting Stats",
-            value=f"**Stamina:** {new_candidate['stamina']}\n"
-                  f"**Points:** {new_candidate['points']:.2f}\n"
-                  f"**Corruption:** {new_candidate['corruption']}\n"
-                  f"**Phase:** {phase}",
-            inline=True
-        )
+            # Create success embed
+            success_embed = discord.Embed(
+                title="✅ Admin Signup Successful!",
+                description=f"Successfully signed up {user.mention} for the {current_year} election!",
+                color=discord.Color.green(),
+                timestamp=datetime.utcnow()
+            )
 
-        incumbent_text = ""
-        if selected_seat.get("current_holder"):
-            incumbent_text = f"\n\n**Current Holder:** {selected_seat['current_holder']}"
+            success_embed.add_field(
+                name="📋 Campaign Details",
+                value=f"**Name:** {candidate_name}\n"
+                      f"**User:** {user.mention}\n"
+                      f"**Party:** {party}\n"
+                      f"**Seat:** {selected_seat['seat_id']}\n"
+                      f"**Office:** {selected_seat['office']}\n"
+                      f"**Region:** {region}\n"
+                      f"**Term:** {selected_seat['term_years']} years",
+                inline=True
+            )
 
-        success_embed.add_field(
-            name="🎯 Election Info",
-            value=f"**Election Year:** {current_year}\n"
-                  f"**Current Phase:** {current_phase}{incumbent_text}",
-            inline=False
-        )
+            success_embed.add_field(
+                name="📊 Starting Stats",
+                value=f"**Stamina:** {new_candidate['stamina']}\n"
+                      f"**Points:** {new_candidate['points']:.2f}\n"
+                      f"**Corruption:** {new_candidate['corruption']}\n"
+                      f"**Phase:** {current_phase}",
+                inline=True
+            )
 
-        success_embed.add_field(
-            name="⚠️ Admin Override",
-            value="This signup was created by an administrator and bypassed normal phase restrictions.",
-            inline=False
-        )
+            incumbent_text = ""
+            if selected_seat.get("current_holder"):
+                incumbent_text = f"\n\n**Current Holder:** {selected_seat['current_holder']}"
 
-        await interaction.response.send_message(embed=success_embed, ephemeral=True)
+            success_embed.add_field(
+                name="🎯 Election Info",
+                value=f"**Election Year:** {current_year}\n"
+                      f"**Current Phase:** {current_phase}{incumbent_text}",
+                inline=False
+            )
+
+            success_embed.add_field(
+                name="⚠️ Admin Override",
+                value="This signup was created by an administrator and bypassed normal phase restrictions.",
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=success_embed, ephemeral=True)
 
     @app_commands.command(
         name="admin_reset_primary_election",

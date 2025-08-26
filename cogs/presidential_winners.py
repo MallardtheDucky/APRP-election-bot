@@ -403,29 +403,138 @@ class PresidentialWinners(commands.Cog):
 
 
     def _calculate_general_election_percentages(self, guild_id: int, office: str):
-        """Calculate general election percentages for candidates"""
-        # Simple baseline calculation - you can enhance this based on your game mechanics
-        percentages = {}
-        
-        # Get current primary winners
+        """Calculate general election percentages using state-by-state analysis with complete proportional redistribution"""
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        # Get presidential winners (general election candidates)
         winners_col, winners_config = self._get_presidential_winners_config(guild_id)
-        party_winners = winners_config.get("winners", {})
-        
-        # Default percentages based on party
-        party_base_percentages = {
-            "Democrats": 45.0,
-            "Democratic Party": 45.0,
-            "Republicans": 45.0,
-            "Republican Party": 45.0,
-            "Others": 10.0,
-            "Independent": 10.0
+
+        if not winners_config:
+            return {}
+
+        # For general campaign, look for primary winners from the previous year if we're in an even year
+        # Or current year if odd year
+        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+        winners_data = winners_config.get("winners", [])
+        candidates = []
+
+        # Handle both list and dict formats for winners
+        if isinstance(winners_data, list):
+            # New list format
+            candidates = [
+                w for w in winners_data 
+                if (isinstance(w, dict) and 
+                    w.get("primary_winner", False) and 
+                    w.get("year") == primary_year and 
+                    w.get("office") == office)
+            ]
+        elif isinstance(winners_data, dict):
+            # Old dict format: {party: candidate_name}
+            # Need to get full candidate data from presidential signups
+            signups_col = self.bot.db["presidential_signups"]
+            signups_config = signups_col.find_one({"guild_id": guild_id})
+            if signups_config:
+                election_year = winners_config.get("election_year", primary_year + 1)
+                signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+
+                candidates_list = signups_config.get("candidates", [])
+                if isinstance(candidates_list, list):
+                    for candidate in candidates_list:
+                        if (isinstance(candidate, dict) and
+                            candidate.get("year") == signup_year and
+                            candidate.get("office") == office):
+                            # Check if this candidate won their primary
+                            candidate_name = candidate.get("name")
+                            for party, winner_name in winners_data.items():
+                                if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
+                                    # Create a general campaign candidate object
+                                    general_candidate = candidate.copy()
+                                    general_candidate["primary_winner"] = True
+                                    general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                    general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                    candidates.append(general_candidate)
+
+        if not candidates:
+            return {}
+
+        # State population weights for national polling calculation
+        STATE_POPULATION_WEIGHTS = {
+            "CALIFORNIA": 12.07, "TEXAS": 8.16, "NEW YORK": 6.27, "FLORIDA": 6.09,
+            "PENNSYLVANIA": 4.11, "ILLINOIS": 4.15, "OHIO": 3.73, "MICHIGAN": 3.19,
+            "GEORGIA": 3.14, "NORTH CAROLINA": 3.10, "NEW JERSEY": 2.85, "VIRGINIA": 2.59,
+            "WASHINGTON": 2.18, "MASSACHUSETTS": 2.12, "INDIANA": 2.10, "ARIZONA": 2.07,
+            "TENNESSEE": 2.06, "MISSOURI": 1.94, "MARYLAND": 1.87, "WISCONSIN": 1.84,
+            "MINNESOTA": 1.72, "COLORADO": 1.63, "ALABAMA": 1.55, "SOUTH CAROLINA": 1.50,
+            "LOUISIANA": 1.47, "KENTUCKY": 1.41, "OREGON": 1.24, "OKLAHOMA": 1.22,
+            "CONNECTICUT": 1.16, "IOWA": 0.99, "ARKANSAS": 0.95, "UTAH": 0.90,
+            "NEVADA": 0.87, "NEW MEXICO": 0.67, "NEBRASKA": 0.59, "WEST VIRGINIA": 0.60,
+            "NEW HAMPSHIRE": 0.43, "MAINE": 0.43, "HAWAII": 0.44, "IDAHO": 0.51,
+            "MONTANA": 0.32, "RHODE ISLAND": 0.34, "DELAWARE": 0.29, "SOUTH DAKOTA": 0.26,
+            "NORTH DAKOTA": 0.22, "ALASKA": 0.23, "DISTRICT OF COLUMBIA": 0.20,
+            "VERMONT": 0.20, "WYOMING": 0.18, "KANSAS": 0.94, "MISSISSIPPI": 0.96
         }
-        
-        for party, candidate_name in party_winners.items():
-            base_percentage = party_base_percentages.get(party, 15.0)
-            percentages[candidate_name] = base_percentage
-            
-        return percentages
+
+        # Calculate state-by-state percentages for each candidate
+        candidate_percentages = {}
+
+        for candidate in candidates:
+            candidate_name = candidate.get("name")
+            candidate_party = candidate.get("party", "").lower()
+            state_points = candidate.get("state_points", {})
+
+            # Determine party alignment for baseline calculations
+            if "republican" in candidate_party:
+                party_alignment = "republican"
+            elif "democrat" in candidate_party:
+                party_alignment = "democrat"
+            else:
+                party_alignment = "other"
+
+            total_weighted_percentage = 0.0
+            total_population_weight = 0.0
+
+            # Calculate weighted polling across all states
+            for state_name, population_weight in STATE_POPULATION_WEIGHTS.items():
+                # Get base party support for this state
+                state_data = PRESIDENTIAL_STATE_DATA.get(state_name, {
+                    "republican": 33.0, "democrat": 33.0, "other": 34.0
+                })
+
+                # Start with party baseline
+                base_support = state_data.get(party_alignment, 33.0)
+
+                # Add campaign points gained in this state
+                campaign_boost = state_points.get(state_name, 0.0)
+
+                # Calculate state polling (base + campaign effects)
+                state_polling = base_support + campaign_boost
+
+                # Apply realistic bounds (15% minimum, 85% maximum per state)
+                state_polling = max(15.0, min(85.0, state_polling))
+
+                # Weight by population
+                weighted_contribution = (state_polling / 100.0) * population_weight
+                total_weighted_percentage += weighted_contribution
+                total_population_weight += population_weight
+
+            # Calculate final national percentage for this candidate
+            if total_population_weight > 0:
+                national_percentage = (total_weighted_percentage / total_population_weight) * 100.0
+            else:
+                national_percentage = 50.0
+
+            # Ensure reasonable bounds for national polling
+            candidate_percentages[candidate_name] = max(20.0, min(80.0, national_percentage))
+
+        # Normalize percentages to sum to 100%
+        total_percentage = sum(candidate_percentages.values())
+        if total_percentage > 0:
+            for candidate_name in candidate_percentages:
+                candidate_percentages[candidate_name] = (candidate_percentages[candidate_name] / total_percentage) * 100.0
+
+        return candidate_percentages
 
     def _get_presidential_candidates(self, guild_id: int, party: str, year: int):
         """Get presidential candidates for a specific party and year"""

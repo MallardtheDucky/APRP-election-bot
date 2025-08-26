@@ -183,6 +183,8 @@ class PresCampaignActions(commands.Cog):
                                 }
                                 return winners_col, basic_candidate
 
+                return winners_col, None
+
                 # Fallback to all_winners system
                 all_winners_col = self.bot.db["winners"]
                 all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
@@ -240,7 +242,7 @@ class PresCampaignActions(commands.Cog):
 
     def _update_presidential_candidate_stats(self, collection, guild_id: int, user_id: int, 
                                            state_name: str, polling_boost: float = 0, 
-                                           stamina_cost: int = 0, corruption_increase: int = 0):
+                                           stamina_cost: int = 0, corruption_increase: int = 0, candidate_data: dict = None):
         """Update presidential candidate's polling, stamina, and corruption"""
         time_col, time_config = self._get_time_config(guild_id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
@@ -260,7 +262,8 @@ class PresCampaignActions(commands.Cog):
             )
 
             # Add momentum effects during General Campaign
-            self._add_momentum_from_campaign_action(guild_id, user_id, state_name.upper(), polling_boost)
+            print(f"DEBUG: Adding momentum from stats update: {polling_boost} points in {state_name.upper()}")
+            self._add_momentum_from_campaign_action(guild_id, user_id, state_name.upper(), polling_boost, candidate_data)
         else:
             # For primary campaign, update in presidential signups collection
             collection.update_one(
@@ -277,12 +280,12 @@ class PresCampaignActions(commands.Cog):
     def _clean_presidential_state_data(self):
         """Clean up any decimal values in PRESIDENTIAL_STATE_DATA by rounding to 1 decimal place"""
         from .presidential_winners import PRESIDENTIAL_STATE_DATA
-        
+
         for state_name, data in PRESIDENTIAL_STATE_DATA.items():
             PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(data["republican"], 1)
             PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(data["democrat"], 1)
             PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(data["other"], 1)
-    
+
     def _transfer_pres_points_to_winners(self, guild_id: int, candidate_data: dict, state_name: str, points_gained: float):
         """Transfer points to the all_winners system, mapping to political parties."""
         all_winners_col = self.bot.db["winners"]
@@ -334,29 +337,29 @@ class PresCampaignActions(commands.Cog):
             },
             upsert=True
         )
-        
+
         # Update PRESIDENTIAL_STATE_DATA based on campaign activity
         self._update_state_baseline_data(guild_id, state_name, political_party, points_gained)
-        
+
         print(f"Transferred/Updated points for {candidate_name} ({political_party}) in {state_name} to all_winners system.")
 
     def _update_state_baseline_data(self, guild_id: int, state_name: str, political_party: str, points_gained: float):
         """Update PRESIDENTIAL_STATE_DATA based on significant campaign activity"""
         from .presidential_winners import PRESIDENTIAL_STATE_DATA
-        
+
         # Clean up any existing decimal precision issues
         self._clean_presidential_state_data()
-        
+
         # Only update if points gained is significant (> 1.0 points)
         if points_gained < 1.0:
             return
-            
+
         if state_name not in PRESIDENTIAL_STATE_DATA:
             return
-            
+
         # Calculate the impact on state baseline (reduced factor to prevent extreme swings)
         impact_factor = min(points_gained * 0.5, 2.0)  # Cap at 2% change per action
-        
+
         # Determine which party gets the boost
         if political_party == "Republican Party":
             # Boost Republicans, reduce Democrats slightly
@@ -372,24 +375,24 @@ class PresCampaignActions(commands.Cog):
             reduction = impact_factor * 0.35
             PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name]["republican"] - reduction), 1)
             PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name]["democrat"] - reduction), 1)
-        
+
         # Ensure totals stay reasonable (around 100%)
         total = (PRESIDENTIAL_STATE_DATA[state_name]["republican"] + 
                 PRESIDENTIAL_STATE_DATA[state_name]["democrat"] + 
                 PRESIDENTIAL_STATE_DATA[state_name]["other"])
-        
+
         # Normalize if total exceeds 105% or falls below 95%
         if total > 105 or total < 95:
             factor = 100 / total
             PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(PRESIDENTIAL_STATE_DATA[state_name]["republican"] * factor, 1)
             PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(PRESIDENTIAL_STATE_DATA[state_name]["democrat"] * factor, 1)
             PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(PRESIDENTIAL_STATE_DATA[state_name]["other"] * factor, 1)
-        
+
         # Final safety check - ensure all values are properly rounded
         PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(PRESIDENTIAL_STATE_DATA[state_name]["republican"], 1)
         PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(PRESIDENTIAL_STATE_DATA[state_name]["democrat"], 1)
         PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(PRESIDENTIAL_STATE_DATA[state_name]["other"], 1)
-        
+
         print(f"Updated {state_name} baseline: R:{PRESIDENTIAL_STATE_DATA[state_name]['republican']:.1f}% D:{PRESIDENTIAL_STATE_DATA[state_name]['democrat']:.1f}% O:{PRESIDENTIAL_STATE_DATA[state_name]['other']:.1f}%")
 
     def _check_cooldown(self, guild_id: int, user_id: int, action: str, hours: int) -> bool:
@@ -458,61 +461,145 @@ class PresCampaignActions(commands.Cog):
         # This can be expanded later to include buff/debuff system
         return base_points
 
-    def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float):
-        """Adds momentum to a state based on campaign actions with auto-collapse protection."""
-        # Use the momentum system from the momentum cog
-        momentum_cog = self.bot.get_cog('Momentum')
-        if not momentum_cog:
-            return  # Momentum system not loaded
+    def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float, candidate_data: dict = None):
+        """Adds momentum to a state based on campaign actions with proper debugging and validation."""
+        try:
+            print(f"DEBUG: Starting momentum addition for user {user_id} in {state_name} with {points_gained} points")
+            
+            # Check if we're in General Campaign phase
+            time_col, time_config = self._get_time_config(guild_id)
+            current_phase = time_config.get("current_phase", "") if time_config else ""
+            
+            print(f"DEBUG: Current phase: {current_phase}")
+            
+            if current_phase != "General Campaign":
+                print(f"DEBUG: Not in General Campaign phase, skipping momentum")
+                return
 
-        # Get momentum config
-        momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
+            # Use the momentum system from the momentum cog
+            momentum_cog = self.bot.get_cog('Momentum')
+            if not momentum_cog:
+                print("DEBUG: Momentum cog not loaded")
+                return
 
-        # Get user's candidate to determine party
-        signups_col, candidate = self._get_user_presidential_candidate(guild_id, user_id)
-        if not candidate:
-            return
+            print("DEBUG: Momentum cog found")
 
-        # Determine party key
-        party = candidate.get("party", "").lower()
-        if "republican" in party:
-            party_key = "Republican"
-        elif "democrat" in party:
-            party_key = "Democrat"
-        else:
-            party_key = "Independent"
+            # Get momentum config
+            momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
+            print(f"DEBUG: Got momentum config for guild {guild_id}")
 
-        # Calculate momentum gained (reduced factor to prevent spam)
-        momentum_gain_factor = 2.0  # Momentum gained per campaign point
-        momentum_gained = points_gained * momentum_gain_factor
+            # Get candidate data - either from parameter or lookup
+            candidate = candidate_data
+            if not candidate:
+                signups_col, candidate = self._get_user_presidential_candidate(guild_id, user_id)
+            
+            if not candidate:
+                print(f"DEBUG: No candidate found for user {user_id}")
+                return
 
-        # Get current momentum
-        current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
-        new_momentum = current_momentum + momentum_gained
+            print(f"DEBUG: Found candidate: {candidate.get('name')} ({candidate.get('party')})")
+            
+            # Verify candidate has required fields
+            if not candidate.get("party"):
+                print(f"DEBUG: Warning - candidate {candidate.get('name')} has no party set")
+                return
 
-        # Check for auto-collapse
-        final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
-            momentum_col, guild_id, state_name, party_key, new_momentum
-        )
+            # Determine party key with more comprehensive mapping
+            party = candidate.get("party", "").lower()
+            print(f"DEBUG: Raw party from candidate: '{candidate.get('party', '')}'")
+            
+            if "republican" in party or "gop" in party or party == "r":
+                party_key = "Republican"
+            elif "democrat" in party or "democratic" in party or party == "d":
+                party_key = "Democrat"
+            elif "independent" in party or "ind" in party or party == "i":
+                party_key = "Independent"
+            else:
+                # Default mapping for unknown parties
+                party_key = "Independent"
 
-        if not collapsed:
-            # No collapse occurred, update normally
-            momentum_col.update_one(
-                {"guild_id": guild_id},
-                {
-                    "$set": {
-                        f"state_momentum.{state_name}.{party_key}": final_momentum,
-                        f"state_momentum.{state_name}.last_updated": datetime.utcnow()
-                    }
-                }
+            print(f"DEBUG: Party key determined as: {party_key}")
+
+            # Validate state name exists in momentum config
+            if state_name not in momentum_config["state_momentum"]:
+                print(f"DEBUG: State {state_name} not found in momentum config")
+                return
+
+            # Calculate momentum gained (increased factor for more visibility)
+            momentum_gain_factor = 5.0  # Increased from 2.0 to make momentum more visible
+            momentum_gained = points_gained * momentum_gain_factor
+
+            print(f"DEBUG: Calculated momentum gain: {momentum_gained} (factor: {momentum_gain_factor})")
+
+            # Get current momentum
+            current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
+            new_momentum = current_momentum + momentum_gained
+
+            print(f"DEBUG: Current momentum: {current_momentum}, New momentum: {new_momentum}")
+
+            # Check for auto-collapse
+            final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
+                momentum_col, guild_id, state_name, party_key, new_momentum
             )
 
-            # Log the momentum gain
-            if momentum_gained > 0.1:  # Only log significant gains
-                momentum_cog._add_momentum_event(
-                    momentum_col, guild_id, state_name, party_key,
-                    momentum_gained, f"Campaign action (+{points_gained:.1f} pts)", user_id
+            print(f"DEBUG: Auto-collapse check - Final momentum: {final_momentum}, Collapsed: {collapsed}")
+
+            if not collapsed:
+                # No collapse occurred, update normally
+                print(f"DEBUG: Attempting database update for {party_key} in {state_name}")
+                print(f"DEBUG: Setting momentum to {final_momentum}")
+                
+                # First, ensure the state momentum structure exists
+                momentum_col.update_one(
+                    {"guild_id": guild_id},
+                    {
+                        "$set": {
+                            f"state_momentum.{state_name}": momentum_config["state_momentum"].get(state_name, {
+                                "Republican": 0.0,
+                                "Democrat": 0.0,
+                                "Independent": 0.0,
+                                "last_updated": datetime.utcnow()
+                            })
+                        }
+                    },
+                    upsert=True
                 )
+                
+                # Now update the specific party momentum
+                update_result = momentum_col.update_one(
+                    {"guild_id": guild_id},
+                    {
+                        "$set": {
+                            f"state_momentum.{state_name}.{party_key}": final_momentum,
+                            f"state_momentum.{state_name}.last_updated": datetime.utcnow()
+                        }
+                    }
+                )
+
+                print(f"DEBUG: Database update result: matched_count = {update_result.matched_count}, modified_count = {update_result.modified_count}")
+                
+                # Verify the update worked by reading back the data
+                verification = momentum_col.find_one({"guild_id": guild_id})
+                if verification:
+                    actual_momentum = verification.get("state_momentum", {}).get(state_name, {}).get(party_key, "NOT_FOUND")
+                    print(f"DEBUG: Verification - momentum for {party_key} in {state_name} is now: {actual_momentum}")
+                else:
+                    print(f"DEBUG: ERROR - Could not find guild config after update")
+
+                # Log the momentum gain
+                if momentum_gained > 0.1:  # Only log significant gains
+                    momentum_cog._add_momentum_event(
+                        momentum_col, guild_id, state_name, party_key,
+                        momentum_gained, f"Campaign action (+{points_gained:.1f} pts)", user_id
+                    )
+                    print(f"DEBUG: Logged momentum event for {party_key} in {state_name}")
+
+            print(f"DEBUG: Momentum addition completed successfully")
+
+        except Exception as e:
+            print(f"ERROR in _add_momentum_from_campaign_action: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _get_state_lean_and_momentum(self, guild_id: int, state_name: str):
         """Retrieves the lean and current momentum for a given state."""
@@ -835,7 +922,7 @@ class PresCampaignActions(commands.Cog):
 
         # Update target candidate stats
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-                                                 state_name, polling_boost=polling_boost, stamina_cost=estimated_stamina)
+                                                 state_name, polling_boost=polling_boost, stamina_cost=estimated_stamina, candidate_data=target_candidate)
 
         # Transfer points to all_winners system for proper tracking
         self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_name, polling_boost)
@@ -859,26 +946,11 @@ class PresCampaignActions(commands.Cog):
             inline=False
         )
 
-        # For general campaign, show updated percentages
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
-
-        if current_phase == "General Campaign":
-            target_office = target_candidate.get("office", "President")
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-            updated_percentage = general_percentages.get(target_name, 50.0)
-
-            embed.add_field(
-                name="📊 Impact",
-                value=f"**Target:** {target_name}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
-                inline=True
-            )
-        else:
-            embed.add_field(
-                name="📊 Impact",
-                value=f"**Target:** {target_name}\n**State:** {state_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
-                inline=True
-            )
+        embed.add_field(
+            name="📊 Impact",
+            value=f"**Target:** {target_name}\n**State:** {state_name}\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+            inline=True
+        )
 
         embed.set_footer(text=f"Next speech available in 12 hours")
 
@@ -977,26 +1049,11 @@ class PresCampaignActions(commands.Cog):
             inline=False
         )
 
-        # For general campaign, show updated percentages
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
-
-        if current_phase == "General Campaign":
-            target_office = target_candidate.get("office", "President")
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-            updated_percentage = general_percentages.get(target_name, 50.0)
-
-            embed.add_field(
-                name="📊 Impact",
-                value=f"**Target:** {target_name}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
-                inline=True
-            )
-        else:
-            embed.add_field(
-                name="📊 Impact",
-                value=f"**Target:** {target_name}\n**State:** {state_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
-                inline=True
-            )
+        embed.add_field(
+            name="📊 Impact",
+            value=f"**Target:** {target_name}\n**State:** {state_name}\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+            inline=True
+        )
 
         embed.add_field(
             name="⚠️ Warning",
@@ -1024,7 +1081,7 @@ class PresCampaignActions(commands.Cog):
         canvassing_message: str,
         target: Optional[str] = None
     ):
-        # Validate state
+        # Validate and format state
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -1105,32 +1162,17 @@ class PresCampaignActions(commands.Cog):
             inline=False
         )
 
-        # For general campaign, show updated percentages
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        current_phase = time_config.get("current_phase", "") if time_config else ""
-
-        if current_phase == "General Campaign":
-            target_office = target_candidate.get("office", "President")
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-            updated_percentage = general_percentages.get(target, 50.0)
-
-            embed.add_field(
-                name="📊 Results",
-                value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
-                inline=True
-            )
-        else:
-            embed.add_field(
-                name="📊 Results",
-                value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
-                inline=True
-            )
-
         # Safe access for stamina display
         current_stamina = target_candidate.get("stamina", 0) if isinstance(target_candidate, dict) else 0
         embed.add_field(
             name="⚡ Target's Current Stamina",
             value=f"{current_stamina - 1}/200",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📊 Results",
+            value=f"**Target:** {target}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
             inline=True
         )
 
@@ -1145,7 +1187,7 @@ class PresCampaignActions(commands.Cog):
         target="The presidential candidate who will receive benefits (optional)"
     )
     async def pres_donor(self, interaction: discord.Interaction, state: str, target: Optional[str] = None):
-        # Validate state
+        # Validate and format state
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -1311,26 +1353,11 @@ class PresCampaignActions(commands.Cog):
                 inline=False
             )
 
-            # For general campaign, show updated percentages
-            time_col, time_config = self._get_time_config(interaction.guild.id)
-            current_phase = time_config.get("current_phase", "") if time_config else ""
-
-            if current_phase == "General Campaign":
-                target_office = target_candidate.get("office", "President")
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-                updated_percentage = general_percentages.get(target_candidate['name'], 50.0)
-
-                embed.add_field(
-                    name="📊 Impact",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
-                    inline=True
-                )
-            else:
-                embed.add_field(
-                    name="📊 Impact",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
-                    inline=True
-                )
+            embed.add_field(
+                name="📊 Impact",
+                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                inline=True
+            )
 
             embed.add_field(
                 name="⚠️ Warning",
@@ -1356,7 +1383,7 @@ class PresCampaignActions(commands.Cog):
         target="The presidential candidate who will receive benefits (optional)"
     )
     async def pres_ad(self, interaction: discord.Interaction, state: str, target: Optional[str] = None):
-        # Validate state
+        # Validate and format state
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -1474,26 +1501,11 @@ class PresCampaignActions(commands.Cog):
                 timestamp=datetime.utcnow()
             )
 
-            # For general campaign, show updated percentages
-            time_col, time_config = self._get_time_config(interaction.guild.id)
-            current_phase = time_config.get("current_phase", "") if time_config else ""
-
-            if current_phase == "General Campaign":
-                target_office = target_candidate.get("office", "President")
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-                updated_percentage = general_percentages.get(target, 50.0)
-
-                embed.add_field(
-                    name="📊 Ad Performance",
-                    value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
-                    inline=True
-                )
-            else:
-                embed.add_field(
-                    name="📊 Ad Performance",
-                    value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
-                    inline=True
-                )
+            embed.add_field(
+                name="📊 Ad Performance",
+                value=f"**Target:** {target}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
+                inline=True
+            )
 
             embed.add_field(
                 name="📱 Reach",
@@ -1537,8 +1549,8 @@ class PresCampaignActions(commands.Cog):
         try:
             # Defer the response immediately to prevent timeout
             await interaction.response.defer()
-            
-            # Validate state
+
+            # Validate and format state
             state_upper = state.upper()
             if state_upper not in PRESIDENTIAL_STATE_DATA:
                 await interaction.followup.send(
@@ -1700,25 +1712,11 @@ class PresCampaignActions(commands.Cog):
                 timestamp=datetime.utcnow()
             )
 
-            # For general campaign, show updated percentages
-            current_phase = time_config.get("current_phase", "") if time_config else ""
-
-            if current_phase == "General Campaign":
-                target_office = target_candidate.get("office", "President")
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-                updated_percentage = general_percentages.get(target_name, 50.0)
-
-                embed.add_field(
-                    name="📊 Poster Impact",
-                    value=f"**Target:** {target_name}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
-                    inline=True
-                )
-            else:
-                embed.add_field(
-                    name="📊 Poster Impact",
-                    value=f"**Target:** {target_name}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
-                    inline=True
-                )
+            embed.add_field(
+                name="📊 Poster Impact",
+                value=f"**Target:** {target_name}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
+                inline=True
+            )
 
             embed.add_field(
                 name="📍 Distribution",
@@ -1764,7 +1762,7 @@ class PresCampaignActions(commands.Cog):
         target="The presidential candidate who will receive benefits (optional)"
     )
     async def pres_speech(self, interaction: discord.Interaction, state: str, target: Optional[str] = None):
-        # Validate state
+        # Validate and format state
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -1934,26 +1932,11 @@ class PresCampaignActions(commands.Cog):
                 inline=False
             )
 
-            # For general campaign, show updated percentages
-            time_col, time_config = self._get_time_config(interaction.guild.id)
-            current_phase = time_config.get("current_phase", "") if time_config else ""
-
-            if current_phase == "General Campaign":
-                target_office = target_candidate.get("office", "President")
-                general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-                updated_percentage = general_percentages.get(target, 50.0)
-
-                embed.add_field(
-                    name="📊 Impact",
-                    value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
-                    inline=True
-                )
-            else:
-                embed.add_field(
-                    name="📊 Impact",
-                    value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
-                    inline=True
-                )
+            embed.add_field(
+                name="📊 Impact",
+                value=f"**Target:** {target}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+                inline=True
+            )
 
             embed.set_footer(text=f"Next speech available in 12 hours")
 
@@ -2523,6 +2506,7 @@ class PresCampaignActions(commands.Cog):
                 )
                 return
 
+            # Validate and format state
             state_upper = state.upper()
             if state_upper not in PRESIDENTIAL_STATE_DATA:
                 await interaction.response.send_message(
@@ -2826,7 +2810,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get candidate's party for baseline calculations
         candidate_party = candidate.get("party", "").lower()
-        
+
         # Determine party alignment for baseline calculations
         if "republican" in candidate_party:
             party_alignment = "republican"
@@ -2837,7 +2821,7 @@ class PresCampaignActions(commands.Cog):
 
         # Get state points for this candidate
         state_points = candidate.get("state_points", {})
-        
+
         total_weighted_percentage = 0.0
         total_population_weight = 0.0
 
@@ -2847,19 +2831,19 @@ class PresCampaignActions(commands.Cog):
             state_data = PRESIDENTIAL_STATE_DATA.get(state_name, {
                 "republican": 33.0, "democrat": 33.0, "other": 34.0
             })
-            
+
             # Start with party baseline
             base_support = state_data.get(party_alignment, 33.0)
-            
+
             # Add campaign points gained in this state
             campaign_boost = state_points.get(state_name, 0.0)
-            
+
             # Calculate state polling (base + campaign effects)
             state_polling = base_support + campaign_boost
-            
+
             # Apply realistic bounds (15% minimum, 85% maximum per state)
             state_polling = max(15.0, min(85.0, state_polling))
-            
+
             # Weight by population
             weighted_contribution = (state_polling / 100.0) * population_weight
             total_weighted_percentage += weighted_contribution
@@ -2896,7 +2880,7 @@ class PresCampaignActions(commands.Cog):
         current_phase = time_config.get("current_phase", "")
         current_year = time_config["current_rp_date"].year
 
-        # Validate state
+        # Validate and format state
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -2917,11 +2901,18 @@ class PresCampaignActions(commands.Cog):
             poll_result = actual_percentage + variation
             return max(0.1, min(99.9, poll_result))
 
-        poll_results = {
+        raw_poll_results = {
             "Republican": calculate_poll_result_internal(republican_base),
             "Democrat": calculate_poll_result_internal(democrat_base),
             "Independent": calculate_poll_result_internal(independent_base)
         }
+
+        # Normalize to ensure total equals 100%
+        total_percentage = sum(raw_poll_results.values())
+        poll_results = {}
+        for party, percentage in raw_poll_results.items():
+            poll_results[party] = (percentage / total_percentage) * 100.0
+
 
         # Sort results for display
         sorted_results = sorted(poll_results.items(), key=lambda item: item[1], reverse=True)

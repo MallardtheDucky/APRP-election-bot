@@ -75,23 +75,29 @@ class Momentum(commands.Cog):
                 
                 config["state_leans"][state_name] = lean
                 
-                # Initialize momentum at 0 for all parties
-                config["state_momentum"][state_name] = {
-                    "Republican": 0.0,
-                    "Democrat": 0.0,
-                    "Independent": 0.0,
-                    "last_updated": datetime.utcnow()
-                }
+                # Initialize momentum at 0 for all parties (only if not already exists)
+                if state_name not in config.get("state_momentum", {}):
+                    if "state_momentum" not in config:
+                        config["state_momentum"] = {}
+                    config["state_momentum"][state_name] = {
+                        "Republican": 0.0,
+                        "Democrat": 0.0,
+                        "Independent": 0.0,
+                        "last_updated": datetime.utcnow()
+                    }
             
-            # Initialize regional momentum for senate/governor races
+            # Initialize regional momentum for senate/governor races (only if not already exists)
             from .ideology import REGIONS
+            if "regional_momentum" not in config:
+                config["regional_momentum"] = {}
             for region_name in REGIONS.keys():
-                config["regional_momentum"][region_name] = {
-                    "Republican": 0.0,
-                    "Democrat": 0.0,
-                    "Independent": 0.0,
-                    "last_updated": datetime.utcnow()
-                }
+                if region_name not in config["regional_momentum"]:
+                    config["regional_momentum"][region_name] = {
+                        "Republican": 0.0,
+                        "Democrat": 0.0,
+                        "Independent": 0.0,
+                        "last_updated": datetime.utcnow()
+                    }
             
             col.insert_one(config)
         
@@ -135,21 +141,27 @@ class Momentum(commands.Cog):
     def _add_momentum_event(self, momentum_col, guild_id: int, state: str, party: str, 
                            change: float, reason: str, user_id: int = None):
         """Log a momentum change event"""
-        momentum_col.update_one(
-            {"guild_id": guild_id},
-            {
-                "$push": {
-                    "momentum_events": {
-                        "timestamp": datetime.utcnow(),
-                        "state": state,
-                        "party": party,
-                        "change": change,
-                        "reason": reason,
-                        "user_id": user_id
+        try:
+            result = momentum_col.update_one(
+                {"guild_id": guild_id},
+                {
+                    "$push": {
+                        "momentum_events": {
+                            "timestamp": datetime.utcnow(),
+                            "state": state,
+                            "party": party,
+                            "change": change,
+                            "reason": reason,
+                            "user_id": user_id
+                        }
                     }
                 }
-            }
-        )
+            )
+            print(f"DEBUG: Momentum event logged - matched: {result.matched_count}, modified: {result.modified_count}")
+        except Exception as e:
+            print(f"ERROR: Failed to log momentum event: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _check_and_apply_auto_collapse(self, momentum_col, guild_id: int, state: str, party: str, current_momentum: float):
         """Check if momentum should auto-collapse and apply it"""
@@ -351,6 +363,9 @@ class Momentum(commands.Cog):
         # Show current momentum for each party
         momentum_text = ""
         parties = ["Republican", "Democrat", "Independent"]
+        
+        print(f"DEBUG: Checking momentum for state {state_upper}")
+        print(f"DEBUG: State momentum data: {state_momentum}")
         
         for party in parties:
             current_momentum = state_momentum.get(party, 0.0)
