@@ -77,24 +77,55 @@ class PresCampaignActions(commands.Cog):
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
         if current_phase == "General Campaign":
-            # Look in presidential winners collection for general campaign
+            # For general campaign, look in all_winners system first
+            all_winners_col = self.bot.db["winners"]
+            all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
+
+            if all_winners_config:
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+                for winner in all_winners_config.get("winners", []):
+                    if (winner.get("candidate", "").lower() == candidate_name.lower() and 
+                        winner.get("primary_winner", False) and
+                        winner.get("year") == primary_year and
+                        winner.get("office") in ["President", "Vice President"]):
+                        # Convert all_winners format to expected format
+                        candidate_dict = {
+                            "name": winner.get("candidate"),
+                            "user_id": winner.get("user_id"),
+                            "party": winner.get("party"),
+                            "office": winner.get("office"),
+                            "year": winner.get("year"),
+                            "stamina": winner.get("stamina", 200),
+                            "corruption": winner.get("corruption", 0),
+                            "total_points": winner.get("points", 0.0),
+                            "state_points": winner.get("state_points", {}),
+                            "primary_winner": True
+                        }
+                        return all_winners_col, candidate_dict
+
+            # Fallback to presidential winners collection
             winners_col, winners_config = self._get_presidential_winners_config(guild_id)
+            if winners_config:
+                # Check if candidate name is in the winners dictionary
+                party_winners = winners_config.get("winners", {})
+                for party, winner_name in party_winners.items():
+                    if winner_name.lower() == candidate_name.lower():
+                        # Need to get full candidate data from presidential signups
+                        signups_col, signups_config = self._get_presidential_config(guild_id)
+                        if signups_config:
+                            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                            for candidate in signups_config.get("candidates", []):
+                                if (candidate["name"].lower() == candidate_name.lower() and
+                                    candidate["year"] == primary_year and
+                                    candidate["office"] in ["President", "Vice President"]):
+                                    # Add primary winner flag
+                                    candidate["primary_winner"] = True
+                                    candidate["total_points"] = candidate.get("points", 0.0)
+                                    candidate["state_points"] = candidate.get("state_points", {})
+                                    return signups_col, candidate
 
-            if not winners_config:
-                return None, None
-
-            # For general campaign, look for primary winners from the previous year if we're in an even year
-            # Or current year if odd year
-            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-
-            for winner in winners_config.get("winners", []):
-                if (winner["name"].lower() == candidate_name.lower() and 
-                    winner.get("primary_winner", False) and
-                    winner["year"] == primary_year and
-                    winner["office"] in ["President", "Vice President"]):
-                    return winners_col, winner
-
-            return winners_col, None
+            return None, None
         else:
             # Look in presidential signups collection for primary campaign
             signups_col, signups_config = self._get_presidential_config(guild_id)
@@ -524,7 +555,7 @@ class PresCampaignActions(commands.Cog):
         # Create public speech announcement
         embed = discord.Embed(
             title="🎤 Presidential Campaign Speech",
-            description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}** in {state_name}!",
+            description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_name}** in {state_name}!",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
@@ -546,17 +577,17 @@ class PresCampaignActions(commands.Cog):
 
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-            updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+            updated_percentage = general_percentages.get(target_name, 50.0)
 
             embed.add_field(
                 name="📊 Impact",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+                value=f"**Target:** {target_name}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
                 inline=True
             )
         else:
             embed.add_field(
                 name="📊 Impact",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
+                value=f"**Target:** {target_name}\n**State:** {state_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
                 inline=True
             )
 
@@ -594,7 +625,7 @@ class PresCampaignActions(commands.Cog):
 
         embed = discord.Embed(
             title="💰 Presidential Donor Fundraising",
-            description=f"**{candidate['name']}** makes a donor appeal for **{target_candidate['name']}** in {state_name}!",
+            description=f"**{candidate['name']}** makes a donor appeal for **{target_name}** in {state_name}!",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
@@ -616,17 +647,17 @@ class PresCampaignActions(commands.Cog):
 
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-            updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+            updated_percentage = general_percentages.get(target_name, 50.0)
 
             embed.add_field(
                 name="📊 Impact",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                value=f"**Target:** {target_name}\n**State:** {state_name}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
                 inline=True
             )
         else:
             embed.add_field(
                 name="📊 Impact",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                value=f"**Target:** {target_name}\n**State:** {state_name}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
                 inline=True
             )
 
@@ -723,7 +754,7 @@ class PresCampaignActions(commands.Cog):
 
         embed = discord.Embed(
             title="🚪 Presidential Door-to-Door Canvassing",
-            description=f"**{candidate['name']}** goes canvassing for **{target_candidate['name']}** in {state_upper}!",
+            description=f"**{candidate['name']}** goes canvassing for **{target}** in {state_upper}!",
             color=discord.Color.green(),
             timestamp=datetime.utcnow()
         )
@@ -740,17 +771,17 @@ class PresCampaignActions(commands.Cog):
 
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-            updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+            updated_percentage = general_percentages.get(target, 50.0)
 
             embed.add_field(
                 name="📊 Results",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
+                value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
                 inline=True
             )
         else:
             embed.add_field(
                 name="📊 Results",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
+                value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
                 inline=True
             )
 
@@ -883,7 +914,7 @@ class PresCampaignActions(commands.Cog):
 
             embed = discord.Embed(
                 title="💰 Presidential Donor Fundraising",
-                description=f"**{candidate['name']}** makes a donor appeal for **{target_candidate['name']}** in {state_upper}!",
+                description=f"**{candidate['name']}** makes a donor appeal for **{target}** in {state_upper}!",
                 color=discord.Color.gold(),
                 timestamp=datetime.utcnow()
             )
@@ -905,17 +936,17 @@ class PresCampaignActions(commands.Cog):
 
             if current_phase == "General Campaign":
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-                updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+                updated_percentage = general_percentages.get(target, 50.0)
 
                 embed.add_field(
                     name="📊 Impact",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                    value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
                     inline=True
                 )
             else:
                 embed.add_field(
                     name="📊 Impact",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                    value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
                     inline=True
                 )
 
@@ -1053,7 +1084,7 @@ class PresCampaignActions(commands.Cog):
 
             embed = discord.Embed(
                 title="📺 Presidential Campaign Video Ad",
-                description=f"**{candidate['name']}** creates a campaign advertisement for **{target_candidate['name']}** in {state_upper}!",
+                description=f"**{candidate['name']}** creates a campaign advertisement for **{target}** in {state_upper}!",
                 color=discord.Color.purple(),
                 timestamp=datetime.utcnow()
             )
@@ -1064,17 +1095,17 @@ class PresCampaignActions(commands.Cog):
 
             if current_phase == "General Campaign":
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-                updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+                updated_percentage = general_percentages.get(target, 50.0)
 
                 embed.add_field(
                     name="📊 Ad Performance",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
+                    value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1.5",
                     inline=True
                 )
             else:
                 embed.add_field(
                     name="📊 Ad Performance",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
+                    value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1.5",
                     inline=True
                 )
 
@@ -1169,15 +1200,26 @@ class PresCampaignActions(commands.Cog):
         # Ensure target candidate is properly structured
         if not isinstance(target_candidate, dict):
             await interaction.response.send_message(
-                "❌ Error retrieving target candidate data. Please try again.",
+                f"❌ Error retrieving target candidate data. Expected candidate object but got: {type(target_candidate).__name__}. Please contact an administrator.",
                 ephemeral=True
             )
             return
 
-        # Check stamina
-        if target_candidate["stamina"] < 1:
+        # Validate required fields exist and handle missing fields gracefully
+        required_fields = ["name", "user_id"]
+        missing_fields = [field for field in required_fields if field not in target_candidate]
+        if missing_fields:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1 stamina to create a poster.",
+                f"❌ Target candidate data is incomplete. Missing fields: {', '.join(missing_fields)}. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        # Check stamina with safe access
+        current_stamina = target_candidate.get("stamina", 200)
+        if current_stamina < 1:
+            await interaction.response.send_message(
+                f"❌ {target_candidate.get('name', 'Candidate')} doesn't have enough stamina! They need at least 1 stamina to create a poster.",
                 ephemeral=True
             )
             return
@@ -1213,7 +1255,7 @@ class PresCampaignActions(commands.Cog):
         polling_boost = random.uniform(0.2, 0.4)
 
         # Update target candidate stats
-        target_user_id = target_candidate.get("user_id") if isinstance(target_candidate, dict) else None
+        target_user_id = target_candidate.get("user_id")
         if not target_user_id:
             await interaction.response.send_message(
                 "❌ Error: Invalid candidate data structure. Please contact an administrator.",
@@ -1229,7 +1271,7 @@ class PresCampaignActions(commands.Cog):
 
         embed = discord.Embed(
             title="🖼️ Presidential Campaign Poster",
-            description=f"**{candidate['name']}** creates campaign materials for **{target_candidate['name']}** in {state_upper}!",
+            description=f"**{candidate['name']}** creates campaign materials for **{target}** in {state_upper}!",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow()
         )
@@ -1240,17 +1282,17 @@ class PresCampaignActions(commands.Cog):
 
         if current_phase == "General Campaign":
             general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-            updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+            updated_percentage = general_percentages.get(target, 50.0)
 
             embed.add_field(
                 name="📊 Poster Impact",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
+                value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Stamina Cost:** -1",
                 inline=True
             )
         else:
             embed.add_field(
                 name="📊 Poster Impact",
-                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
+                value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Stamina Cost:** -1",
                 inline=True
             )
 
@@ -1261,20 +1303,12 @@ class PresCampaignActions(commands.Cog):
         )
 
         # Safe access for stamina display with proper validation
-        try:
-            current_stamina = target_candidate.get("stamina", 200)
-            embed.add_field(
-                name="⚡ Target's Current Stamina",
-                value=f"{current_stamina - 1}/200",
-                inline=True
-            )
-        except (AttributeError, TypeError):
-            # Fallback if target_candidate is not a proper dict
-            embed.add_field(
-                name="⚡ Target's Current Stamina",
-                value="199/200",
-                inline=True
-            )
+        current_stamina = target_candidate.get("stamina", 200) if isinstance(target_candidate, dict) else 200
+        embed.add_field(
+            name="⚡ Target's Current Stamina",
+            value=f"{current_stamina - 1}/200",
+            inline=True
+        )
 
 
         embed.set_image(url=image.url)
@@ -1405,7 +1439,7 @@ class PresCampaignActions(commands.Cog):
             # Create public speech announcement
             embed = discord.Embed(
                 title="🎤 Presidential Campaign Speech",
-                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}** in {state_upper}!",
+                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target}** in {state_upper}!",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
@@ -1427,17 +1461,17 @@ class PresCampaignActions(commands.Cog):
 
             if current_phase == "General Campaign":
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_candidate["office"])
-                updated_percentage = general_percentages.get(target_candidate["name"], 50.0)
+                updated_percentage = general_percentages.get(target, 50.0)
 
                 embed.add_field(
                     name="📊 Impact",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
+                    value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Characters:** {char_count:,}",
                     inline=True
                 )
             else:
                 embed.add_field(
                     name="📊 Impact",
-                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
+                    value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Characters:** {char_count:,}",
                     inline=True
                 )
 
@@ -1509,35 +1543,91 @@ class PresCampaignActions(commands.Cog):
 
     async def _get_presidential_candidate_choices(self, interaction: discord.Interaction, current: str):
         """Get presidential candidate choices for autocomplete"""
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        if not time_config:
-            return []
+        try:
+            time_col, time_config = self._get_time_config(interaction.guild.id)
+            if not time_config:
+                # Fallback: try to get candidates from current year (2024 default)
+                signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                if signups_config:
+                    candidate_names = [
+                        c["name"] for c in signups_config.get("candidates", [])
+                        if c["office"] in ["President", "Vice President"]
+                    ]
+                    return [app_commands.Choice(name=name, value=name)
+                            for name in candidate_names if current.lower() in name.lower()][:25]
+                return []
 
-        current_year = time_config["current_rp_date"].year
-        current_phase = time_config.get("current_phase", "")
+            current_year = time_config["current_rp_date"].year
+            current_phase = time_config.get("current_phase", "")
+            candidate_names = []
 
-        candidates = []
-
-        if current_phase == "General Campaign":
-            # Get from presidential winners
-            winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
-            if winners_config:
+            if current_phase == "General Campaign":
+                # Calculate primary year correctly
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-                candidates = [
-                    w["name"] for w in winners_config.get("winners", [])
-                    if w.get("primary_winner", False) and w["year"] == primary_year and w["office"] in ["President", "Vice President"]
-                ]
-        else:
-            # Get from presidential signups
-            signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
-            if signups_config:
-                candidates = [
-                    c["name"] for c in signups_config.get("candidates", [])
-                    if c["year"] == current_year and c["office"] in ["President", "Vice President"]
-                ]
+                
+                # First try all_winners system
+                all_winners_col = self.bot.db["winners"]
+                all_winners_config = all_winners_col.find_one({"guild_id": interaction.guild.id})
+                if all_winners_config:
+                    candidate_names = [
+                        w["candidate"] for w in all_winners_config.get("winners", [])
+                        if (w.get("primary_winner", False) and 
+                            w.get("year") == primary_year and 
+                            w.get("office") in ["President", "Vice President"])
+                    ]
 
-        return [app_commands.Choice(name=name, value=name)
-                for name in candidates if current.lower() in name.lower()][:25]
+                # If no candidates from all_winners, check presidential winners collection
+                if not candidate_names:
+                    winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+                    if winners_config and winners_config.get("winners"):
+                        signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                        if signups_config:
+                            party_winners = winners_config.get("winners", {})
+                            # Get all candidates from that primary year
+                            for candidate in signups_config.get("candidates", []):
+                                if (candidate["year"] == primary_year and 
+                                    candidate["office"] in ["President", "Vice President"] and
+                                    candidate["name"] in party_winners.values()):
+                                    candidate_names.append(candidate["name"])
+
+                # If still no candidates, get all from primary year as fallback
+                if not candidate_names:
+                    signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                    if signups_config:
+                        candidate_names = [
+                            c["name"] for c in signups_config.get("candidates", [])
+                            if c["year"] == primary_year and c["office"] in ["President", "Vice President"]
+                        ]
+            else:
+                # For Primary Campaign or other phases, get from presidential signups
+                signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                if signups_config:
+                    candidate_names = [
+                        c["name"] for c in signups_config.get("candidates", [])
+                        if c["year"] == current_year and c["office"] in ["President", "Vice President"]
+                    ]
+
+            # Remove duplicates and filter by current input
+            candidate_names = list(set(candidate_names))
+            return [app_commands.Choice(name=name, value=name)
+                    for name in candidate_names if current.lower() in name.lower()][:25]
+                    
+        except Exception as e:
+            print(f"Error in _get_presidential_candidate_choices: {e}")
+            # Fallback: get all presidential candidates regardless of year/phase
+            try:
+                signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                if signups_config:
+                    candidate_names = [
+                        c["name"] for c in signups_config.get("candidates", [])
+                        if c["office"] in ["President", "Vice President"]
+                    ]
+                    candidate_names = list(set(candidate_names))  # Remove duplicates
+                    return [app_commands.Choice(name=name, value=name)
+                            for name in candidate_names if current.lower() in name.lower()][:25]
+            except:
+                pass
+            return []
 
     @app_commands.command(
         name="pres_campaign_status",
