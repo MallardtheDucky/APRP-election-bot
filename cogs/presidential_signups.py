@@ -873,125 +873,134 @@ class PresidentialSignups(commands.Cog):
         if current_phase in ["General Campaign", "General Election"]:
             # During general campaign/election, show only the nominees who won their primaries
 
-            # Get primary winners who advanced to general election
-            winners_col = self.bot.db["presidential_winners"]
-            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
-
-            # Also check delegate system for primary winners
-            delegates_col = self.bot.db["delegates_config"] 
-            delegates_config = delegates_col.find_one({"guild_id": interaction.guild.id})
-
-            # For general election, look for primary winners from the signup year
-            primary_year = target_year - 1 if target_year % 2 == 0 else target_year
+            # Check if presidential_winners collection has an election_year that matches target_year
+            pres_winners_col = self.bot.db["presidential_winners"]
+            pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
+            
             general_candidates = []
 
-            pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
-
-            # First, check presidential_winners collection (primary source)
-            if winners_config and winners_config.get("winners"):
-                party_winners = winners_config.get("winners", {})
-                print(f"Debug: Found presidential winners: {party_winners}")
+            if pres_winners_config and pres_winners_config.get("winners"):
+                party_winners = pres_winners_config.get("winners", {})
+                stored_election_year = pres_winners_config.get("election_year")
                 
-                for party, winner_name in party_winners.items():
-                    if pres_config:
+                print(f"Debug: Found presidential winners: {party_winners}")
+                print(f"Debug: Stored election year: {stored_election_year}, Target year: {target_year}")
+
+                # Determine the signup year based on the stored election year
+                if stored_election_year:
+                    signup_year = stored_election_year - 1
+                else:
+                    # Fallback to old logic
+                    signup_year = target_year - 1 if target_year % 2 == 0 else target_year
+
+                pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+                
+                if pres_config:
+                    for party, winner_name in party_winners.items():
                         for candidate in pres_config.get("candidates", []):
                             if (candidate["name"] == winner_name and 
-                                candidate["year"] == primary_year and 
+                                candidate["year"] == signup_year and 
                                 candidate["office"] == "President"):
+                                # Mark this candidate as a primary winner
+                                candidate["is_primary_winner"] = True
+                                candidate["primary_winner_party"] = party
+                                candidate["election_year"] = stored_election_year or target_year
                                 general_candidates.append(candidate)
-                                print(f"Debug: Added general candidate: {candidate['name']}")
+                                print(f"Debug: Added general candidate from presidential_winners: {candidate['name']}")
                                 break
 
-            # Fallback: get winners from delegates system
-            if not general_candidates and delegates_config and "primary_winners" in delegates_config:
-                primary_winners = delegates_config["primary_winners"]
-                for key, winner_name in primary_winners.items():
-                    if f"_{primary_year}" in key:  # Winner from the right year
-                        party = key.replace(f"_{primary_year}", "")
-                        
-                        # Find the full candidate data
-                        if pres_config:
+            # If no winners from presidential_winners, check all_winners system as fallback
+            if not general_candidates:
+                winners_col = self.bot.db["winners"]
+                winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+
+                if winners_config and winners_config.get("winners"):
+                    # Find presidential primary winners in all_winners system
+                    presidential_winners = [
+                        w for w in winners_config.get("winners", [])
+                        if (w.get("office") == "President" and 
+                            w.get("year") == target_year and 
+                            w.get("primary_winner", False))
+                    ]
+
+                    print(f"Debug: Found {len(presidential_winners)} presidential primary winners in all_winners system")
+
+                    # Get full candidate data from presidential signups
+                    pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+                    
+                    if pres_config and presidential_winners:
+                        for winner in presidential_winners:
+                            winner_name = winner.get("candidate")
                             for candidate in pres_config.get("candidates", []):
                                 if (candidate["name"] == winner_name and 
                                     candidate["year"] == primary_year and 
                                     candidate["office"] == "President"):
+                                    # Add winner data to candidate for display
+                                    candidate["winner_data"] = winner
                                     general_candidates.append(candidate)
+                                    print(f"Debug: Added general candidate from all_winners: {candidate['name']}")
                                     break
 
-            # Also include qualified independents from delegates system
-            if delegates_config:
-                delegate_totals = delegates_config.get("delegate_totals", {})
-                delegate_threshold = 50  # Threshold for independents to qualify
-
-                # Find independent candidates with enough delegates
-                if pres_config:
-                    for candidate in pres_config.get("candidates", []):
-                        if (candidate.get("year") == primary_year and 
-                            candidate.get("office") == "President"):
-                            
-                            candidate_party = candidate.get("party", "").lower()
-                            is_independent = not ("democrat" in candidate_party or "republican" in candidate_party)
-                            
-                            if is_independent:
-                                candidate_delegates = delegate_totals.get(candidate["name"], 0)
-                                if candidate_delegates >= delegate_threshold:
-                                    # Check if already added
-                                    if not any(gc["name"] == candidate["name"] for gc in general_candidates):
-                                        general_candidates.append(candidate)
-
-            # If no primary winners found, show all presidential candidates as a fallback
-            if not general_candidates and pres_config:
-                print(f"Debug: No primary winners found, showing all presidential candidates for year {primary_year}")
-                all_presidential_candidates = [
-                    c for c in pres_config.get("candidates", [])
-                    if c.get("year") == primary_year and c.get("office") == "President"
-                ]
+            # If still no candidates found, show all registered candidates with note
+            if not general_candidates:
+                # For fallback, use the stored election year if available, otherwise use target_year
+                fallback_signup_year = signup_year if 'signup_year' in locals() else (target_year - 1 if target_year % 2 == 0 else target_year)
                 
-                if all_presidential_candidates:
-                    # Show warning that these are all candidates, not confirmed primary winners
-                    embed = discord.Embed(
-                        title=f"⚠️ {target_year} Presidential Candidates (All Registered)",
-                        description=f"Primary winners may not have been declared yet. Showing all registered presidential candidates from {primary_year}:",
-                        color=discord.Color.orange(),
-                        timestamp=datetime.utcnow()
-                    )
+                pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
+                
+                if pres_config:
+                    all_presidential_candidates = [
+                        c for c in pres_config.get("candidates", [])
+                        if c.get("year") == fallback_signup_year and c.get("office") == "President"
+                    ]
 
-                    for candidate in all_presidential_candidates:
-                        vp_name = candidate.get("vp_candidate", "No VP selected")
-                        points = candidate.get("points", 0)
+                    if all_presidential_candidates:
+                        # Show warning that these are all candidates, not confirmed primary winners
+                        embed = discord.Embed(
+                            title=f"⚠️ {target_year} Presidential Candidates (All Registered)",
+                            description=f"Primary winners may not have been declared yet. Showing all registered presidential candidates from {fallback_signup_year}:",
+                            color=discord.Color.orange(),
+                            timestamp=datetime.utcnow()
+                        )
 
-                        # Party color
-                        party_emoji = "🔴" if "republican" in candidate["party"].lower() else "🔵" if "democrat" in candidate["party"].lower() else "🟣"
+                        for candidate in all_presidential_candidates:
+                            vp_name = candidate.get("vp_candidate", "No VP selected")
+                            points = candidate.get("points", 0)
 
-                        ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
-                        ticket_info += f"**Running Mate:** {vp_name}\n"
-                        ticket_info += f"**Primary Points:** {points:.2f}\n"
-                        ticket_info += f"**Status:** {'🏆 Likely Winner' if points > 0 else 'Registered Candidate'}\n\n"
-                        ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
-                        ticket_info += f"**Economic:** {candidate['economic']}\n"
-                        ticket_info += f"**Social:** {candidate['social']}\n"
-                        ticket_info += f"**Government:** {candidate['government']}"
+                            # Party color
+                            party_emoji = "🔴" if "republican" in candidate["party"].lower() else "🔵" if "democrat" in candidate["party"].lower() else "🟣"
+
+                            ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
+                            ticket_info += f"**Running Mate:** {vp_name}\n"
+                            ticket_info += f"**Primary Points:** {points:.2f}\n"
+                            ticket_info += f"**Status:** {'🏆 Primary Winner' if points > 0 else 'Registered Candidate'}\n\n"
+                            ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
+                            ticket_info += f"**Economic:** {candidate['economic']}\n"
+                            ticket_info += f"**Social:** {candidate['social']}\n"
+                            ticket_info += f"**Government:** {candidate['government']}"
+
+                            embed.add_field(
+                                name=f"🇺🇸 {candidate['name']}",
+                                value=ticket_info,
+                                inline=False
+                            )
 
                         embed.add_field(
-                            name=f"🇺🇸 {candidate['name']}",
-                            value=ticket_info,
+                            name="💡 Note",
+                            value="These candidates are available for the general election. Use campaign commands to compete!",
                             inline=False
                         )
 
-                    embed.add_field(
-                        name="💡 Note",
-                        value="If these candidates should be primary winners, use `/admin_process_pres_primaries` to declare winners.",
-                        inline=False
-                    )
-
-                    await interaction.response.send_message(embed=embed)
-                    return
+                        await interaction.response.send_message(embed=embed)
+                        return
 
             if not general_candidates:
+                # Use the signup year that was determined earlier
+                error_signup_year = signup_year if 'signup_year' in locals() else (target_year - 1 if target_year % 2 == 0 else target_year)
                 await interaction.response.send_message(
                     f"❌ No general election candidates found for {target_year}.\n"
                     f"Primary winners may not have been declared yet.\n"
-                    f"Use `/admin_process_pres_primaries signup_year:{primary_year} confirm:True` to process primary winners.",
+                    f"Use `/central presidential process_pres_primaries signup_year:{error_signup_year} confirm:True` to process primary winners.",
                     ephemeral=True
                 )
                 return
@@ -1025,12 +1034,10 @@ class PresidentialSignups(commands.Cog):
                 ticket_info += f"**Social:** {candidate['social']}\n"
                 ticket_info += f"**Government:** {candidate['government']}"
 
-                # Show delegate count if available
-                if delegates_config:
-                    delegate_totals = delegates_config.get("delegate_totals", {})
-                    candidate_delegates = delegate_totals.get(candidate["name"], 0)
-                    if candidate_delegates > 0:
-                        ticket_info += f"\n**Primary Delegates:** {candidate_delegates}"
+                # Show winner status if available
+                if candidate.get("winner_data"):
+                    winner_data = candidate["winner_data"]
+                    ticket_info += f"\n**Primary Status:** 🏆 Winner ({winner_data.get('points', 0):.1f} pts)"
 
                 embed.add_field(
                     name=f"🇺🇸 {candidate['name']}",

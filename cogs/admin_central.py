@@ -81,7 +81,7 @@ class AdminCentral(commands.Cog):
     ):
         """View PRESIDENTIAL_STATE_DATA for a specific state or all states in table format"""
         from cogs.presidential_winners import PRESIDENTIAL_STATE_DATA
-        
+
 
         if state_name:
             state_name = state_name.upper()
@@ -243,6 +243,55 @@ class AdminCentral(commands.Cog):
         )
 
     @admin_presidential_group.command(
+        name="process_pres_primaries",
+        description="Process presidential primary winners from signups"
+    )
+    @app_commands.describe(
+        signup_year="Year when signups occurred (defaults to previous year)",
+        confirm="Set to True to confirm the processing"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_process_pres_primaries(
+        self,
+        interaction: discord.Interaction,
+        signup_year: int = None,
+        confirm: bool = False
+    ):
+        """Process presidential primary winners from signups"""
+        # Get time config to determine current year
+        time_col = self.bot.db["time_configs"]
+        time_config = time_col.find_one({"guild_id": interaction.guild.id})
+
+        if not time_config:
+            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        target_signup_year = signup_year if signup_year else (current_year - 1 if current_year % 2 == 0 else current_year)
+
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will process presidential signups from {target_signup_year} and declare primary winners for {current_year}.\n"
+                f"To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Get the presidential winners cog to use its methods
+        pres_winners_cog = self.bot.get_cog('PresidentialWinners')
+        if not pres_winners_cog:
+            await interaction.response.send_message("❌ Presidential Winners cog not loaded", ephemeral=True)
+            return
+
+        await pres_winners_cog._process_presidential_primary_winners(interaction.guild.id, target_signup_year)
+
+        await interaction.response.send_message(
+            f"✅ Successfully processed presidential primary winners from {target_signup_year} signups!",
+            ephemeral=True
+        )
+
+    @admin_presidential_group.command(
         name="end_election",
         description="End presidential election and apply ideology shifts"
     )
@@ -335,6 +384,97 @@ class AdminCentral(commands.Cog):
             value="• New election cycle can now begin\n• Fresh candidates can register\n• State ideologies permanently updated",
             inline=False
         )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_presidential_group.command(
+        name="debug_winners_data",
+        description="Debug command to view raw presidential winners data"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_debug_winners_data(
+        self,
+        interaction: discord.Interaction
+    ):
+        """Debug command to view what's stored in presidential_winners collection"""
+        # Check presidential_winners collection
+        pres_winners_col = self.bot.db["presidential_winners"]
+        pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
+
+        # Check all_winners collection
+        all_winners_col = self.bot.db["winners"]
+        all_winners_config = all_winners_col.find_one({"guild_id": interaction.guild.id})
+
+        # Check presidential_signups collection
+        pres_signups_col = self.bot.db["presidential_signups"]
+        pres_signups_config = pres_signups_col.find_one({"guild_id": interaction.guild.id})
+
+        embed = discord.Embed(
+            title="🔍 Debug: Presidential Winners Data",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Presidential winners collection
+        if pres_winners_config:
+            winners_data = pres_winners_config.get("winners", {})
+            election_year = pres_winners_config.get("election_year", "N/A")
+            embed.add_field(
+                name="📊 Presidential Winners Collection",
+                value=f"**Winners:** {winners_data}\n**Election Year:** {election_year}",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="📊 Presidential Winners Collection",
+                value="❌ No data found",
+                inline=False
+            )
+
+        # All winners collection (presidential only)
+        if all_winners_config:
+            presidential_all_winners = [
+                w for w in all_winners_config.get("winners", [])
+                if w.get("office") == "President" and w.get("primary_winner", False)
+            ]
+            if presidential_all_winners:
+                winners_summary = []
+                for w in presidential_all_winners[:3]:  # Show first 3
+                    winners_summary.append(f"{w.get('candidate')} ({w.get('party')}) - Year {w.get('year')}")
+                embed.add_field(
+                    name="🏆 All Winners Collection (Presidential)",
+                    value=f"**Count:** {len(presidential_all_winners)}\n**Sample:** {', '.join(winners_summary)}",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🏆 All Winners Collection (Presidential)",
+                    value="❌ No presidential primary winners found",
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="🏆 All Winners Collection",
+                value="❌ No data found",
+                inline=False
+            )
+
+        # Presidential signups collection
+        if pres_signups_config:
+            current_candidates = pres_signups_config.get("candidates", [])
+            president_count = len([c for c in current_candidates if c.get("office") == "President"])
+            embed.add_field(
+                name="🇺🇸 Presidential Signups Collection",
+                value=f"**Total Candidates:** {len(current_candidates)}\n**Presidential Candidates:** {president_count}",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="🇺🇸 Presidential Signups Collection",
+                value="❌ No data found",
+                inline=False
+            )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

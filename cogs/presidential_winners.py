@@ -1,3 +1,8 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+from datetime import datetime
+
 # Presidential election state data
 # Data shows Republican/Democrat/Other percentages for each state
 # Numbers copied from STATE_DATA in ideology.py
@@ -198,12 +203,14 @@ class PresidentialWinners(commands.Cog):
 
         # Determine winner for each party (highest points)
         winners = {}
+        presidential_primary_winners = []
         for party, party_cands in party_candidates.items():
             if len(party_cands) == 1:
                 winner = party_cands[0]
             else:
                 winner = max(party_cands, key=lambda x: x.get("points", 0))
             winners[party] = winner["name"]
+            presidential_primary_winners.append(winner)
 
         # Update presidential winners with election year (signup_year + 1)
         election_year = signup_year + 1
@@ -214,6 +221,9 @@ class PresidentialWinners(commands.Cog):
             {"guild_id": guild_id},
             {"$set": {"winners": winners, "election_year": election_year}}
         )
+
+        # Transfer presidential primary winners to all_winners system
+        await self._transfer_to_all_winners(guild_id, presidential_primary_winners, election_year)
 
         print(f"Processed {len(winners)} presidential primary winners for guild {guild_id}, election year {election_year}")
 
@@ -307,20 +317,21 @@ class PresidentialWinners(commands.Cog):
         
         general_candidates = []
         
-        # Get major party nominees (top 2 from primary winners)
+        # Get major party nominees from primary winners
         party_winners = winners_config.get("winners", {})
-        for party, winner_name in party_winners.items():
+        if party_winners:
             # Find full candidate data
             pres_signups_col = self.bot.db["presidential_signups"]
             pres_signups_config = pres_signups_col.find_one({"guild_id": interaction.guild.id})
             
             if pres_signups_config:
-                for candidate in pres_signups_config.get("candidates", []):
-                    if (candidate["name"] == winner_name and 
-                        candidate["year"] == primary_year and 
-                        candidate["office"] == "President"):
-                        general_candidates.append(candidate)
-                        break
+                for party, winner_name in party_winners.items():
+                    for candidate in pres_signups_config.get("candidates", []):
+                        if (candidate["name"] == winner_name and 
+                            candidate["year"] == primary_year and 
+                            candidate["office"] == "President"):
+                            general_candidates.append(candidate)
+                            break
 
         # Also check for independents who qualified through delegates
         delegates_col = self.bot.db["delegates_config"]
@@ -390,6 +401,31 @@ class PresidentialWinners(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
+
+    def _calculate_general_election_percentages(self, guild_id: int, office: str):
+        """Calculate general election percentages for candidates"""
+        # Simple baseline calculation - you can enhance this based on your game mechanics
+        percentages = {}
+        
+        # Get current primary winners
+        winners_col, winners_config = self._get_presidential_winners_config(guild_id)
+        party_winners = winners_config.get("winners", {})
+        
+        # Default percentages based on party
+        party_base_percentages = {
+            "Democrats": 45.0,
+            "Democratic Party": 45.0,
+            "Republicans": 45.0,
+            "Republican Party": 45.0,
+            "Others": 10.0,
+            "Independent": 10.0
+        }
+        
+        for party, candidate_name in party_winners.items():
+            base_percentage = party_base_percentages.get(party, 15.0)
+            percentages[candidate_name] = base_percentage
+            
+        return percentages
 
     def _get_presidential_candidates(self, guild_id: int, party: str, year: int):
         """Get presidential candidates for a specific party and year"""
@@ -496,21 +532,43 @@ class PresidentialWinners(commands.Cog):
         pres_signups_col = self.bot.db["presidential_signups"]
         pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
 
-        if not pres_signups_config:
-            return
+        if pres_signups_config:
+            # Filter out candidates from the previous election year and reset points
+            updated_candidates = []
+            for candidate in pres_signups_config.get("candidates", []):
+                if candidate.get("year", 0) == current_year:  # Keep candidates from the current year
+                    candidate["points"] = 0
+                    candidate["total_points"] = 0
+                updated_candidates.append(candidate)
 
-        # Filter out candidates from the previous election year and reset points
-        updated_candidates = []
-        for candidate in pres_signups_config.get("candidates", []):
-            if candidate.get("year", 0) == current_year:  # Keep candidates from the current year
-                candidate["points"] = 0
-                candidate["total_points"] = 0
-            updated_candidates.append(candidate)
-        
-        pres_signups_col.update_one(
-            {"guild_id": guild_id},
-            {"$set": {"candidates": updated_candidates}}
-        )
+            pres_signups_col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"candidates": updated_candidates}}
+            )
+
+        # Also reset presidential candidates in all_winners system
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": guild_id})
+
+        if winners_config:
+            updated_count = 0
+            for i, winner in enumerate(winners_config.get("winners", [])):
+                if (winner.get("year") == current_year and 
+                    winner.get("office") == "President" and
+                    winner.get("primary_winner", False) and
+                    winner.get("phase") != "General Campaign"):
+
+                    winners_config["winners"][i]["points"] = 0.0
+                    winners_config["winners"][i]["stamina"] = 200  # Presidential candidates get higher stamina
+                    winners_config["winners"][i]["phase"] = "General Campaign"
+                    updated_count += 1
+
+            if updated_count > 0:
+                winners_col.update_one(
+                    {"guild_id": guild_id},
+                    {"$set": {"winners": winners_config["winners"]}}
+                )
+                print(f"Reset {updated_count} presidential winners in all_winners system for general campaign")
 
         print(f"Reset presidential candidates for general campaign in guild {guild_id}, year {current_year}")
 
@@ -600,6 +658,140 @@ class PresidentialWinners(commands.Cog):
             ephemeral=True
         )
 
+    async def _transfer_to_all_winners(self, guild_id: int, presidential_winners: list, election_year: int):
+        """Transfer presidential primary winners to the all_winners system"""
+        # Get or create all_winners configuration
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": guild_id})
+        if not winners_config:
+            winners_config = {
+                "guild_id": guild_id,
+                "winners": []
+            }
+            winners_col.insert_one(winners_config)
+
+        # Create winner entries for all_winners system
+        all_winners_entries = []
+        for candidate in presidential_winners:
+            # Create presidential seat_id based on party
+            party_seat_mapping = {
+                "Democrats": "US-PRES-DEM",
+                "Democratic Party": "US-PRES-DEM", 
+                "Republicans": "US-PRES-REP",
+                "Republican Party": "US-PRES-REP",
+                "Others": "US-PRES-IND",
+                "Independent": "US-PRES-IND"
+            }
+
+            seat_id = party_seat_mapping.get(candidate["party"], "US-PRES-OTHER")
+
+            # Calculate baseline percentage based on party
+            baseline_percentages = {
+                "Democrats": 45.0,
+                "Democratic Party": 45.0,
+                "Republicans": 45.0, 
+                "Republican Party": 45.0,
+                "Others": 10.0,
+                "Independent": 10.0
+            }
+            baseline_percentage = baseline_percentages.get(candidate["party"], 10.0)
+
+            winner_entry = {
+                "year": election_year,
+                "user_id": candidate["user_id"],
+                "office": "President",
+                "state": "United States",
+                "seat_id": seat_id,
+                "candidate": candidate["name"],
+                "party": candidate["party"],
+                "points": 0.0,  # Reset for general campaign
+                "baseline_percentage": baseline_percentage,
+                "votes": 0,
+                "corruption": candidate.get("corruption", 0),
+                "final_score": 0,
+                "stamina": candidate.get("stamina", 200),  # Presidential candidates get higher stamina
+                "winner": False,
+                "phase": "Primary Winner",
+                "primary_winner": True,
+                "general_winner": False,
+                "created_date": datetime.utcnow()
+            }
+            all_winners_entries.append(winner_entry)
+
+        # Add presidential winners to all_winners system
+        if all_winners_entries:
+            if "winners" not in winners_config:
+                winners_config["winners"] = []
+            winners_config["winners"].extend(all_winners_entries)
+
+            winners_col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"winners": winners_config["winners"]}}
+            )
+
+            print(f"Transferred {len(all_winners_entries)} presidential primary winners to all_winners system for guild {guild_id}")
+
+
+    @app_commands.command(
+        name="admin_view_all_winners",
+        description="View all winners across different offices and years (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_all_winners(
+        self,
+        interaction: discord.Interaction,
+        year: int = None,
+        office: str = None,
+        state: str = None
+    ):
+        """Admin command to view all winners"""
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+
+        if not winners_config or not winners_config.get("winners"):
+            await interaction.response.send_message("No winners found in the system.", ephemeral=True)
+            return
+
+        filtered_winners = winners_config.get("winners", [])
+
+        if year:
+            filtered_winners = [w for w in filtered_winners if w.get("year") == year]
+        if office:
+            filtered_winners = [w for w in filtered_winners if w.get("office", "").lower() == office.lower()]
+        if state:
+            filtered_winners = [w for w in filtered_winners if w.get("state", "").lower() == state.lower()]
+
+        if not filtered_winners:
+            await interaction.response.send_message("No winners found matching your criteria.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🏆 All Election Winners",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        winner_details = []
+        for winner in filtered_winners:
+            winner_details.append(
+                f"**{winner.get('year')} {winner.get('state')} {winner.get('office')}**\n"
+                f"  - Candidate: {winner.get('candidate')}\n"
+                f"  - Party: {winner.get('party')}\n"
+                f"  - Status: {winner.get('phase')}"
+            )
+
+        # Split into multiple embeds if too long
+        max_fields = 10
+        for i in range(0, len(winner_details), max_fields):
+            chunk = winner_details[i:i + max_fields]
+            for detail in chunk:
+                embed.add_field(name="\u200b", value=detail, inline=False)
+            
+            if i + max_fields < len(winner_details):
+                await interaction.response.send_message(embed=embed)
+                embed = discord.Embed(title="🏆 All Election Winners (Continued)", color=discord.Color.blue(), timestamp=datetime.utcnow())
+            else:
+                await interaction.response.send_message(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(PresidentialWinners(bot))

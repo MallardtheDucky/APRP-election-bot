@@ -149,49 +149,49 @@ class PresCampaignActions(commands.Cog):
     def _check_cooldown(self, guild_id: int, user_id: int, action: str, hours: int) -> bool:
         """Check if user is on cooldown for a specific action"""
         cooldowns_col = self.bot.db["action_cooldowns"]
-        
+
         cooldown_record = cooldowns_col.find_one({
             "guild_id": guild_id,
             "user_id": user_id,
             "action": action
         })
-        
+
         if not cooldown_record:
             return True
-        
+
         from datetime import datetime, timedelta
         last_used = cooldown_record["last_used"]
         cooldown_duration = timedelta(hours=hours)
-        
+
         return datetime.utcnow() > last_used + cooldown_duration
 
     def _get_cooldown_remaining(self, guild_id: int, user_id: int, action: str, hours: int):
         """Get remaining cooldown time"""
         cooldowns_col = self.bot.db["action_cooldowns"]
-        
+
         cooldown_record = cooldowns_col.find_one({
             "guild_id": guild_id,
             "user_id": user_id,
             "action": action
         })
-        
+
         if not cooldown_record:
             return timedelta(0)
-        
+
         from datetime import datetime, timedelta
         last_used = cooldown_record["last_used"]
         cooldown_duration = timedelta(hours=hours)
         next_available = last_used + cooldown_duration
-        
+
         if datetime.utcnow() >= next_available:
             return timedelta(0)
-        
+
         return next_available - datetime.utcnow()
 
     def _set_cooldown(self, guild_id: int, user_id: int, action: str):
         """Set cooldown for a user action"""
         cooldowns_col = self.bot.db["action_cooldowns"]
-        
+
         cooldowns_col.update_one(
             {
                 "guild_id": guild_id,
@@ -463,6 +463,14 @@ class PresCampaignActions(commands.Cog):
         if not candidate:
             await interaction.response.send_message(
                 "❌ You must be a registered presidential candidate to give speeches. Use `/pres_signup` first.",
+                ephemeral=True
+            )
+            return
+
+        # Ensure candidate is properly structured
+        if not isinstance(candidate, dict):
+            await interaction.response.send_message(
+                "❌ Error retrieving candidate data. Please try again.",
                 ephemeral=True
             )
             return
@@ -1254,6 +1262,14 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
+        # Ensure candidate is properly structured
+        if not isinstance(candidate, dict):
+            await interaction.response.send_message(
+                "❌ Error retrieving candidate data. Please try again.",
+                ephemeral=True
+            )
+            return
+
         # Check if in campaign phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
         if not time_config or time_config["current_phase"] not in ["Primary Campaign", "General Campaign"]:
@@ -1383,39 +1399,44 @@ class PresCampaignActions(commands.Cog):
 
         except asyncio.TimeoutError:
             await interaction.edit_original_response(
-                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/pres_speech` again and reply with your speech within 5 minutes."
+                content=f"⏰ **{candidate.get('name', 'User')}**, your speech timed out. Please use `/pres_speech` again and reply with your speech within 5 minutes."
+            )
+        except Exception as e:
+            print(f"Error in pres_speech: {e}")
+            await interaction.edit_original_response(
+                content=f"❌ An error occurred while processing your speech. Please try again."
             )
 
     # State autocomplete for all commands
     @pres_canvassing.autocomplete("state")
     async def state_autocomplete_canvassing(self, interaction: discord.Interaction, current: str):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
 
     @pres_donor.autocomplete("state")
     async def state_autocomplete_donor(self, interaction: discord.Interaction, current: str):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
 
     @pres_ad.autocomplete("state")
     async def state_autocomplete_ad(self, interaction: discord.Interaction, current: str):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
 
     @pres_poster.autocomplete("state")
     async def state_autocomplete_poster(self, interaction: discord.Interaction, current: str):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
 
     @pres_speech.autocomplete("state")
     async def state_autocomplete_speech(self, interaction: discord.Interaction, current: str):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
 
     # Target autocomplete for all commands
     @pres_canvassing.autocomplete("target")
@@ -1914,8 +1935,8 @@ class PresCampaignActions(commands.Cog):
     @admin_add_pres_points.autocomplete("state")
     async def state_autocomplete_admin(self, interaction: discord.Interaction, current: str):
         states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
 
 async def setup(bot):
     await bot.add_cog(PresCampaignActions(bot))
