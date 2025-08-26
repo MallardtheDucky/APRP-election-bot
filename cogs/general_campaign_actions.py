@@ -39,6 +39,25 @@ class GeneralCampaignActions(commands.Cog):
 
         return signups_col, None
 
+    def _get_candidate_by_name(self, guild_id: int, candidate_name: str):
+        """Get candidate information by name from all signups"""
+        signups_col = self.bot.db["all_signups"]
+        signups_config = signups_col.find_one({"guild_id": guild_id})
+
+        if not signups_config:
+            return signups_col, None
+
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+
+        for candidate in signups_config.get("candidates", []):
+            if (candidate.get("name", "").lower() == candidate_name.lower() and 
+                candidate["year"] == current_year):
+                return signups_col, candidate
+
+        return signups_col, None
+
+
     def _apply_buff_debuff_multiplier_enhanced(self, base_points: float, user_id: int, guild_id: int, action_type: str) -> float:
         """Apply any active buffs or debuffs to the points gained with announcements"""
         buffs_col, buffs_config = self._get_buffs_debuffs_config(guild_id)
@@ -83,13 +102,15 @@ class GeneralCampaignActions(commands.Cog):
     )
     @app_commands.describe(
         state="The state where you're giving the speech",
-        ideology="Your campaign's ideological stance"
+        ideology="Your campaign's ideological stance",
+        target="The candidate who will receive benefits (optional)"
     )
     async def speech(
         self,
         interaction: discord.Interaction,
         state: str,
-        ideology: str
+        ideology: str,
+        target: Optional[str] = None
     ):
         """Give a speech with potential state and ideology bonus"""
         state_key = state.upper()
@@ -102,21 +123,38 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Check if user has a registered candidate
+        state_data = STATE_DATA[state_key]
+
+        # Check if user has a registered candidate (optional)
         signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
-        if not candidate:
+        # Use candidate name if registered, otherwise use display name
+        candidate_name = candidate["name"] if candidate else interaction.user.display_name
+
+        # If no target specified, require one when user is not a candidate
+        if target is None:
+            if candidate:
+                target = candidate_name
+            else:
+                await interaction.response.send_message(
+                    "❌ You must specify a target candidate to perform this action.",
+                    ephemeral=True
+                )
+                return
+
+        # Verify target candidate exists
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
+        if not target_candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered candidate to give speeches. Use `/signup` to register for an election first.",
+                f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
             )
             return
 
-        state_data = STATE_DATA[state_key]
-
         # Send initial message asking for speech
         await interaction.response.send_message(
-            f"🎤 **{candidate['name']}**, please reply to this message with your campaign speech!\n\n"
+            f"🎤 **{candidate_name}**, please reply to this message with your campaign speech!\n\n"
+            f"**Target:** {target}\n"
             f"**State:** {state.title()}\n"
             f"**Your Ideology:** {ideology}\n"
             f"**State Ideology:** {state_data.get('ideology', 'Unknown')}\n"
@@ -156,10 +194,13 @@ class GeneralCampaignActions(commands.Cog):
             ideology_bonus = 0.5 if ideology_match else 0.0
             total_bonus = base_bonus + ideology_bonus
 
+            # Add momentum during General Campaign
+            self._add_momentum_from_general_action(interaction.guild.id, interaction.user.id, state_key, total_bonus, candidate, target)
+
             # Create response embed
             embed = discord.Embed(
                 title=f"🎤 Campaign Speech in {state.title()}",
-                description=f"**{candidate['name']}** delivers a compelling speech!",
+                description=f"**{candidate_name}** delivers a compelling speech!",
                 color=discord.Color.green() if ideology_match else discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
@@ -206,12 +247,16 @@ class GeneralCampaignActions(commands.Cog):
 
         except asyncio.TimeoutError:
             await interaction.edit_original_response(
-                content=f"⏰ **{candidate['name']}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
+                content=f"⏰ **{candidate_name}**, your speech timed out. Please use `/speech` again and reply with your speech within 5 minutes."
             )
         except Exception as e:
             await interaction.edit_original_response(
                 content=f"❌ An error occurred while processing your speech. Please try again."
             )
+
+    @speech.autocomplete("target")
+    async def target_autocomplete_speech(self, interaction: discord.Interaction, current: str):
+        return await self._get_candidate_choices_autocomplete(interaction, current)
 
     @speech.autocomplete("state")
     async def state_autocomplete_speech(self, interaction: discord.Interaction, current: str):
@@ -250,17 +295,31 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Check if user has a registered candidate
+        # Check if user has a registered candidate (optional)
         signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
-        if not candidate:
+        # Use candidate name if registered, otherwise use display name
+        candidate_name = candidate["name"] if candidate else interaction.user.display_name
+
+        # If no target specified, require one when user is not a candidate
+        if target is None:
+            if candidate:
+                target = candidate_name
+            else:
+                await interaction.response.send_message(
+                    "❌ You must specify a target candidate to perform this action.",
+                    ephemeral=True
+                )
+                return
+
+        # Verify target candidate exists
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
+        if not target_candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered candidate to make donor appeals. Use `/signup` to register for an election first.",
+                f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
             )
             return
-
-        candidate_name = candidate["name"]
 
         # Check cooldown (24 hours)
         if not self._check_cooldown(interaction.guild.id, interaction.user.id, "donor", 24):
@@ -273,10 +332,6 @@ class GeneralCampaignActions(commands.Cog):
                     ephemeral=True
                 )
                 return
-
-        # If no target specified, default to self
-        if target is None:
-            target = candidate_name
 
         # Send initial message asking for donor appeal
         await interaction.response.send_message(
@@ -320,6 +375,9 @@ class GeneralCampaignActions(commands.Cog):
             # Calculate boost - 1% per 1000 characters  
             boost = (char_count / 1000) * 1.0
             boost = min(boost, 3.0)
+
+            # Add momentum during General Campaign
+            self._add_momentum_from_general_action(interaction.guild.id, interaction.user.id, state_upper, boost, candidate, target)
 
             # Check for state ideology match (if applicable)
             state_data = STATE_DATA.get(state_upper, {})
@@ -370,6 +428,10 @@ class GeneralCampaignActions(commands.Cog):
                 content=f"⏰ **{candidate_name}**, your donor appeal timed out. Please use `/donor` again and reply with your appeal within 5 minutes."
             )
 
+    @donor.autocomplete("target")
+    async def target_autocomplete_donor(self, interaction: discord.Interaction, current: str):
+        return await self._get_candidate_choices_autocomplete(interaction, current)
+
     @donor.autocomplete("state")
     async def state_autocomplete_donor(self, interaction: discord.Interaction, current: str):
         states = list(STATE_DATA.keys())
@@ -382,8 +444,7 @@ class GeneralCampaignActions(commands.Cog):
     )
     @app_commands.describe(
         state="U.S. state for campaign poster",
-        target="The candidate who will receive benefits (optional)",
-        image="Upload your campaign poster image"
+        target="The candidate who will receive benefits (optional)"
     )
     async def poster(
         self, 
@@ -401,17 +462,31 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Check if user has a registered candidate
+        # Check if user has a registered candidate (optional)
         signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
-        if not candidate:
+        # Use candidate name if registered, otherwise use display name
+        candidate_name = candidate["name"] if candidate else interaction.user.display_name
+
+        # If no target specified, require one when user is not a candidate
+        if target is None:
+            if candidate:
+                target = candidate_name
+            else:
+                await interaction.response.send_message(
+                    "❌ You must specify a target candidate to perform this action.",
+                    ephemeral=True
+                )
+                return
+
+        # Verify target candidate exists
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
+        if not target_candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered candidate to create posters. Use `/signup` to register for an election first.",
+                f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
             )
             return
-
-        candidate_name = candidate["name"]
 
         # Check cooldown (6 hours)
         if not self._check_cooldown(interaction.guild.id, interaction.user.id, "poster", 6):
@@ -424,10 +499,6 @@ class GeneralCampaignActions(commands.Cog):
                     ephemeral=True
                 )
                 return
-
-        # If no target specified, default to self
-        if target is None:
-            target = candidate_name
 
         # Check if attachment is an image
         if not image or not image.content_type or not image.content_type.startswith('image/'):
@@ -452,7 +523,11 @@ class GeneralCampaignActions(commands.Cog):
         polling_boost = random.uniform(0.25, 0.5)
 
         # Apply buff/debuff multipliers
-        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, candidate.get("user_id"), interaction.guild.id, "poster")
+        user_id = candidate.get("user_id") if candidate else interaction.user.id
+        polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, user_id, interaction.guild.id, "poster")
+
+        # Add momentum during General Campaign
+        self._add_momentum_from_general_action(interaction.guild.id, interaction.user.id, state_upper, polling_boost, candidate, target)
 
         embed = discord.Embed(
             title="🖼️ Campaign Poster",
@@ -481,9 +556,10 @@ class GeneralCampaignActions(commands.Cog):
             inline=True
         )
 
+        current_stamina = candidate.get('stamina', 200) if candidate else 200
         embed.add_field(
             name="⚡ Current Stamina",
-            value=f"{candidate.get('stamina', 200) - 1}/200",
+            value=f"{current_stamina - 1}/200",
             inline=True
         )
 
@@ -491,6 +567,10 @@ class GeneralCampaignActions(commands.Cog):
         embed.set_footer(text="Next poster available in 6 hours")
 
         await interaction.response.send_message(embed=embed)
+
+    @poster.autocomplete("target")
+    async def target_autocomplete_poster(self, interaction: discord.Interaction, current: str):
+        return await self._get_candidate_choices_autocomplete(interaction, current)
 
     @poster.autocomplete("state")
     async def state_autocomplete_poster(self, interaction: discord.Interaction, current: str):
@@ -516,17 +596,31 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
-        # Check if user has a registered candidate
+        # Check if user has a registered candidate (optional)
         signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
 
-        if not candidate:
+        # Use candidate name if registered, otherwise use display name
+        candidate_name = candidate["name"] if candidate else interaction.user.display_name
+
+        # If no target specified, require one when user is not a candidate
+        if target is None:
+            if candidate:
+                target = candidate_name
+            else:
+                await interaction.response.send_message(
+                    "❌ You must specify a target candidate to perform this action.",
+                    ephemeral=True
+                )
+                return
+
+        # Verify target candidate exists
+        target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
+        if not target_candidate:
             await interaction.response.send_message(
-                "❌ You must be a registered candidate to create ads. Use `/signup` to register for an election first.",
+                f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
             )
             return
-
-        candidate_name = candidate["name"]
 
         # Check cooldown (6 hours)
         if not self._check_cooldown(interaction.guild.id, interaction.user.id, "ad", 6):
@@ -539,10 +633,6 @@ class GeneralCampaignActions(commands.Cog):
                     ephemeral=True
                 )
                 return
-
-        # If no target specified, default to self
-        if target is None:
-            target = candidate_name
 
         # Send initial message asking for video
         await interaction.response.send_message(
@@ -589,7 +679,11 @@ class GeneralCampaignActions(commands.Cog):
             polling_boost = random.uniform(0.5, 1.0)
 
             # Apply buff/debuff multipliers
-            polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, candidate.get("user_id"), interaction.guild.id, "ad")
+            user_id = candidate.get("user_id") if candidate else interaction.user.id
+            polling_boost = self._apply_buff_debuff_multiplier_enhanced(polling_boost, user_id, interaction.guild.id, "ad")
+
+            # Add momentum during General Campaign
+            self._add_momentum_from_general_action(interaction.guild.id, interaction.user.id, state_upper, polling_boost, candidate, target)
 
             embed = discord.Embed(
                 title="📺 Campaign Video Ad",
@@ -618,9 +712,10 @@ class GeneralCampaignActions(commands.Cog):
                 inline=True
             )
 
+            current_stamina = candidate.get('stamina', 200) if candidate else 200
             embed.add_field(
                 name="⚡ Current Stamina",
-                value=f"{candidate.get('stamina', 200) - 1.5:.1f}/200",
+                value=f"{current_stamina - 1.5:.1f}/200",
                 inline=True
             )
 
@@ -639,12 +734,59 @@ class GeneralCampaignActions(commands.Cog):
         return [app_commands.Choice(name=state.title(), value=state)
                 for state in states if current.upper() in state][:25]
 
+    @ad.autocomplete("target")
+    async def target_autocomplete_ad(self, interaction: discord.Interaction, current: str):
+        return await self._get_candidate_choices_autocomplete(interaction, current)
+
     @ad.autocomplete("state")
     async def state_autocomplete_ad(self, interaction: discord.Interaction, current: str):
         states = list(STATE_DATA.keys())
         return [app_commands.Choice(name=state.title(), value=state)
                 for state in states if current.upper() in state][:25]
 
+    async def _get_candidate_choices_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice]:
+        """Helper to get candidate choices for autocompletion"""
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+        current_phase = time_config.get("current_phase", "")
+
+        candidate_choices = []
+
+        # During General Campaign, get primary winners from all_winners
+        if current_phase == "General Campaign":
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+
+            if winners_config and "winners" in winners_config:
+                for winner in winners_config["winners"]:
+                    if (winner.get("year") == current_year and 
+                        winner.get("primary_winner", False)):
+                        candidate_name = winner.get("candidate")
+                        if candidate_name and current.lower() in candidate_name.lower():
+                            if len(candidate_choices) < 25:
+                                candidate_choices.append(app_commands.Choice(name=candidate_name, value=candidate_name))
+                            else:
+                                break
+
+        # During other phases, get from signups
+        else:
+            signups_col = self.bot.db["all_signups"]
+            signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+
+            if signups_config and "candidates" in signups_config:
+                for candidate in signups_config["candidates"]:
+                    if candidate.get("year") == current_year:
+                        candidate_name = candidate.get("name")
+                        if candidate_name and current.lower() in candidate_name.lower():
+                            if len(candidate_choices) < 25:
+                                candidate_choices.append(app_commands.Choice(name=candidate_name, value=candidate_name))
+                            else:
+                                break
+
+        return candidate_choices
 
 
     # --- Buff/Debuff Management Functions ---
@@ -715,7 +857,109 @@ class GeneralCampaignActions(commands.Cog):
             upsert=True
         )
 
+    def _add_momentum_from_general_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float, candidate_data: dict = None, target_name: str = None):
+        """Adds momentum to a state based on general campaign actions."""
+        try:
+            # Check if we're in General Campaign phase
+            time_col, time_config = self._get_time_config(guild_id)
+            current_phase = time_config.get("current_phase", "") if time_config else ""
 
+            if current_phase != "General Campaign":
+                return
+
+            # Use the momentum system from the momentum cog
+            momentum_cog = self.bot.get_cog('Momentum')
+            if not momentum_cog:
+                return
+
+            # Get momentum config
+            momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
+
+            # Determine which candidate's party to use for momentum
+            target_candidate = candidate_data
+            if target_name and (not candidate_data or target_name != candidate_data.get("name")):
+                # Look for the target candidate in all signups
+                signups_col = self.bot.db["all_signups"]
+                signups_config = signups_col.find_one({"guild_id": guild_id})
+
+                if signups_config:
+                    current_year = time_config["current_rp_date"].year if time_config else 2024
+                    for candidate in signups_config.get("candidates", []):
+                        if (candidate.get("name", "").lower() == target_name.lower() and 
+                            candidate["year"] == current_year):
+                            target_candidate = candidate
+                            break
+
+            # If we still don't have a target candidate, try to find them in winners (for General Campaign)
+            if not target_candidate and target_name:
+                winners_col = self.bot.db["winners"]
+                winners_config = winners_col.find_one({"guild_id": guild_id})
+
+                if winners_config and "winners" in winners_config:
+                    current_year = time_config["current_rp_date"].year if time_config else 2024
+                    for winner in winners_config["winners"]:
+                        if (winner.get("candidate", "").lower() == target_name.lower() and 
+                            winner.get("year") == current_year and
+                            winner.get("primary_winner", False)):
+                            # Create a temporary candidate dict with party info
+                            target_candidate = {
+                                "name": winner.get("candidate"),
+                                "party": winner.get("party", "Independent")
+                            }
+                            break
+
+            if not target_candidate or not target_candidate.get("party"):
+                return
+
+            # Determine party key
+            party = target_candidate.get("party", "").lower()
+
+            if "republican" in party or "gop" in party:
+                party_key = "Republican"
+            elif "democrat" in party or "democratic" in party:
+                party_key = "Democrat"
+            else:
+                party_key = "Independent"
+
+            # Validate state name exists in momentum config
+            if state_name not in momentum_config["state_momentum"]:
+                return
+
+            # Calculate momentum gained
+            momentum_gain_factor = 1.5  # Slightly less than presidential actions
+            momentum_gained = points_gained * momentum_gain_factor
+
+            # Get current momentum
+            current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
+            new_momentum = current_momentum + momentum_gained
+
+            # Check for auto-collapse and apply if needed
+            final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
+                momentum_col, guild_id, state_name, party_key, new_momentum
+            )
+
+            if not collapsed:
+                # Update momentum in database
+                momentum_col.update_one(
+                    {"guild_id": guild_id},
+                    {
+                        "$set": {
+                            f"state_momentum.{state_name}.{party_key}": final_momentum,
+                            f"state_momentum.{state_name}.last_updated": datetime.utcnow()
+                        }
+                    }
+                )
+
+                # Log the momentum gain event
+                if momentum_gained > 0.1:
+                    action_desc = f"General campaign action for {target_candidate.get('name', 'Unknown')} (+{points_gained:.1f} pts)"
+                    momentum_cog._add_momentum_event(
+                        momentum_col, guild_id, state_name, party_key,
+                        momentum_gained, action_desc, user_id
+                    )
+
+        except Exception as e:
+            print(f"Error in _add_momentum_from_general_action: {e}")
 
 
 

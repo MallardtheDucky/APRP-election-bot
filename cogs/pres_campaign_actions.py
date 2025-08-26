@@ -462,111 +462,64 @@ class PresCampaignActions(commands.Cog):
         return base_points
 
     def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float, candidate_data: dict = None):
-        """Adds momentum to a state based on campaign actions with proper debugging and validation."""
+        """Adds momentum to a state based on campaign actions."""
         try:
-            print(f"DEBUG: Starting momentum addition for user {user_id} in {state_name} with {points_gained} points")
-            
             # Check if we're in General Campaign phase
             time_col, time_config = self._get_time_config(guild_id)
             current_phase = time_config.get("current_phase", "") if time_config else ""
-            
-            print(f"DEBUG: Current phase: {current_phase}")
-            
+
             if current_phase != "General Campaign":
-                print(f"DEBUG: Not in General Campaign phase, skipping momentum")
+                # Momentum only applies during General Campaign
                 return
 
             # Use the momentum system from the momentum cog
             momentum_cog = self.bot.get_cog('Momentum')
             if not momentum_cog:
-                print("DEBUG: Momentum cog not loaded")
+                print("Warning: Momentum cog not loaded")
                 return
-
-            print("DEBUG: Momentum cog found")
 
             # Get momentum config
             momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
-            print(f"DEBUG: Got momentum config for guild {guild_id}")
 
             # Get candidate data - either from parameter or lookup
             candidate = candidate_data
             if not candidate:
                 signups_col, candidate = self._get_user_presidential_candidate(guild_id, user_id)
-            
-            if not candidate:
-                print(f"DEBUG: No candidate found for user {user_id}")
+
+            if not candidate or not candidate.get("party"):
                 return
 
-            print(f"DEBUG: Found candidate: {candidate.get('name')} ({candidate.get('party')})")
-            
-            # Verify candidate has required fields
-            if not candidate.get("party"):
-                print(f"DEBUG: Warning - candidate {candidate.get('name')} has no party set")
-                return
-
-            # Determine party key with more comprehensive mapping
+            # Determine party key with comprehensive mapping
             party = candidate.get("party", "").lower()
-            print(f"DEBUG: Raw party from candidate: '{candidate.get('party', '')}'")
-            
-            if "republican" in party or "gop" in party or party == "r":
-                party_key = "Republican"
-            elif "democrat" in party or "democratic" in party or party == "d":
-                party_key = "Democrat"
-            elif "independent" in party or "ind" in party or party == "i":
-                party_key = "Independent"
-            else:
-                # Default mapping for unknown parties
-                party_key = "Independent"
 
-            print(f"DEBUG: Party key determined as: {party_key}")
+            if "republican" in party or "gop" in party:
+                party_key = "Republican"
+            elif "democrat" in party or "democratic" in party:
+                party_key = "Democrat"
+            else:
+                party_key = "Independent"
 
             # Validate state name exists in momentum config
             if state_name not in momentum_config["state_momentum"]:
-                print(f"DEBUG: State {state_name} not found in momentum config")
                 return
 
-            # Calculate momentum gained (increased factor for more visibility)
-            momentum_gain_factor = 5.0  # Increased from 2.0 to make momentum more visible
+            # Calculate momentum gained - convert campaign points to momentum
+            # Use a factor that makes momentum visible but not overwhelming
+            momentum_gain_factor = 2.0  # 2 momentum per 1 campaign point
             momentum_gained = points_gained * momentum_gain_factor
-
-            print(f"DEBUG: Calculated momentum gain: {momentum_gained} (factor: {momentum_gain_factor})")
 
             # Get current momentum
             current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
             new_momentum = current_momentum + momentum_gained
 
-            print(f"DEBUG: Current momentum: {current_momentum}, New momentum: {new_momentum}")
-
-            # Check for auto-collapse
+            # Check for auto-collapse and apply if needed
             final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
                 momentum_col, guild_id, state_name, party_key, new_momentum
             )
 
-            print(f"DEBUG: Auto-collapse check - Final momentum: {final_momentum}, Collapsed: {collapsed}")
-
             if not collapsed:
-                # No collapse occurred, update normally
-                print(f"DEBUG: Attempting database update for {party_key} in {state_name}")
-                print(f"DEBUG: Setting momentum to {final_momentum}")
-                
-                # First, ensure the state momentum structure exists
+                # Update momentum in database
                 momentum_col.update_one(
-                    {"guild_id": guild_id},
-                    {
-                        "$set": {
-                            f"state_momentum.{state_name}": momentum_config["state_momentum"].get(state_name, {
-                                "Republican": 0.0,
-                                "Democrat": 0.0,
-                                "Independent": 0.0,
-                                "last_updated": datetime.utcnow()
-                            })
-                        }
-                    },
-                    upsert=True
-                )
-                
-                # Now update the specific party momentum
-                update_result = momentum_col.update_one(
                     {"guild_id": guild_id},
                     {
                         "$set": {
@@ -576,28 +529,15 @@ class PresCampaignActions(commands.Cog):
                     }
                 )
 
-                print(f"DEBUG: Database update result: matched_count = {update_result.matched_count}, modified_count = {update_result.modified_count}")
-                
-                # Verify the update worked by reading back the data
-                verification = momentum_col.find_one({"guild_id": guild_id})
-                if verification:
-                    actual_momentum = verification.get("state_momentum", {}).get(state_name, {}).get(party_key, "NOT_FOUND")
-                    print(f"DEBUG: Verification - momentum for {party_key} in {state_name} is now: {actual_momentum}")
-                else:
-                    print(f"DEBUG: ERROR - Could not find guild config after update")
-
-                # Log the momentum gain
+                # Log the momentum gain event
                 if momentum_gained > 0.1:  # Only log significant gains
                     momentum_cog._add_momentum_event(
                         momentum_col, guild_id, state_name, party_key,
                         momentum_gained, f"Campaign action (+{points_gained:.1f} pts)", user_id
                     )
-                    print(f"DEBUG: Logged momentum event for {party_key} in {state_name}")
-
-            print(f"DEBUG: Momentum addition completed successfully")
 
         except Exception as e:
-            print(f"ERROR in _add_momentum_from_campaign_action: {e}")
+            print(f"Error in _add_momentum_from_campaign_action: {e}")
             import traceback
             traceback.print_exc()
 
