@@ -159,7 +159,7 @@ class PresCampaignActions(commands.Cog):
                                 all_winners_col = self.bot.db["winners"]
                                 all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
                                 found_user_id = 0
-                                
+
                                 if all_winners_config:
                                     for winner in all_winners_config.get("winners", []):
                                         if (isinstance(winner, dict) and 
@@ -274,6 +274,15 @@ class PresCampaignActions(commands.Cog):
                 }
             )
 
+    def _clean_presidential_state_data(self):
+        """Clean up any decimal values in PRESIDENTIAL_STATE_DATA by rounding to 1 decimal place"""
+        from .presidential_winners import PRESIDENTIAL_STATE_DATA
+        
+        for state_name, data in PRESIDENTIAL_STATE_DATA.items():
+            PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(data["republican"], 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(data["democrat"], 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(data["other"], 1)
+    
     def _transfer_pres_points_to_winners(self, guild_id: int, candidate_data: dict, state_name: str, points_gained: float):
         """Transfer points to the all_winners system, mapping to political parties."""
         all_winners_col = self.bot.db["winners"]
@@ -325,7 +334,63 @@ class PresCampaignActions(commands.Cog):
             },
             upsert=True
         )
+        
+        # Update PRESIDENTIAL_STATE_DATA based on campaign activity
+        self._update_state_baseline_data(guild_id, state_name, political_party, points_gained)
+        
         print(f"Transferred/Updated points for {candidate_name} ({political_party}) in {state_name} to all_winners system.")
+
+    def _update_state_baseline_data(self, guild_id: int, state_name: str, political_party: str, points_gained: float):
+        """Update PRESIDENTIAL_STATE_DATA based on significant campaign activity"""
+        from .presidential_winners import PRESIDENTIAL_STATE_DATA
+        
+        # Clean up any existing decimal precision issues
+        self._clean_presidential_state_data()
+        
+        # Only update if points gained is significant (> 1.0 points)
+        if points_gained < 1.0:
+            return
+            
+        if state_name not in PRESIDENTIAL_STATE_DATA:
+            return
+            
+        # Calculate the impact on state baseline (reduced factor to prevent extreme swings)
+        impact_factor = min(points_gained * 0.5, 2.0)  # Cap at 2% change per action
+        
+        # Determine which party gets the boost
+        if political_party == "Republican Party":
+            # Boost Republicans, reduce Democrats slightly
+            PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(min(75, PRESIDENTIAL_STATE_DATA[state_name]["republican"] + impact_factor), 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name]["democrat"] - (impact_factor * 0.7)), 1)
+        elif political_party == "Democratic Party":
+            # Boost Democrats, reduce Republicans slightly
+            PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(min(75, PRESIDENTIAL_STATE_DATA[state_name]["democrat"] + impact_factor), 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name]["republican"] - (impact_factor * 0.7)), 1)
+        else:
+            # Boost Others, reduce both major parties slightly
+            PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(min(25, PRESIDENTIAL_STATE_DATA[state_name]["other"] + impact_factor), 1)
+            reduction = impact_factor * 0.35
+            PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name]["republican"] - reduction), 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name]["democrat"] - reduction), 1)
+        
+        # Ensure totals stay reasonable (around 100%)
+        total = (PRESIDENTIAL_STATE_DATA[state_name]["republican"] + 
+                PRESIDENTIAL_STATE_DATA[state_name]["democrat"] + 
+                PRESIDENTIAL_STATE_DATA[state_name]["other"])
+        
+        # Normalize if total exceeds 105% or falls below 95%
+        if total > 105 or total < 95:
+            factor = 100 / total
+            PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(PRESIDENTIAL_STATE_DATA[state_name]["republican"] * factor, 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(PRESIDENTIAL_STATE_DATA[state_name]["democrat"] * factor, 1)
+            PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(PRESIDENTIAL_STATE_DATA[state_name]["other"] * factor, 1)
+        
+        # Final safety check - ensure all values are properly rounded
+        PRESIDENTIAL_STATE_DATA[state_name]["republican"] = round(PRESIDENTIAL_STATE_DATA[state_name]["republican"], 1)
+        PRESIDENTIAL_STATE_DATA[state_name]["democrat"] = round(PRESIDENTIAL_STATE_DATA[state_name]["democrat"], 1)
+        PRESIDENTIAL_STATE_DATA[state_name]["other"] = round(PRESIDENTIAL_STATE_DATA[state_name]["other"], 1)
+        
+        print(f"Updated {state_name} baseline: R:{PRESIDENTIAL_STATE_DATA[state_name]['republican']:.1f}% D:{PRESIDENTIAL_STATE_DATA[state_name]['democrat']:.1f}% O:{PRESIDENTIAL_STATE_DATA[state_name]['other']:.1f}%")
 
     def _check_cooldown(self, guild_id: int, user_id: int, action: str, hours: int) -> bool:
         """Check if user is on cooldown for a specific action"""
@@ -484,10 +549,43 @@ class PresCampaignActions(commands.Cog):
         # Or current year if odd year
         primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
-        candidates = [
-            w for w in winners_config.get("winners", []) 
-            if w.get("primary_winner", False) and w["year"] == primary_year and w["office"] == office
-        ]
+        winners_data = winners_config.get("winners", [])
+        candidates = []
+
+        # Handle both list and dict formats for winners
+        if isinstance(winners_data, list):
+            # New list format
+            candidates = [
+                w for w in winners_data 
+                if (isinstance(w, dict) and 
+                    w.get("primary_winner", False) and 
+                    w.get("year") == primary_year and 
+                    w.get("office") == office)
+            ]
+        elif isinstance(winners_data, dict):
+            # Old dict format: {party: candidate_name}
+            # Need to get full candidate data from presidential signups
+            signups_col, signups_config = self._get_presidential_config(guild_id)
+            if signups_config:
+                election_year = winners_config.get("election_year", primary_year + 1)
+                signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+
+                candidates_list = signups_config.get("candidates", [])
+                if isinstance(candidates_list, list):
+                    for candidate in candidates_list:
+                        if (isinstance(candidate, dict) and
+                            candidate.get("year") == signup_year and
+                            candidate.get("office") == office):
+                            # Check if this candidate won their primary
+                            candidate_name = candidate.get("name")
+                            for party, winner_name in winners_data.items():
+                                if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
+                                    # Create a general campaign candidate object
+                                    general_candidate = candidate.copy()
+                                    general_candidate["primary_winner"] = True
+                                    general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                    general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                    candidates.append(general_candidate)
 
         if not candidates:
             return {}
@@ -800,7 +898,7 @@ class PresCampaignActions(commands.Cog):
         if not user_is_candidate:
             party_cog = self.bot.get_cog("PartyManagement")
             if not party_cog:
-                await interaction.response.send_send_message(
+                await interaction.response.send_message(
                     "❌ You must be a registered presidential candidate to make donor appeals. Use `/pres_signup` first.",
                     ephemeral=True
                 )
@@ -1197,7 +1295,7 @@ class PresCampaignActions(commands.Cog):
 
             embed = discord.Embed(
                 title="💰 Presidential Donor Fundraising",
-                description=f"**{candidate['name']}** makes a donor appeal for **{target}** in {state_upper}!",
+                description=f"**{candidate['name']}** makes a donor appeal for **{target_candidate['name']}** in {state_upper}!",
                 color=discord.Color.gold(),
                 timestamp=datetime.utcnow()
             )
@@ -1220,17 +1318,17 @@ class PresCampaignActions(commands.Cog):
             if current_phase == "General Campaign":
                 target_office = target_candidate.get("office", "President")
                 general_percentages = self._calculate_general_election_percentages(interaction.guild.id, target_office)
-                updated_percentage = general_percentages.get(target, 50.0)
+                updated_percentage = general_percentages.get(target_candidate['name'], 50.0)
 
                 embed.add_field(
                     name="📊 Impact",
-                    value=f"**Target:** {target}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**National Polling:** {updated_percentage:.1f}%\n**State Points:** +{polling_boost:.2f}\n**Corruption:** +5\n**Characters:** {char_count:,}",
                     inline=True
                 )
             else:
                 embed.add_field(
                     name="📊 Impact",
-                    value=f"**Target:** {target}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
+                    value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**Polling Boost:** +{polling_boost:.2f}%\n**Corruption:** +5\n**Characters:** {char_count:,}",
                     inline=True
                 )
 
@@ -1437,10 +1535,13 @@ class PresCampaignActions(commands.Cog):
         target: Optional[str] = None
     ):
         try:
+            # Defer the response immediately to prevent timeout
+            await interaction.response.defer()
+            
             # Validate state
             state_upper = state.upper()
             if state_upper not in PRESIDENTIAL_STATE_DATA:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
                     ephemeral=True
                 )
@@ -1454,7 +1555,7 @@ class PresCampaignActions(commands.Cog):
             if not user_is_candidate:
                 party_cog = self.bot.get_cog("PartyManagement")
                 if not party_cog:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "❌ You must be a registered presidential candidate to create posters. Use `/pres_signup` first.",
                         ephemeral=True
                     )
@@ -1465,7 +1566,7 @@ class PresCampaignActions(commands.Cog):
                 role_validation = parties_config.get("role_validation", {})
 
                 if not role_validation:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "❌ You must be a registered presidential candidate to create posters. Use `/pres_signup` first.",
                         ephemeral=True
                     )
@@ -1480,7 +1581,7 @@ class PresCampaignActions(commands.Cog):
                         break
 
                 if not user_has_party_role:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "❌ You must be a registered presidential candidate or have a party role to create posters.",
                         ephemeral=True
                     )
@@ -1495,7 +1596,7 @@ class PresCampaignActions(commands.Cog):
 
             # Ensure candidate is properly structured
             if not isinstance(candidate, dict):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Error retrieving candidate data. Please try again.",
                     ephemeral=True
                 )
@@ -1504,7 +1605,7 @@ class PresCampaignActions(commands.Cog):
             # Check if in campaign phase
             time_col, time_config = self._get_time_config(interaction.guild.id)
             if not time_config or time_config.get("current_phase", "") not in ["Primary Campaign", "General Campaign"]:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Presidential campaign posters can only be created during campaign phases.",
                     ephemeral=True
                 )
@@ -1522,7 +1623,7 @@ class PresCampaignActions(commands.Cog):
                 not isinstance(target_candidate, dict) or 
                 not target_candidate.get("name") or 
                 not target_candidate.get("user_id")):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ Target presidential candidate '{target}' not found or has invalid data.",
                     ephemeral=True
                 )
@@ -1531,7 +1632,7 @@ class PresCampaignActions(commands.Cog):
             # Check stamina with safe access and default values
             current_stamina = target_candidate.get("stamina", 200)
             if not isinstance(current_stamina, (int, float)) or current_stamina < 1:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ {target_candidate.get('name', 'Candidate')} doesn't have enough stamina! They need at least 1 stamina to create a poster.",
                     ephemeral=True
                 )
@@ -1542,7 +1643,7 @@ class PresCampaignActions(commands.Cog):
                 remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_poster", 6)
                 hours = int(remaining.total_seconds() // 3600)
                 minutes = int((remaining.total_seconds() % 3600) // 60)
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ You must wait {hours}h {minutes}m before creating another presidential poster.",
                     ephemeral=True
                 )
@@ -1550,7 +1651,7 @@ class PresCampaignActions(commands.Cog):
 
             # Check if attachment is an image
             if not image or not image.content_type or not image.content_type.startswith('image/'):
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Please upload an image file (PNG, JPG, GIF, etc.).",
                     ephemeral=True
                 )
@@ -1558,7 +1659,7 @@ class PresCampaignActions(commands.Cog):
 
             # Check file size
             if image.size > 10 * 1024 * 1024:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Image file too large! Maximum size is 10MB.",
                     ephemeral=True
                 )
@@ -1569,8 +1670,8 @@ class PresCampaignActions(commands.Cog):
 
             # Safely get target user ID
             target_user_id = target_candidate.get("user_id")
-            if not target_user_id or not target_signups_col:
-                await interaction.response.send_message(
+            if not target_user_id or target_signups_col is None:
+                await interaction.followup.send(
                     "❌ Error: Unable to update candidate stats. Please try again.",
                     ephemeral=True
                 )
@@ -1636,23 +1737,23 @@ class PresCampaignActions(commands.Cog):
             embed.set_image(url=image.url)
             embed.set_footer(text="Next poster available in 6 hours")
 
-            await interaction.response.send_message(embed=embed)
+            # Since we deferred the response, always use followup
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             print(f"Error in pres_poster command: {e}")
             import traceback
             traceback.print_exc()
 
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "❌ An error occurred while processing your poster. Please try again.",
-                    ephemeral=True
-                )
-            else:
+            # Since we deferred the response, always use followup for errors
+            try:
                 await interaction.followup.send(
                     "❌ An error occurred while processing your poster. Please try again.",
                     ephemeral=True
                 )
+            except:
+                # If followup also fails, just log it
+                print("Failed to send error message via followup")
 
     @app_commands.command(
         name="pres_speech",
@@ -1856,7 +1957,11 @@ class PresCampaignActions(commands.Cog):
 
             embed.set_footer(text=f"Next speech available in 12 hours")
 
-            await reply_message.reply(embed=embed)
+            # Check if interaction has already been responded to
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.response.send_message(embed=embed)
 
         except asyncio.TimeoutError:
             await interaction.edit_original_response(
@@ -2214,6 +2319,10 @@ class PresCampaignActions(commands.Cog):
         name="admin_view_pres_campaign_points",
         description="View all presidential candidate points (Admin only)"
     )
+    @app_commands.describe(
+        filter_party="Filter by party",
+        filter_office="Filter by office (President/Vice President)"
+    )
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_view_pres_campaign_points(
         self,
@@ -2528,6 +2637,7 @@ class PresCampaignActions(commands.Cog):
             return
 
         current_phase = time_config.get("current_phase", "")
+        current_year = time_config["current_rp_date"].year
 
         # If no candidate specified, check if user is a presidential candidate
         if not candidate_name:
@@ -2553,9 +2663,8 @@ class PresCampaignActions(commands.Cog):
         candidate_display_name = candidate.get('name')
 
         if current_phase == "General Campaign":
-            # For general campaign, use presidential percentages
-            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, candidate["office"])
-            actual_percentage = general_percentages.get(candidate_display_name, 50.0)
+            # For general campaign, use population-weighted national polling
+            actual_percentage = self._calculate_national_polling_by_population(interaction.guild.id, candidate_display_name)
         else:
             # For primary campaign, calculate based on points relative to competition
             signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
@@ -2580,8 +2689,6 @@ class PresCampaignActions(commands.Cog):
                         actual_percentage = (candidate_points / total_points) * 100.0
                         # Ensure minimum viable percentage
                         actual_percentage = max(15.0, actual_percentage)
-            else:
-                actual_percentage = 50.0
 
         # Apply margin of error
         poll_result = self._calculate_poll_result(actual_percentage)
@@ -2692,6 +2799,80 @@ class PresCampaignActions(commands.Cog):
         poll_result = max(0.1, min(99.9, poll_result))
 
         return poll_result
+
+    def _calculate_national_polling_by_population(self, guild_id: int, candidate_name: str) -> float:
+        """Calculate national polling using population-weighted state percentages"""
+        # State population data with percentages of national population
+        STATE_POPULATION_WEIGHTS = {
+            "CALIFORNIA": 12.07, "TEXAS": 8.16, "NEW YORK": 6.27, "FLORIDA": 6.09,
+            "PENNSYLVANIA": 4.11, "ILLINOIS": 4.15, "OHIO": 3.73, "MICHIGAN": 3.19,
+            "GEORGIA": 3.14, "NORTH CAROLINA": 3.10, "NEW JERSEY": 2.85, "VIRGINIA": 2.59,
+            "WASHINGTON": 2.18, "MASSACHUSETTS": 2.12, "INDIANA": 2.10, "ARIZONA": 2.07,
+            "TENNESSEE": 2.06, "MISSOURI": 1.94, "MARYLAND": 1.87, "WISCONSIN": 1.84,
+            "MINNESOTA": 1.72, "COLORADO": 1.63, "ALABAMA": 1.55, "SOUTH CAROLINA": 1.50,
+            "LOUISIANA": 1.47, "KENTUCKY": 1.41, "OREGON": 1.24, "OKLAHOMA": 1.22,
+            "CONNECTICUT": 1.16, "IOWA": 0.99, "ARKANSAS": 0.95, "UTAH": 0.90,
+            "NEVADA": 0.87, "NEW MEXICO": 0.67, "NEBRASKA": 0.59, "WEST VIRGINIA": 0.60,
+            "NEW HAMPSHIRE": 0.43, "MAINE": 0.43, "HAWAII": 0.44, "IDAHO": 0.51,
+            "MONTANA": 0.32, "RHODE ISLAND": 0.34, "DELAWARE": 0.29, "SOUTH DAKOTA": 0.26,
+            "NORTH DAKOTA": 0.22, "ALASKA": 0.23, "DISTRICT OF COLUMBIA": 0.20,
+            "VERMONT": 0.20, "WYOMING": 0.18, "KANSAS": 0.94, "MISSISSIPPI": 0.96
+        }
+
+        # Get candidate data
+        signups_col, candidate = self._get_presidential_candidate_by_name(guild_id, candidate_name)
+        if not candidate:
+            return 50.0
+
+        # Get candidate's party for baseline calculations
+        candidate_party = candidate.get("party", "").lower()
+        
+        # Determine party alignment for baseline calculations
+        if "republican" in candidate_party:
+            party_alignment = "republican"
+        elif "democrat" in candidate_party:
+            party_alignment = "democrat"
+        else:
+            party_alignment = "other"
+
+        # Get state points for this candidate
+        state_points = candidate.get("state_points", {})
+        
+        total_weighted_percentage = 0.0
+        total_population_weight = 0.0
+
+        # Calculate weighted polling across all states
+        for state_name, population_weight in STATE_POPULATION_WEIGHTS.items():
+            # Get base party support for this state
+            state_data = PRESIDENTIAL_STATE_DATA.get(state_name, {
+                "republican": 33.0, "democrat": 33.0, "other": 34.0
+            })
+            
+            # Start with party baseline
+            base_support = state_data.get(party_alignment, 33.0)
+            
+            # Add campaign points gained in this state
+            campaign_boost = state_points.get(state_name, 0.0)
+            
+            # Calculate state polling (base + campaign effects)
+            state_polling = base_support + campaign_boost
+            
+            # Apply realistic bounds (15% minimum, 85% maximum per state)
+            state_polling = max(15.0, min(85.0, state_polling))
+            
+            # Weight by population
+            weighted_contribution = (state_polling / 100.0) * population_weight
+            total_weighted_percentage += weighted_contribution
+            total_population_weight += population_weight
+
+        # Calculate final national percentage
+        if total_population_weight > 0:
+            national_percentage = (total_weighted_percentage / total_population_weight) * 100.0
+        else:
+            national_percentage = 50.0
+
+        # Ensure reasonable bounds for national polling
+        return max(20.0, min(80.0, national_percentage))
 
     @pres_poll.autocomplete("candidate_name")
     async def candidate_autocomplete_pres_poll(self, interaction: discord.Interaction, current: str):
