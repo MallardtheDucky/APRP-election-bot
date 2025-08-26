@@ -399,11 +399,19 @@ Every state has a baseline political lean that affects momentum:
 - Keep party members ready to trigger collapses on opponents
 - Have backup campaign plans ready
 
+**Campaign Effectiveness Multipliers:**
+- **Positive Momentum**: Every 25 points = +50% campaign effectiveness (max +200% at 100 momentum)
+- **Negative Momentum**: Every -25 points = -25% campaign effectiveness (min -75% at -75 momentum)
+- **Base Multiplier**: 1.0x with no momentum
+
 **Strategic Implications:**
 - Every 10 points of momentum = ~1% polling shift
-- Momentum matters more than raw campaign points
+- **Momentum multiplies all campaign action effectiveness**
+- High momentum makes every action significantly more powerful
+- Negative momentum severely handicaps campaign efforts
 - Late momentum swings can overcome early deficits
-- Timing of momentum building is crucial"""
+- Timing of momentum building is crucial
+- Success breeds more success through multiplier effects"""
             },
             "presidential": {
                 "title": "🏛️ Presidential Campaigns",

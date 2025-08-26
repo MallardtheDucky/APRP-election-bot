@@ -208,6 +208,27 @@ class Momentum(commands.Cog):
         # Cap the effect to prevent extreme swings
         return max(-15.0, min(15.0, polling_effect))
 
+    def _calculate_momentum_campaign_multiplier(self, state: str, party: str, momentum_config: dict) -> float:
+        """Calculate campaign effectiveness multiplier based on momentum"""
+        state_momentum = momentum_config["state_momentum"].get(state, {})
+        party_momentum = state_momentum.get(party, 0.0)
+
+        # Base multiplier of 1.0 (no change)
+        base_multiplier = 1.0
+
+        if party_momentum > 0:
+            # Positive momentum increases campaign effectiveness
+            # Every 25 points of momentum = +50% effectiveness (max +200% at 100 momentum)
+            momentum_bonus = min(party_momentum / 25.0 * 0.5, 2.0)
+            return base_multiplier + momentum_bonus
+        elif party_momentum < 0:
+            # Negative momentum decreases campaign effectiveness
+            # Every -25 points of momentum = -25% effectiveness (min -75% at -75 momentum)
+            momentum_penalty = max(party_momentum / 25.0 * 0.25, -0.75)
+            return base_multiplier + momentum_penalty
+        else:
+            return base_multiplier
+
     def _calculate_regional_momentum_effect(self, region: str, party: str, momentum_config: dict) -> float:
         """Calculate regional momentum effect for senate/governor races"""
         regional_momentum = momentum_config.get("regional_momentum", {}).get(region, {})
@@ -234,6 +255,66 @@ class Momentum(commands.Cog):
             }
             return region_mapping.get(region_code)
         return None
+
+    @tasks.loop(hours=12)  # Run decay every 12 hours
+    async def momentum_decay_loop(self):
+        """Apply momentum decay across all guilds"""
+        try:
+            col = self.bot.db["momentum_config"]
+            configs = col.find({})
+
+            for config in configs:
+                guild_id = config["guild_id"]
+
+                # Check if we're in General Campaign phase
+                time_col, time_config = self._get_time_config(guild_id)
+                if not time_config or time_config.get("current_phase", "") != "General Campaign":
+                    continue  # Skip decay if not in General Campaign
+
+                settings = config["settings"]
+                decay_rate = settings.get("momentum_decay_rate", 0.95)
+
+                # Apply decay to all state momentum
+                updates = {}
+                momentum_changed = False
+
+                for state_name, momentum_data in config["state_momentum"].items():
+                    for party in ["Republican", "Democrat", "Independent"]:
+                        current_momentum = momentum_data.get(party, 0.0)
+
+                        if abs(current_momentum) > 0.1:  # Only decay if momentum is significant
+                            # Apply decay - reduce momentum toward zero
+                            if current_momentum > 0:
+                                new_momentum = current_momentum * decay_rate
+                            else:
+                                new_momentum = current_momentum * decay_rate
+
+                            # If momentum gets very small, set it to 0
+                            if abs(new_momentum) < 0.1:
+                                new_momentum = 0.0
+
+                            updates[f"state_momentum.{state_name}.{party}"] = new_momentum
+                            momentum_changed = True
+
+                            # Log decay event if significant change
+                            if abs(current_momentum - new_momentum) > 0.5:
+                                self._add_momentum_event(
+                                    col, guild_id, state_name, party,
+                                    new_momentum - current_momentum, "Daily decay"
+                                )
+
+                # Apply all updates at once
+                if updates:
+                    updates[f"state_momentum.last_decay"] = datetime.utcnow()
+                    col.update_one(
+                        {"guild_id": guild_id},
+                        {"$set": updates}
+                    )
+
+                    print(f"Applied momentum decay for guild {guild_id}")
+
+        except Exception as e:
+            print(f"Error in momentum decay loop: {e}")
 
     @tasks.loop(hours=12)  # Run decay every 12 hours
     async def momentum_decay_loop(self):
@@ -402,18 +483,17 @@ class Momentum(commands.Cog):
             inline=False
         )
 
-        # Show momentum effects on polling
-        polling_effects = ""
+        # Show campaign effectiveness multipliers
+        campaign_multipliers = ""
         for party in parties:
-            effect = self._calculate_momentum_effect_on_polling(state_upper, party, momentum_config)
-            if abs(effect) > 0.1:
-                sign = "+" if effect > 0 else ""
-                polling_effects += f"**{party}:** {sign}{effect:.1f}% polling\n"
+            multiplier = self._calculate_momentum_campaign_multiplier(state_upper, party, momentum_config)
+            if abs(multiplier - 1.0) > 0.05:  # Only show if significantly different from 1.0
+                campaign_multipliers += f"**{party}:** {multiplier:.2f}x effectiveness\n"
 
-        if polling_effects:
+        if campaign_multipliers:
             embed.add_field(
-                name="📈 Polling Effects",
-                value=polling_effects,
+                name="⚡ Campaign Multipliers",
+                value=campaign_multipliers,
                 inline=True
             )
 

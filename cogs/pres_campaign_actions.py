@@ -247,25 +247,49 @@ class PresCampaignActions(commands.Cog):
         time_col, time_config = self._get_time_config(guild_id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
 
+        # Apply momentum multiplier during General Campaign
+        actual_polling_boost = polling_boost
+        momentum_multiplier = 1.0
+        
+        if current_phase == "General Campaign":
+            # Get momentum multiplier
+            momentum_cog = self.bot.get_cog('Momentum')
+            if momentum_cog and candidate_data:
+                momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
+                
+                # Determine party key
+                party = candidate_data.get("party", "").lower()
+                if "republican" in party or "gop" in party:
+                    party_key = "Republican"
+                elif "democrat" in party or "democratic" in party:
+                    party_key = "Democrat"
+                else:
+                    party_key = "Independent"
+                
+                momentum_multiplier = momentum_cog._calculate_momentum_campaign_multiplier(state_name.upper(), party_key, momentum_config)
+                actual_polling_boost = polling_boost * momentum_multiplier
+                
+                print(f"DEBUG: Applied momentum multiplier {momentum_multiplier:.2f}x to polling boost: {polling_boost:.2f} -> {actual_polling_boost:.2f}")
+
         if current_phase == "General Campaign":
             # For general campaign, update in presidential winners collection
             collection.update_one(
                 {"guild_id": guild_id, "winners.user_id": user_id},
                 {
                     "$inc": {
-                        f"winners.$.state_points.{state_name.upper()}": polling_boost,
+                        f"winners.$.state_points.{state_name.upper()}": actual_polling_boost,
                         "winners.$.stamina": -stamina_cost,
                         "winners.$.corruption": corruption_increase,
-                        "winners.$.total_points": polling_boost
+                        "winners.$.total_points": actual_polling_boost
                     }
                 }
             )
 
-            # Add momentum effects during General Campaign
-            print(f"DEBUG: Adding momentum from stats update: {polling_boost} points in {state_name.upper()}")
-            self._add_momentum_from_campaign_action(guild_id, user_id, state_name.upper(), polling_boost, candidate_data)
+            # Add momentum effects during General Campaign (use the boosted points)
+            print(f"DEBUG: Adding momentum from stats update: {actual_polling_boost} points in {state_name.upper()}")
+            self._add_momentum_from_campaign_action(guild_id, user_id, state_name.upper(), actual_polling_boost, candidate_data)
         else:
-            # For primary campaign, update in presidential signups collection
+            # For primary campaign, update in presidential signups collection (no momentum multiplier)
             collection.update_one(
                 {"guild_id": guild_id, "candidates.user_id": user_id},
                 {
@@ -470,12 +494,13 @@ class PresCampaignActions(commands.Cog):
 
             if current_phase != "General Campaign":
                 # Momentum only applies during General Campaign
+                print(f"DEBUG: Not in General Campaign phase (current: {current_phase}), skipping momentum")
                 return
 
             # Use the momentum system from the momentum cog
             momentum_cog = self.bot.get_cog('Momentum')
             if not momentum_cog:
-                print("Warning: Momentum cog not loaded")
+                print("ERROR: Momentum cog not loaded")
                 return
 
             # Get momentum config
@@ -486,8 +511,75 @@ class PresCampaignActions(commands.Cog):
             if not candidate:
                 signups_col, candidate = self._get_user_presidential_candidate(guild_id, user_id)
 
-            if not candidate or not candidate.get("party"):
-                return
+            if not candidate or not isinstance(candidate, dict) or not candidate.get("party"):
+                print(f"DEBUG: No valid candidate data found for user {user_id}, attempting to find by name from all_winners")
+                
+                # Try to find candidate in all_winners system as fallback
+                all_winners_col = self.bot.db["winners"]
+                all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
+                
+                if all_winners_config:
+                    current_year = time_config["current_rp_date"].year if time_config else 2024
+                    
+                    # Try multiple search strategies to find the candidate
+                    search_strategies = [
+                        # Strategy 1: Look for primary winners from previous year
+                        {"year": current_year - 1, "primary_winner": True},
+                        # Strategy 2: Look for primary winners from current year
+                        {"year": current_year, "primary_winner": True},
+                        # Strategy 3: Look for any presidential candidate from current year
+                        {"year": current_year, "office": ["President", "Vice President"]},
+                        # Strategy 4: Look for any presidential candidate (any year)
+                        {"office": ["President", "Vice President"]},
+                    ]
+                    
+                    for strategy in search_strategies:
+                        for winner in all_winners_config.get("winners", []):
+                            if not isinstance(winner, dict) or winner.get("user_id") != user_id:
+                                continue
+                                
+                            # Check year if specified
+                            if "year" in strategy and winner.get("year") != strategy["year"]:
+                                continue
+                                
+                            # Check primary winner if specified
+                            if "primary_winner" in strategy and not winner.get("primary_winner", False):
+                                continue
+                                
+                            # Check office if specified
+                            if "office" in strategy:
+                                winner_office = winner.get("office", "")
+                                if winner_office not in strategy["office"]:
+                                    continue
+                            
+                            # Found a match!
+                            candidate = winner
+                            print(f"DEBUG: Found candidate in all_winners using strategy {search_strategies.index(strategy) + 1}: {candidate.get('candidate', 'Unknown')}")
+                            break
+                        
+                        if candidate:
+                            break
+                
+                if not candidate or not isinstance(candidate, dict) or not candidate.get("party"):
+                    print(f"DEBUG: Could not find candidate data for user {user_id} in database, creating minimal candidate object")
+                    
+                    # As a final fallback, create a minimal candidate object for momentum purposes
+                    # This handles cases where the campaign action is valid but database lookup fails
+                    
+                    # Try to determine party from the target candidate if available
+                    fallback_party = "Independent"  # Default fallback
+                    if candidate_data and isinstance(candidate_data, dict):
+                        fallback_party = candidate_data.get("party", "Independent")
+                    
+                    candidate = {
+                        "name": f"User_{user_id}",
+                        "user_id": user_id,
+                        "party": fallback_party,
+                        "office": "President",  # Assume presidential for momentum
+                        "year": time_config.get("current_rp_date", {}).year if time_config else 2024,
+                        "primary_winner": True  # Assume they're a valid candidate if performing actions
+                    }
+                    print(f"DEBUG: Created fallback candidate object: {candidate['name']} ({candidate['party']})")
 
             # Determine party key with comprehensive mapping
             party = candidate.get("party", "").lower()
@@ -499,27 +591,41 @@ class PresCampaignActions(commands.Cog):
             else:
                 party_key = "Independent"
 
+            print(f"DEBUG: Adding momentum for {candidate.get('name')} ({party_key}) in {state_name}")
+
             # Validate state name exists in momentum config
             if state_name not in momentum_config["state_momentum"]:
+                print(f"ERROR: State {state_name} not found in momentum config")
                 return
+
+            # Calculate campaign effectiveness multiplier based on current momentum
+            current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
+            campaign_multiplier = momentum_cog._calculate_momentum_campaign_multiplier(state_name, party_key, momentum_config)
+            
+            # Apply momentum multiplier to the original campaign points
+            boosted_points = points_gained * campaign_multiplier
+            
+            print(f"DEBUG: Original points: {points_gained:.2f}, Momentum multiplier: {campaign_multiplier:.2f}x, Boosted points: {boosted_points:.2f}")
 
             # Calculate momentum gained - convert campaign points to momentum
             # Use a factor that makes momentum visible but not overwhelming
             momentum_gain_factor = 2.0  # 2 momentum per 1 campaign point
-            momentum_gained = points_gained * momentum_gain_factor
+            momentum_gained = boosted_points * momentum_gain_factor
 
-            # Get current momentum
-            current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
             new_momentum = current_momentum + momentum_gained
+
+            print(f"DEBUG: Current momentum: {current_momentum}, adding: {momentum_gained}, new total: {new_momentum}")
 
             # Check for auto-collapse and apply if needed
             final_momentum, collapsed = momentum_cog._check_and_apply_auto_collapse(
                 momentum_col, guild_id, state_name, party_key, new_momentum
             )
 
-            if not collapsed:
+            if collapsed:
+                print(f"DEBUG: Momentum auto-collapsed to {final_momentum}")
+            else:
                 # Update momentum in database
-                momentum_col.update_one(
+                result = momentum_col.update_one(
                     {"guild_id": guild_id},
                     {
                         "$set": {
@@ -528,16 +634,20 @@ class PresCampaignActions(commands.Cog):
                         }
                     }
                 )
+                print(f"DEBUG: Momentum update result - matched: {result.matched_count}, modified: {result.modified_count}")
 
                 # Log the momentum gain event
                 if momentum_gained > 0.1:  # Only log significant gains
                     momentum_cog._add_momentum_event(
                         momentum_col, guild_id, state_name, party_key,
-                        momentum_gained, f"Campaign action (+{points_gained:.1f} pts)", user_id
+                        momentum_gained, f"Presidential campaign action (+{points_gained:.1f} pts)", user_id
                     )
+                    print(f"DEBUG: Momentum event logged for {party_key} in {state_name}")
+
+            print(f"DEBUG: Successfully added {momentum_gained} momentum for {party_key} in {state_name}")
 
         except Exception as e:
-            print(f"Error in _add_momentum_from_campaign_action: {e}")
+            print(f"ERROR in _add_momentum_from_campaign_action: {e}")
             import traceback
             traceback.print_exc()
 

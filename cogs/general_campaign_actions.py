@@ -40,20 +40,32 @@ class GeneralCampaignActions(commands.Cog):
         return signups_col, None
 
     def _get_candidate_by_name(self, guild_id: int, candidate_name: str):
-        """Get candidate information by name from all signups"""
+        """Get candidate information by name from appropriate collection based on phase"""
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+
+        # During General Campaign, look in winners collection for primary winners
+        if current_phase == "General Campaign":
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": guild_id})
+
+            if winners_config and "winners" in winners_config:
+                for winner in winners_config["winners"]:
+                    if (winner.get("candidate", "").lower() == candidate_name.lower() and 
+                        winner.get("year") == current_year and
+                        winner.get("primary_winner", False)):
+                        return winners_col, winner
+
+        # For other phases or fallback, look in all_signups
         signups_col = self.bot.db["all_signups"]
         signups_config = signups_col.find_one({"guild_id": guild_id})
 
-        if not signups_config:
-            return signups_col, None
-
-        time_col, time_config = self._get_time_config(guild_id)
-        current_year = time_config["current_rp_date"].year if time_config else 2024
-
-        for candidate in signups_config.get("candidates", []):
-            if (candidate.get("name", "").lower() == candidate_name.lower() and 
-                candidate["year"] == current_year):
-                return signups_col, candidate
+        if signups_config:
+            for candidate in signups_config.get("candidates", []):
+                if (candidate.get("name", "").lower() == candidate_name.lower() and 
+                    candidate["year"] == current_year):
+                    return signups_col, candidate
 
         return signups_col, None
 
@@ -144,7 +156,7 @@ class GeneralCampaignActions(commands.Cog):
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
@@ -314,7 +326,7 @@ class GeneralCampaignActions(commands.Cog):
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
@@ -481,7 +493,7 @@ class GeneralCampaignActions(commands.Cog):
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
@@ -556,7 +568,7 @@ class GeneralCampaignActions(commands.Cog):
             inline=True
         )
 
-        current_stamina = candidate.get('stamina', 200) if candidate else 200
+        current_stamina = candidate.get('stamina', 200) if candidate and isinstance(candidate, dict) else 200
         embed.add_field(
             name="⚡ Current Stamina",
             value=f"{current_stamina - 1}/200",
@@ -615,7 +627,7 @@ class GeneralCampaignActions(commands.Cog):
 
         # Verify target candidate exists
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
-        if not target_candidate:
+        if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
                 f"❌ Target candidate '{target}' not found.",
                 ephemeral=True
@@ -712,7 +724,7 @@ class GeneralCampaignActions(commands.Cog):
                 inline=True
             )
 
-            current_stamina = candidate.get('stamina', 200) if candidate else 200
+            current_stamina = candidate.get('stamina', 200) if candidate and isinstance(candidate, dict) else 200
             embed.add_field(
                 name="⚡ Current Stamina",
                 value=f"{current_stamina - 1.5:.1f}/200",
@@ -908,7 +920,7 @@ class GeneralCampaignActions(commands.Cog):
                             }
                             break
 
-            if not target_candidate or not target_candidate.get("party"):
+            if not target_candidate or not isinstance(target_candidate, dict) or not target_candidate.get("party"):
                 return
 
             # Determine party key
@@ -925,12 +937,19 @@ class GeneralCampaignActions(commands.Cog):
             if state_name not in momentum_config["state_momentum"]:
                 return
 
+            # Calculate campaign effectiveness multiplier based on current momentum
+            current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
+            campaign_multiplier = momentum_cog._calculate_momentum_campaign_multiplier(state_name, party_key, momentum_config)
+            
+            # Apply momentum multiplier to the original campaign points
+            boosted_points = points_gained * campaign_multiplier
+            
+            print(f"DEBUG: General campaign - Original points: {points_gained:.2f}, Momentum multiplier: {campaign_multiplier:.2f}x, Boosted points: {boosted_points:.2f}")
+
             # Calculate momentum gained
             momentum_gain_factor = 1.5  # Slightly less than presidential actions
-            momentum_gained = points_gained * momentum_gain_factor
+            momentum_gained = boosted_points * momentum_gain_factor
 
-            # Get current momentum
-            current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
             new_momentum = current_momentum + momentum_gained
 
             # Check for auto-collapse and apply if needed
