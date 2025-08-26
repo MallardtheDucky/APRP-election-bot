@@ -326,10 +326,26 @@ class Delegates(commands.Cog):
             if state_key in delegates_config.get("called_states", []):
                 continue
 
-            # Check if date matches
-            if (current_rp_date.month == state_data["month"] and 
-                current_rp_date.day >= state_data["day"]):
+            # Create proper date objects for comparison
+            try:
+                state_date = datetime(current_year, state_data["month"], state_data["day"])
+                current_date = datetime(current_rp_date.year, current_rp_date.month, current_rp_date.day)
 
+                # Debug logging
+                print(f"Checking {state_data['state']} ({party}): state_date={state_date.strftime('%Y-%m-%d')}, current_date={current_date.strftime('%Y-%m-%d')}")
+
+                # Check if the state date has passed or is today
+                if current_date >= state_date:
+                    print(f"  -> Should call! {current_date} >= {state_date}")
+                else:
+                    print(f"  -> Not yet. {current_date} < {state_date}")
+                    continue
+            except ValueError as e:
+                print(f"Date error for {state_data['state']} ({party}): {e}")
+                continue
+
+            # Check if the state date has passed or is today
+            if current_date >= state_date:
                 await self._call_state(
                     guild, guild_id, state_data, party, current_year, 
                     delegates_config, delegates_col
@@ -662,11 +678,15 @@ class Delegates(commands.Cog):
             print(f"Failed to send state announcement: {e}")
             pass  # Ignore if can't send message
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="toggle_delegate_system",
+    # Create command groups to reduce command count
+    delegate_group = app_commands.Group(name="delegate", description="Delegate system commands")
+    delegate_admin_group = app_commands.Group(name="admin", description="Admin delegate commands", parent=delegate_group)
+
+    @delegate_admin_group.command(
+        name="toggle_system",
         description="Enable or disable the automatic delegate system (Admin only)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def toggle_delegate_system(self, interaction: discord.Interaction):
         delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
 
@@ -684,11 +704,11 @@ class Delegates(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="pause_delegate_system",
+    @delegate_admin_group.command(
+        name="pause_system",
         description="Pause or resume the automatic delegate checking (Admin only)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def pause_delegate_system(self, interaction: discord.Interaction):
         """Pause or resume the automatic delegate checking system"""
         delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
@@ -724,11 +744,11 @@ class Delegates(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
-        name="set_delegate_channel",
+    @delegate_admin_group.command(
+        name="set_channel",
         description="Set the channel for delegate and primary winner announcements (Admin only)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def set_delegate_channel(
         self,
         interaction: discord.Interaction,
@@ -754,8 +774,7 @@ class Delegates(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    @delegate_admin_group.command(
         name="reset_delegates",
         description="Reset delegate counts for a specific party or all parties (Admin only)"
     )
@@ -764,6 +783,7 @@ class Delegates(commands.Cog):
         year="Year to reset delegates for (optional - uses current year if not specified)",
         confirm="Set to True to confirm the reset"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def reset_delegates(
         self,
         interaction: discord.Interaction,
@@ -969,10 +989,11 @@ class Delegates(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
-        name="force_declare_independents",
+    @delegate_admin_group.command(
+        name="declare_independents",
         description="Force declare all independent candidates as winners (Admin only)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def force_declare_independents(
         self,
         interaction: discord.Interaction,
@@ -1039,8 +1060,8 @@ class Delegates(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(
-        name="delegate_totals",
+    @delegate_group.command(
+        name="totals",
         description="View current delegate counts by party"
     )
     async def delegate_totals(self, interaction: discord.Interaction):
@@ -1122,8 +1143,8 @@ class Delegates(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="upcoming_primaries",
+    @delegate_group.command(
+        name="upcoming",
         description="See what primaries are coming up in the next month"
     )
     async def upcoming_primaries(self, interaction: discord.Interaction):
@@ -1197,8 +1218,8 @@ class Delegates(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="primary_schedule",
+    @delegate_group.command(
+        name="schedule",
         description="View the full primary calendar for both parties"
     )
     async def primary_schedule(self, interaction: discord.Interaction, party: str = None):
@@ -1267,8 +1288,8 @@ class Delegates(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="force_call_state",
+    @delegate_admin_group.command(
+        name="call_state",
         description="Manually call a specific state primary (Admin only)"
     )
     @app_commands.describe(
@@ -1276,6 +1297,7 @@ class Delegates(commands.Cog):
         party="Party (Democrats or Republican)",
         year="Year (optional - uses current year if not specified)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def force_call_state(
         self,
         interaction: discord.Interaction,
@@ -1376,8 +1398,135 @@ class Delegates(commands.Cog):
         return [app_commands.Choice(name=state, value=state)
                 for state in sorted(all_states) if current.lower() in state.lower()][:25]
 
+    @delegate_admin_group.command(
+        name="catchup_primaries",
+        description="Call all missed primaries that should have already happened (Admin only)"
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.command(
+    async def catchup_primaries(
+        self,
+        interaction: discord.Interaction,
+        party: str = "All",
+        confirm: bool = False
+    ):
+        """Manually call all missed primaries that should have already happened"""
+        valid_parties = ["Democrats", "Republican", "All"]
+
+        if party not in valid_parties:
+            await interaction.response.send_message(
+                f"❌ Invalid party. Must be one of: {', '.join(valid_parties)}",
+                ephemeral=True
+            )
+            return
+
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            await interaction.response.send_message("❌ Time system not configured.", ephemeral=True)
+            return
+
+        current_rp_date = self._calculate_current_rp_time(time_config)
+        current_year = current_rp_date.year
+
+        delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
+        called_states = delegates_config.get("called_states", [])
+
+        # Find missed primaries
+        missed_primaries = []
+        schedules_to_check = []
+
+        if party == "All":
+            schedules_to_check = [("Democrats", self.dnc_schedule), ("Republican", self.gop_schedule)]
+        elif party == "Democrats":
+            schedules_to_check = [("Democrats", self.dnc_schedule)]
+        else:
+            schedules_to_check = [("Republican", self.gop_schedule)]
+
+        for party_name, schedule in schedules_to_check:
+            for state_data in schedule:
+                state_key = f"{state_data['state']}_{party_name}_{current_year}"
+
+                if state_key in called_states:
+                    continue
+
+                try:
+                    state_date = datetime(current_year, state_data["month"], state_data["day"])
+                    current_date = datetime(current_rp_date.year, current_rp_date.month, current_rp_date.day)
+
+                    if current_date >= state_date:
+                        missed_primaries.append({
+                            "state": state_data["state"],
+                            "party": party_name,
+                            "date": state_date,
+                            "delegates": state_data["delegates"],
+                            "state_data": state_data
+                        })
+                except ValueError:
+                    continue
+
+        if not missed_primaries:
+            await interaction.response.send_message("✅ No missed primaries found!", ephemeral=True)
+            return
+
+        if not confirm:
+            missed_text = f"Found **{len(missed_primaries)}** missed primaries:\n\n"
+            for primary in missed_primaries[:10]:  # Show first 10
+                missed_text += f"• **{primary['state']}** ({primary['party']}) - {primary['date'].strftime('%m/%d')} ({primary['delegates']} delegates)\n"
+
+            if len(missed_primaries) > 10:
+                missed_text += f"... and {len(missed_primaries) - 10} more\n"
+
+            missed_text += f"\nTo call all these primaries, run this command again with `confirm:True`"
+
+            await interaction.response.send_message(missed_text, ephemeral=True)
+            return
+
+        # Call all missed primaries
+        await interaction.response.defer(ephemeral=True)
+
+        called_count = 0
+        error_count = 0
+        total_primaries = len(missed_primaries)
+
+        # Send initial progress message
+        await interaction.followup.send(
+            f"🔄 Processing {total_primaries} missed primaries...",
+            ephemeral=True
+        )
+
+        for i, primary in enumerate(missed_primaries):
+            try:
+                # Refresh delegates_config for each iteration
+                delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
+                
+                await self._call_state(
+                    interaction.guild, interaction.guild.id, primary["state_data"], 
+                    primary["party"], current_year, delegates_config, delegates_col
+                )
+                called_count += 1
+                print(f"Called missed primary: {primary['state']} ({primary['party']}) [{i+1}/{total_primaries}]")
+                
+                # Send progress update every 5 states or at the end
+                if (i + 1) % 5 == 0 or (i + 1) == total_primaries:
+                    await interaction.edit_original_response(
+                        content=f"🔄 Progress: {i+1}/{total_primaries} primaries processed..."
+                    )
+                
+            except Exception as e:
+                error_count += 1
+                print(f"Error calling {primary['state']} ({primary['party']}): {e}")
+                import traceback
+                traceback.print_exc()
+
+        # Final result message
+        result_message = f"✅ Processing complete!\n"
+        result_message += f"**Successfully called:** {called_count} primaries\n"
+        if error_count > 0:
+            result_message += f"**Errors encountered:** {error_count} primaries\n"
+        result_message += f"Check `/delegate totals` to see the updated results."
+
+        await interaction.edit_original_response(content=result_message)
+
+    @delegate_admin_group.command(
         name="transfer_delegates",
         description="Transfer delegates from one candidate to another (Admin only)"
     )
@@ -1387,6 +1536,7 @@ class Delegates(commands.Cog):
         delegate_count="Number of delegates to transfer",
         reason="Reason for the transfer (optional)"
     )
+    @app_commands.checks.has_permissions(administrator=True)
     async def transfer_delegates(
         self,
         interaction: discord.Interaction,
