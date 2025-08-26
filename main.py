@@ -94,6 +94,10 @@ async def main():
             print("✓ Loaded delegates")
             await bot.load_extension("cogs.demographics")
             print("✓ Loaded demographics")
+            await bot.load_extension("cogs.admin_central")
+            print("✓ Loaded admin_central")
+            await bot.load_extension("cogs.pres_campaign_actions")
+            print("✓ Loaded pres_campaign_actions")
             print("All cogs loaded successfully!")
             await bot.load_extension("cogs.momentum")
             

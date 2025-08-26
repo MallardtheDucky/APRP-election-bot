@@ -1,5 +1,6 @@
 
 
+
 🎮 Basic Commands
 /commands - Show this help menu with pagination
 /credits - Lists the people that made this bot
@@ -55,6 +56,7 @@
 /time set_voice_channel - Set which voice channel to update with RP date (Admin only)
 /time toggle_voice_updates - Toggle automatic voice channel name updates (Admin only)
 /time update_voice_channel - Manually update the configured voice channel with current RP date (Admin only)
+/time admin pause_time - Pause or unpause the time system (Admin only)
 
 📋 Election Signups
 /signup - Sign up as a candidate for election (only during signup phase)
@@ -75,7 +77,7 @@
 /admin_set_endorsement_role - Set Discord role for endorsement position (Admin only)
 /view_endorsement_roles - View current endorsement role mappings (Admin only)
 /view_endorsements - View all endorsements made in current cycle
-/my_endorsement - View your current endorsement status
+/my_endorsements - View your current endorsement status
 /view_delegates - View current delegate count for presidential candidates
 /admin_call_state - Manually call a state for delegate allocation (Admin only)
 
@@ -101,10 +103,17 @@
 /poster - Put up campaign posters
 
 📊 Demographics & Voter Outreach
-/demographic_appeal - Target specific demographic groups with campaign appeals
-/voter_registration - Conduct voter registration drives
-/town_hall - Host town hall meetings
-/grassroots - Organize grassroots campaign events
+/demographic_speech - Give a targeted demographic speech in a U.S. state
+/demographic_poster - Create a targeted demographic poster in a U.S. state
+/demographic_ad - Create a targeted demographic video ad in a U.S. state
+/demographic_status - View your demographic voting bloc progress and thresholds
+/view_state_demographics - View demographic strengths for a specific state or all states
+/admin_demo overview - View all candidates' demographic progress (Admin only)
+/admin_demo reset - Reset all demographic progress for a candidate (Admin only)
+/admin_demo modify - Modify demographic points for a candidate (Admin only)
+/admin_demo clear_cooldowns - Clear all demographic cooldowns for a user (Admin only)
+/admin_demo reset_all - Reset ALL demographic progress for ALL candidates (Admin only)
+/admin_demo system_status - View demographic system configuration and statistics (Admin only)
 
 🌊 Momentum & State Dynamics (General Campaign)
 /momentum status - View momentum status for a specific state
