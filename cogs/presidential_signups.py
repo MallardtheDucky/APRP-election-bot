@@ -1019,7 +1019,11 @@ class PresidentialSignups(commands.Cog):
 
             for i, candidate in enumerate(general_candidates):
                 vp_name = candidate.get("vp_candidate", "No VP selected")
-                
+
+                # Get Discord user info
+                user = interaction.guild.get_member(candidate.get("user_id"))
+                user_mention = user.mention if user else "Unknown User"
+
                 # Simple polling calculation (you can improve this)
                 polling_percentage = base_percentage + ((-1) ** i) * (i * 2)  # Slight variation
 
@@ -1027,6 +1031,7 @@ class PresidentialSignups(commands.Cog):
                 party_emoji = "🔴" if "republican" in candidate["party"].lower() else "🔵" if "democrat" in candidate["party"].lower() else "🟣"
 
                 ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
+                ticket_info += f"**Discord User:** {user_mention}\n"
                 ticket_info += f"**Running Mate:** {vp_name}\n"
                 ticket_info += f"**Estimated Polling:** {polling_percentage:.1f}%\n\n"
                 ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
@@ -1071,7 +1076,12 @@ class PresidentialSignups(commands.Cog):
             for president in presidents:
                 vp_name = president.get("vp_candidate", "No VP selected")
 
+                # Get Discord user info
+                user = interaction.guild.get_member(president.get("user_id"))
+                user_mention = user.mention if user else "Unknown User"
+
                 ticket_info = f"**Party:** {president['party']}\n"
+                ticket_info += f"**Discord User:** {user_mention}\n"
                 ticket_info += f"**Running Mate:** {vp_name}\n"
                 ticket_info += f"**Points:** {president.get('points', 0):.2f}\n"
                 ticket_info += f"**Ideology:** {president['ideology']} ({president['axis']})\n"
@@ -1187,13 +1197,6 @@ class PresidentialSignups(commands.Cog):
                   f"**Office:** {withdrawn_candidate['office']}",
             inline=True
         )
-
-        if reason:
-            embed.add_field(
-                name="📝 Reason",
-                value=reason,
-                inline=False
-            )
 
         if withdrawn_candidate["office"] == "President" and withdrawn_candidate.get("vp_candidate"):
             embed.add_field(

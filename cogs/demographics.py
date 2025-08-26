@@ -1,3 +1,4 @@
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -7,28 +8,28 @@ import random
 from typing import Optional, Dict
 from .presidential_winners import PRESIDENTIAL_STATE_DATA
 
-# Demographic voting bloc thresholds
-DEMOGRAPHIC_THRESHOLDS = {
-    "Urban Voters": 25,
-    "Suburban Voters": 20,
-    "Rural Voters": 18,
-    "Evangelical Christians": 18,
-    "African American Voters": 22,
-    "Latino/Hispanic Voters": 22,
-    "Asian American Voters": 18,
-    "Blue-Collar / Working-Class Voters": 20,
-    "College-Educated Professionals": 20,
-    "Young Voters (18–29)": 20,
-    "Senior Citizens (65+)": 18,
-    "Native American Voters": 12,
-    "Military & Veteran Voters": 15,
-    "LGBTQ+ Voters": 15,
-    "Immigrant Communities": 15,
-    "Tech & Innovation Workers": 18,
-    "Wealthy / High-Income Voters": 15,
-    "Low-Income Voters": 22,
-    "Environmental & Green Voters": 18,
-    "Gun Rights Advocates": 18
+# Demographic voting bloc strength values (removed thresholds)
+DEMOGRAPHIC_STRENGTH = {
+    "Urban Voters": True,
+    "Suburban Voters": True,
+    "Rural Voters": True,
+    "Evangelical Christians": True,
+    "African American Voters": True,
+    "Latino/Hispanic Voters": True,
+    "Asian American Voters": True,
+    "Blue-Collar / Working-Class Voters": True,
+    "College-Educated Professionals": True,
+    "Young Voters (18–29)": True,
+    "Senior Citizens (65+)": True,
+    "Native American Voters": True,
+    "Military & Veteran Voters": True,
+    "LGBTQ+ Voters": True,
+    "Immigrant Communities": True,
+    "Tech & Innovation Workers": True,
+    "Wealthy / High-Income Voters": True,
+    "Low-Income Voters": True,
+    "Environmental & Green Voters": True,
+    "Gun Rights Advocates": True
 }
 
 # Backlash system - opposing voter blocs
@@ -59,464 +60,464 @@ class Demographics(commands.Cog):
     def _convert_strength_to_value(self, strength):
         """Convert text strength to numeric value"""
         strength_map = {
-            "Small": 0.3,
-            "Moderate": 0.75,
-            "Strong": 1.75
+            "Small": 0.05,
+            "Moderate": 0.10,
+            "Strong": 0.25
         }
-        return strength_map.get(strength, 0.75)  # Default to moderate
+        return strength_map.get(strength, 0.10)  # Default to moderate
 
     # State demographic strengths based on actual data
-    # Small = 0.3, Moderate = 0.75, Strong = 1.75
+    # Small = 0.05, Moderate = 0.10, Strong = 0.25
     STATE_DEMOGRAPHICS = {
         "ALABAMA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.3,
-            "Young Voters (18–29)": 0.3, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.05,
+            "Young Voters (18–29)": 0.05, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.25
         },
         "ALASKA": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "ARIZONA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 1.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "ARKANSAS": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.3,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.05,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "CALIFORNIA": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.3, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.05, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.05
         },
         "COLORADO": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.10
         },
         "CONNECTICUT": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.3, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.3, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.05, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.05, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.05
         },
         "DELAWARE": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 1.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.3, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.05, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "FLORIDA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.3, "Senior Citizens (65+)": 1.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.05, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "GEORGIA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 1.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.3, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.25, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.05, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "HAWAII": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.3, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.05, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.05
         },
         "IDAHO": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "ILLINOIS": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "INDIANA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "IOWA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "KANSAS": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "KENTUCKY": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "LOUISIANA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 1.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.3,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.25, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.05,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.10
         },
         "MAINE": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.3, "Senior Citizens (65+)": 1.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.05, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.10
         },
         "MARYLAND": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.05
         },
         "MASSACHUSETTS": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.3, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.05, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.05
         },
         "MICHIGAN": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "MINNESOTA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "MISSISSIPPI": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.3,
-            "Young Voters (18–29)": 0.3, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.05,
+            "Young Voters (18–29)": 0.05, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.25
         },
         "MISSOURI": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "MONTANA": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 1.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "NEBRASKA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "NEVADA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "NEW HAMPSHIRE": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "NEW JERSEY": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.05
         },
         "NEW MEXICO": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.10
         },
         "NEW YORK": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.05
         },
         "NORTH CAROLINA": {
-            "Urban Voters": 0.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 1.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.25, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "NORTH DAKOTA": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.25
         },
         "OHIO": {
-            "Urban Voters": 0.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "OKLAHOMA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 1.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.3,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.25, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.05,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.25
         },
         "OREGON": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.3, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.05, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.10
         },
         "PENNSYLVANIA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 1.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "RHODE ISLAND": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.3,
-            "Evangelical Christians": 0.3, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.3, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.3
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.05,
+            "Evangelical Christians": 0.05, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.05, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.05
         },
         "SOUTH CAROLINA": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 1.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 1.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.25, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "SOUTH DAKOTA": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "TENNESSEE": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.25, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "TEXAS": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 1.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 1.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.3, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.25, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.25,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.05, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "UTAH": {
-            "Urban Voters": 0.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.3, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.05, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.25
         },
         "VERMONT": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.3, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.3, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.05, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.05, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.10
         },
         "VIRGINIA": {
-            "Urban Voters": 1.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 1.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 1.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.25, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.25, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "WASHINGTON": {
-            "Urban Voters": 1.75, "Suburban Voters": 0.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.3, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 1.75, "Blue-Collar / Working-Class Voters": 0.75, "College-Educated Professionals": 1.75,
-            "Young Voters (18–29)": 1.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 1.75, "Immigrant Communities": 1.75,
-            "Tech & Innovation Workers": 1.75, "Wealthy / High-Income Voters": 1.75, "Low-Income Voters": 0.3,
-            "Environmental & Green Voters": 1.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.25, "Suburban Voters": 0.10, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.05, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.25, "Blue-Collar / Working-Class Voters": 0.10, "College-Educated Professionals": 0.25,
+            "Young Voters (18–29)": 0.25, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.25, "Immigrant Communities": 0.25,
+            "Tech & Innovation Workers": 0.25, "Wealthy / High-Income Voters": 0.25, "Low-Income Voters": 0.05,
+            "Environmental & Green Voters": 0.25, "Gun Rights Advocates": 0.10
         },
         "WEST VIRGINIA": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.3,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.3,
-            "Young Voters (18–29)": 0.3, "Senior Citizens (65+)": 1.75, "Native American Voters": 0.3,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.3, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.3, "Low-Income Voters": 1.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.05,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.05,
+            "Young Voters (18–29)": 0.05, "Senior Citizens (65+)": 0.25, "Native American Voters": 0.05,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.05, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.05, "Low-Income Voters": 0.25,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.25
         },
         "WISCONSIN": {
-            "Urban Voters": 0.75, "Suburban Voters": 1.75, "Rural Voters": 0.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.75, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.75, "Blue-Collar / Working-Class Voters": 1.75, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 0.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.75,
-            "Tech & Innovation Workers": 0.75, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.75, "Gun Rights Advocates": 0.75
+            "Urban Voters": 0.10, "Suburban Voters": 0.25, "Rural Voters": 0.10,
+            "Evangelical Christians": 0.10, "African American Voters": 0.10, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.10, "Blue-Collar / Working-Class Voters": 0.25, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.10,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.10,
+            "Tech & Innovation Workers": 0.10, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.10, "Gun Rights Advocates": 0.10
         },
         "WYOMING": {
-            "Urban Voters": 0.3, "Suburban Voters": 0.3, "Rural Voters": 1.75,
-            "Evangelical Christians": 0.75, "African American Voters": 0.3, "Latino/Hispanic Voters": 0.75,
-            "Asian American Voters": 0.3, "Blue-Collar / Working-Class Voters": 0.3, "College-Educated Professionals": 0.75,
-            "Young Voters (18–29)": 0.75, "Senior Citizens (65+)": 0.75, "Native American Voters": 1.75,
-            "Military & Veteran Voters": 0.75, "LGBTQ+ Voters": 0.75, "Immigrant Communities": 0.3,
-            "Tech & Innovation Workers": 0.3, "Wealthy / High-Income Voters": 0.75, "Low-Income Voters": 0.75,
-            "Environmental & Green Voters": 0.3, "Gun Rights Advocates": 1.75
+            "Urban Voters": 0.05, "Suburban Voters": 0.05, "Rural Voters": 0.25,
+            "Evangelical Christians": 0.10, "African American Voters": 0.05, "Latino/Hispanic Voters": 0.10,
+            "Asian American Voters": 0.05, "Blue-Collar / Working-Class Voters": 0.05, "College-Educated Professionals": 0.10,
+            "Young Voters (18–29)": 0.10, "Senior Citizens (65+)": 0.10, "Native American Voters": 0.25,
+            "Military & Veteran Voters": 0.10, "LGBTQ+ Voters": 0.10, "Immigrant Communities": 0.05,
+            "Tech & Innovation Workers": 0.05, "Wealthy / High-Income Voters": 0.10, "Low-Income Voters": 0.10,
+            "Environmental & Green Voters": 0.05, "Gun Rights Advocates": 0.25
         }
     }
 
@@ -549,20 +550,45 @@ class Demographics(commands.Cog):
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
         if current_phase == "General Campaign":
-            # First check presidential winners collection for general campaign
-            winners_col, winners_config = self._get_presidential_winners_config(guild_id)
+            # First check all_winners collection for general campaign primary winners
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": guild_id})
 
             if winners_config and isinstance(winners_config, dict):
-                # For general campaign, look for primary winners from the previous year if we're in an even year
-                # Or current year if odd year
-                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-
                 for winner in winners_config.get("winners", []):
                     if (isinstance(winner, dict) and 
                         winner.get("user_id") == user_id and 
                         winner.get("primary_winner", False) and 
-                        winner.get("year") == primary_year):
+                        winner.get("year") == current_year and
+                        winner.get("office") in ["President", "Vice President"]):
                         return winners_col, winner
+
+            # Also check presidential winners collection for general campaign
+            pres_winners_col, pres_winners_config = self._get_presidential_winners_config(guild_id)
+
+            if pres_winners_config and isinstance(pres_winners_config, dict):
+                # For general campaign, look for primary winners from the previous year if we're in an even year
+                # Or current year if odd year
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+                for winner in pres_winners_config.get("winners", []):
+                    if (isinstance(winner, dict) and 
+                        winner.get("user_id") == user_id and 
+                        winner.get("primary_winner", False) and 
+                        winner.get("year") == primary_year):
+                        return pres_winners_col, winner
+
+            # Check presidential signups collection for general campaign candidates
+            pres_signups_col = self.bot.db["presidential_signups"]
+            pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
+
+            if pres_signups_config and isinstance(pres_signups_config, dict):
+                for candidate in pres_signups_config.get("candidates", []):
+                    if (isinstance(candidate, dict) and 
+                        candidate.get("user_id") == user_id and 
+                        candidate.get("year") == current_year and
+                        candidate.get("office") in ["President", "Vice President"]):
+                        return pres_signups_col, candidate
 
             # Also check signups collection for admin-created general campaign candidates
             signups_col = self.bot.db["signups"]
@@ -587,20 +613,33 @@ class Demographics(commands.Cog):
         current_year = time_config["current_rp_date"].year if time_config else 2024
 
         if current_phase == "General Campaign":
-            # First check presidential winners collection for general campaign
-            winners_col, winners_config = self._get_presidential_winners_config(guild_id)
+            # First check all_winners collection for general campaign primary winners
+            winners_col = self.bot.db["winners"]
+            winners_config = winners_col.find_one({"guild_id": guild_id})
 
             if winners_config and isinstance(winners_config, dict):
+                for winner in winners_config.get("winners", []):
+                    if (isinstance(winner, dict) and 
+                        winner.get("candidate", "").lower() == candidate_name.lower() and 
+                        winner.get("primary_winner", False) and 
+                        winner.get("year") == current_year and
+                        winner.get("office") in ["President", "Vice President"]):
+                        return winners_col, winner
+
+            # Also check presidential winners collection for general campaign
+            pres_winners_col, pres_winners_config = self._get_presidential_winners_config(guild_id)
+
+            if pres_winners_config and isinstance(pres_winners_config, dict):
                 # For general campaign, look for primary winners from the previous year if we're in an even year
                 # Or current year if odd year
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
-                for winner in winners_config.get("winners", []):
+                for winner in pres_winners_config.get("winners", []):
                     if (isinstance(winner, dict) and 
                         winner.get("name", "").lower() == candidate_name.lower() and 
                         winner.get("primary_winner", False) and 
                         winner.get("year") == primary_year):
-                        return winners_col, winner
+                        return pres_winners_col, winner
 
             # Also check signups collection for admin-created general campaign candidates
             signups_col = self.bot.db["signups"]
@@ -714,6 +753,53 @@ class Demographics(commands.Cog):
         # Default fallback
         return [state.upper()]
 
+    def _get_demographic_leader(self, guild_id: int, demographic: str, state: str):
+        """Get the candidate leading in a specific demographic and state"""
+        # Get all general campaign candidates
+        winners_col, winners_config = self._get_presidential_winners_config(guild_id)
+        signups_col = self.bot.db["signups"]
+        signups_config = signups_col.find_one({"guild_id": guild_id})
+
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+        all_candidates = []
+
+        # Get presidential winners (primary winners)
+        if winners_config and isinstance(winners_config, dict):
+            for winner in winners_config.get("winners", []):
+                if (isinstance(winner, dict) and 
+                    winner.get("primary_winner", False) and 
+                    winner.get("year") == primary_year and
+                    winner.get("office") in ["President", "Vice President"]):
+                    all_candidates.append(winner)
+
+        # Get general campaign signups
+        if signups_config and isinstance(signups_config, dict):
+            for candidate in signups_config.get("candidates", []):
+                if (isinstance(candidate, dict) and 
+                    candidate.get("year") == current_year and
+                    candidate.get("phase") == "General Campaign"):
+                    all_candidates.append(candidate)
+
+        # Find the leader in this demographic
+        leader = None
+        highest_points = -1
+
+        for candidate in all_candidates:
+            # Check if this state is relevant for this candidate
+            relevant_states = self._get_relevant_states_for_candidate(candidate, state)
+            if state.upper() not in relevant_states:
+                continue
+
+            demo_points = candidate.get("demographic_points", {}).get(demographic, 0)
+            if demo_points > highest_points:
+                highest_points = demo_points
+                leader = candidate
+
+        return leader, highest_points
+
     def _update_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_gained: float, state: str, candidate: dict):
         """Update demographic points for a candidate and handle backlash"""
         # Determine if this is a winners collection or signups collection
@@ -779,39 +865,18 @@ class Demographics(commands.Cog):
         current_points = current_demographics.get(demographic, 0)
         new_points = current_points + points_gained
 
-        # Check threshold and calculate backlash
-        threshold = DEMOGRAPHIC_THRESHOLDS.get(demographic, 20)
-        backlash_updates = {}
-
-        # Early soft backlash when approaching threshold (90% of threshold)
-        early_backlash_threshold = threshold * 0.9
-        # Medium backlash when exceeding threshold (125% of threshold)
-        medium_backlash_threshold = threshold * 1.25 
-        # Hard backlash at 150% of threshold
-        hard_backlash_threshold = threshold * 1.5  
-
-        if new_points > hard_backlash_threshold:
-            backlash_loss = -2.0  # Hard backlash
-            opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
-            for opposing_bloc in opposing_blocs:
-                current_opposing = current_demographics.get(opposing_bloc, 0)
-                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
-        elif new_points > medium_backlash_threshold:
-            backlash_loss = -1.0  # Medium backlash
-            opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
-            for opposing_bloc in opposing_blocs:
-                current_opposing = current_demographics.get(opposing_bloc, 0)
-                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
-        elif new_points > early_backlash_threshold and current_points <= early_backlash_threshold:
-            backlash_loss = -0.5  # Early soft backlash (only triggers when crossing the threshold)
-            opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
-            for opposing_bloc in opposing_blocs:
-                current_opposing = current_demographics.get(opposing_bloc, 0)
-                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
-
         # Apply state multiplier
-        state_multiplier = self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 1.0)
+        state_multiplier = self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 0.10)
         final_points_gained = points_gained * state_multiplier
+
+        # Calculate backlash (simplified - no threshold dependency)
+        backlash_updates = {}
+        if new_points > 5:  # Apply backlash when demographic points exceed 5
+            backlash_loss = -0.5
+            opposing_blocs = DEMOGRAPHIC_CONFLICTS.get(demographic, [])
+            for opposing_bloc in opposing_blocs:
+                current_opposing = current_demographics.get(opposing_bloc, 0)
+                backlash_updates[f"{update_path_prefix}.{opposing_bloc}"] = max(0, current_opposing + backlash_loss)
 
         # Update the demographic points
         update_doc = {
@@ -828,7 +893,7 @@ class Demographics(commands.Cog):
 
     def _get_state_demographic_multiplier(self, state: str, demographic: str) -> float:
         """Get the demographic multiplier for a given state and demographic."""
-        return self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 1.0)
+        return self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 0.10)
 
     def _update_candidate_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_to_add: float):
         """Helper to add points to a candidate's demographic and ensure it doesn't go below zero."""
@@ -853,7 +918,6 @@ class Demographics(commands.Cog):
             array_filter,
             {"$max": {update_path: 0}}
         )
-
 
     @app_commands.command(
         name="demographic_speech",
@@ -884,9 +948,9 @@ class Demographics(commands.Cog):
             return
 
         # Validate demographic
-        if demographic not in DEMOGRAPHIC_THRESHOLDS:
+        if demographic not in DEMOGRAPHIC_STRENGTH:
             await interaction.response.send_message(
-                f"❌ Invalid demographic. Please choose from: {', '.join(sorted(DEMOGRAPHIC_THRESHOLDS.keys()))}",
+                f"❌ Invalid demographic. Please choose from: {', '.join(sorted(DEMOGRAPHIC_STRENGTH.keys()))}",
                 ephemeral=True
             )
             return
@@ -926,8 +990,8 @@ class Demographics(commands.Cog):
             return
 
         # Get demographic info
-        threshold = DEMOGRAPHIC_THRESHOLDS[demographic]
         multiplier = self._get_state_demographic_multiplier(state_upper, demographic)
+        leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, state_upper)
 
         # Send initial message asking for speech
         await interaction.response.send_message(
@@ -935,8 +999,8 @@ class Demographics(commands.Cog):
             f"**Target:** {target_candidate['name']}\n"
             f"**State:** {state_upper}\n"
             f"**Demographic:** {demographic}\n"
-            f"**Threshold:** {threshold} points\n"
-            f"**State Multiplier:** {multiplier:.2f}x\n"
+            f"**State Multiplier:** {multiplier:.3f}x\n"
+            f"**Current Leader:** {leader['name'] if leader else 'None'} ({highest_points:.1f} points)\n"
             f"**Requirements:**\n"
             f"• Speech content (700-3000 characters)\n"
             f"• Reply within 5 minutes\n\n"
@@ -977,16 +1041,16 @@ class Demographics(commands.Cog):
             # Get updated demographic status
             updated_candidate = self._get_candidate_by_name(interaction.guild.id, target)[1]
             current_points = updated_candidate.get("demographic_points", {}).get(demographic, 0)
-            percentage = (current_points / threshold) * 100
 
-            # Check for threshold achievement
-            threshold_achieved = current_points >= threshold
+            # Check new leadership status
+            new_leader, new_highest_points = self._get_demographic_leader(interaction.guild.id, demographic, state_upper)
+            is_now_leader = new_leader and new_leader["user_id"] == target_candidate["user_id"]
 
             # Create response embed
             embed = discord.Embed(
                 title="🎯 Demographic-Targeted Speech",
                 description=f"**{candidate['name']}** delivers a targeted speech for **{target_candidate['name']}** in {state_upper}!",
-                color=discord.Color.green() if threshold_achieved else discord.Color.blue(),
+                color=discord.Color.gold() if is_now_leader else discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
 
@@ -1013,16 +1077,15 @@ class Demographics(commands.Cog):
             embed.add_field(
                 name="📊 Demographic Progress",
                 value=f"**Points Gained:** +{final_points:.2f}\n"
-                      f"**Total Progress:** {current_points:.2f}/{threshold}\n"
-                      f"**Completion:** {percentage:.1f}%\n"
-                      f"**Status:** {'✅ Threshold Achieved!' if threshold_achieved else '🔄 In Progress'}",
+                      f"**Total Points:** {current_points:.2f}\n"
+                      f"**Leadership:** {'🏆 LEADING!' if is_now_leader else f'Behind leader by {max(0, new_highest_points - current_points):.1f}'}",
                 inline=True
             )
 
-            if threshold_achieved:
+            if is_now_leader:
                 embed.add_field(
-                    name="🎉 Achievement Unlocked!",
-                    value=f"**{target_candidate['name']}** has successfully reached the {demographic} threshold!",
+                    name="🏆 New Leader!",
+                    value=f"**{target_candidate['name']}** now leads {demographic} in all states where this demographic has influence!",
                     inline=False
                 )
 
@@ -1072,9 +1135,9 @@ class Demographics(commands.Cog):
             return
 
         # Validate demographic
-        if demographic not in DEMOGRAPHIC_THRESHOLDS:
+        if demographic not in DEMOGRAPHIC_STRENGTH:
             await interaction.response.send_message(
-                f"❌ Invalid demographic. Please choose from: {', '.join(sorted(DEMOGRAPHIC_THRESHOLDS.keys()))}",
+                f"❌ Invalid demographic. Please choose from: {', '.join(sorted(DEMOGRAPHIC_STRENGTH.keys()))}",
                 ephemeral=True
             )
             return
@@ -1155,24 +1218,25 @@ class Demographics(commands.Cog):
         # Set cooldown
         self._set_cooldown(interaction.guild.id, interaction.user.id, "demographic_poster")
 
+        # Get leadership status
+        leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, state_upper)
+        current_points = target_candidate.get("demographic_points", {}).get(demographic, 0) + points_gained
+        is_leader = leader and leader["user_id"] == target_candidate["user_id"]
+
         embed = discord.Embed(
             title="🖼️ Demographic Campaign Poster",
             description=f"**{candidate['name']}** creates targeted materials for **{demographic}** supporting **{target_candidate['name']}** in {state_upper}!",
-            color=discord.Color.orange(),
+            color=discord.Color.gold() if is_leader else discord.Color.orange(),
             timestamp=datetime.utcnow()
         )
-
-        # Show demographic progress
-        threshold = DEMOGRAPHIC_THRESHOLDS.get(demographic, 20)
-        current_points = target_candidate.get("demographic_points", {}).get(demographic, 0) + points_gained
-        progress_bar = "█" * min(int((current_points / threshold) * 10), 10) + "░" * max(0, 10 - int((current_points / threshold) * 10))
 
         embed.add_field(
             name="📊 Demographic Impact",
             value=f"**Target Demographic:** {demographic}\n"
                   f"**State:** {state_upper}\n"
                   f"**Points Gained:** +{points_gained:.2f}\n"
-                  f"**Progress:** {progress_bar} {current_points:.1f}/{threshold}\n"
+                  f"**Total Points:** {current_points:.1f}\n"
+                  f"**Leadership:** {'🏆 LEADING!' if is_leader else f'Behind by {max(0, highest_points - current_points):.1f}'}\n"
                   f"**Stamina Cost:** -1.5",
             inline=True
         )
@@ -1229,9 +1293,9 @@ class Demographics(commands.Cog):
             return
 
         # Validate demographic
-        if demographic not in DEMOGRAPHIC_THRESHOLDS:
+        if demographic not in DEMOGRAPHIC_STRENGTH:
             await interaction.response.send_message(
-                f"❌ Invalid demographic. Please choose from: {', '.join(sorted(DEMOGRAPHIC_THRESHOLDS.keys()))}",
+                f"❌ Invalid demographic. Please choose from: {', '.join(sorted(DEMOGRAPHIC_STRENGTH.keys()))}",
                 ephemeral=True
             )
             return
@@ -1335,24 +1399,25 @@ class Demographics(commands.Cog):
             # Set cooldown
             self._set_cooldown(interaction.guild.id, interaction.user.id, "demographic_ad")
 
+            # Get leadership status
+            leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, state_upper)
+            current_points = target_candidate.get("demographic_points", {}).get(demographic, 0) + points_gained
+            is_leader = leader and leader["user_id"] == target_candidate["user_id"]
+
             embed = discord.Embed(
                 title="📺 Demographic Campaign Video Ad",
                 description=f"**{candidate['name']}** creates a targeted advertisement for **{demographic}** supporting **{target_candidate['name']}** in {state_upper}!",
-                color=discord.Color.purple(),
+                color=discord.Color.gold() if is_leader else discord.Color.purple(),
                 timestamp=datetime.utcnow()
             )
-
-            # Show demographic progress
-            threshold = DEMOGRAPHIC_THRESHOLDS.get(demographic, 20)
-            current_points = target_candidate.get("demographic_points", {}).get(demographic, 0) + points_gained
-            progress_bar = "█" * min(int((current_points / threshold) * 10), 10) + "░" * max(0, 10 - int((current_points / threshold) * 10))
 
             embed.add_field(
                 name="📊 Ad Performance",
                 value=f"**Target Demographic:** {demographic}\n"
                       f"**State:** {state_upper}\n"
                       f"**Points Gained:** +{points_gained:.2f}\n"
-                      f"**Progress:** {progress_bar} {current_points:.1f}/{threshold}\n"
+                      f"**Total Points:** {current_points:.1f}\n"
+                      f"**Leadership:** {'🏆 LEADING!' if is_leader else f'Behind by {max(0, highest_points - current_points):.1f}'}\n"
                       f"**Stamina Cost:** -2.5",
                 inline=True
             )
@@ -1406,25 +1471,25 @@ class Demographics(commands.Cog):
 
     @demographic_speech.autocomplete("demographic")
     async def demographic_autocomplete_speech(self, interaction: discord.Interaction, current: str):
-        demographics = list(DEMOGRAPHIC_THRESHOLDS.keys())
+        demographics = list(DEMOGRAPHIC_STRENGTH.keys())
         return [app_commands.Choice(name=demo, value=demo)
                 for demo in demographics if current.lower() in demo.lower()][:25]
 
     @demographic_poster.autocomplete("demographic")
     async def demographic_autocomplete_poster(self, interaction: discord.Interaction, current: str):
-        demographics = list(DEMOGRAPHIC_THRESHOLDS.keys())
+        demographics = list(DEMOGRAPHIC_STRENGTH.keys())
         return [app_commands.Choice(name=demo, value=demo)
                 for demo in demographics if current.lower() in demo.lower()][:25]
 
     @demographic_ad.autocomplete("demographic")
     async def demographic_autocomplete_ad(self, interaction: discord.Interaction, current: str):
-        demographics = list(DEMOGRAPHIC_THRESHOLDS.keys())
+        demographics = list(DEMOGRAPHIC_STRENGTH.keys())
         return [app_commands.Choice(name=demo, value=demo)
                 for demo in demographics if current.lower() in demo.lower()][:25]
 
     @app_commands.command(
         name="demographic_status",
-        description="View your demographic voting bloc progress and thresholds"
+        description="View your demographic voting bloc progress and leaderboard"
     )
     async def demographic_status(self, interaction: discord.Interaction):
         # Check if user is a candidate in General Campaign
@@ -1447,56 +1512,53 @@ class Demographics(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
-        # Group demographics by category for better display
-        high_priority = []
-        medium_priority = []
-        low_priority = []
+        # Show demographics with current status
+        demographics_text = ""
+        leading_count = 0
 
-        for demographic, threshold in DEMOGRAPHIC_THRESHOLDS.items():
+        for demographic in sorted(DEMOGRAPHIC_STRENGTH.keys()):
             current_points = current_demographics.get(demographic, 0)
-            progress_percent = (current_points / threshold) * 100
-            progress_bar = "█" * min(int(progress_percent / 10), 10) + "░" * max(0, 10 - int(progress_percent / 10))
-
-            status_line = f"**{demographic}**\n{progress_bar} {current_points:.1f}/{threshold} ({progress_percent:.1f}%)\n"
-
-            if threshold >= 20:
-                high_priority.append(status_line)
-            elif threshold >= 15:
-                medium_priority.append(status_line)
+            leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, "ALABAMA")  # Use any state for leadership check
+            
+            is_leading = leader and leader["user_id"] == candidate["user_id"]
+            if is_leading:
+                leading_count += 1
+                status = "🏆 LEADING"
             else:
-                low_priority.append(status_line)
+                gap = highest_points - current_points if highest_points > 0 else 0
+                status = f"Behind by {gap:.1f}" if gap > 0 else "Tied for lead"
 
-        if high_priority:
+            demographics_text += f"**{demographic}:** {current_points:.1f} pts ({status})\n"
+
+        # Split into multiple fields if too long
+        if len(demographics_text) > 1024:
+            # Split demographics into chunks
+            demo_items = demographics_text.split('\n')
+            chunk_size = 10
+            for i in range(0, len(demo_items), chunk_size):
+                chunk = demo_items[i:i+chunk_size]
+                field_name = f"📊 Demographics ({i//chunk_size + 1})"
+                embed.add_field(
+                    name=field_name,
+                    value='\n'.join(chunk),
+                    inline=False
+                )
+        else:
             embed.add_field(
-                name="🎯 High-Value Demographics (20+ points)",
-                value="".join(high_priority),
+                name="📊 All Demographics",
+                value=demographics_text,
                 inline=False
             )
 
-        if medium_priority:
-            embed.add_field(
-                name="📈 Medium-Value Demographics (15-19 points)",
-                value="".join(medium_priority),
-                inline=False
-            )
-
-        if low_priority:
-            embed.add_field(
-                name="📊 Lower-Value Demographics (12-14 points)",
-                value="".join(low_priority),
-                inline=False
-            )
-
-        # Show completed demographics
-        completed = [demo for demo, threshold in DEMOGRAPHIC_THRESHOLDS.items() 
-                    if current_demographics.get(demo, 0) >= threshold]
-
-        if completed:
-            embed.add_field(
-                name="✅ Completed Demographics",
-                value="\n".join(f"• {demo}" for demo in completed),
-                inline=True
-            )
+        # Summary stats
+        total_points = sum(current_demographics.values())
+        embed.add_field(
+            name="📈 Summary",
+            value=f"**Leading Demographics:** {leading_count}/{len(DEMOGRAPHIC_STRENGTH)}\n"
+                  f"**Total Points:** {total_points:.1f}\n"
+                  f"**Average per Demo:** {total_points/len(DEMOGRAPHIC_STRENGTH):.1f}",
+            inline=True
+        )
 
         # Show cooldown status
         cooldown_info = ""
@@ -1521,13 +1583,6 @@ class Demographics(commands.Cog):
             inline=True
         )
 
-        # Add warning about backlash
-        embed.add_field(
-            name="⚠️ Backlash Warning",
-            value="Backlash occurs at 90% (soft), 125% (medium), and 150% (hard) of a demographic's threshold!",
-            inline=False
-        )
-
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # Create admin demographic command group
@@ -1535,7 +1590,7 @@ class Demographics(commands.Cog):
 
     @admin_demo_group.command(
         name="overview",
-        description="View all candidates' demographic progress"
+        description="View all candidates' demographic progress and leadership"
     )
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_overview(self, interaction: discord.Interaction):
@@ -1559,7 +1614,7 @@ class Demographics(commands.Cog):
 
         embed = discord.Embed(
             title="👑 Admin Demographic Overview",
-            description="All presidential candidates' demographic progress",
+            description="All presidential candidates' demographic progress and leadership",
             color=discord.Color.red(),
             timestamp=datetime.utcnow()
         )
@@ -1584,15 +1639,20 @@ class Demographics(commands.Cog):
 
         for candidate in presidential_candidates:
             candidate_demographics = candidate.get("demographic_points", {})
-            completed_count = sum(1 for demo, threshold in DEMOGRAPHIC_THRESHOLDS.items() 
-                                if candidate_demographics.get(demo, 0) >= threshold)
+            
+            # Count how many demographics they're leading
+            leading_count = 0
+            for demographic in DEMOGRAPHIC_STRENGTH.keys():
+                leader, _ = self._get_demographic_leader(interaction.guild.id, demographic, "ALABAMA")
+                if leader and leader["user_id"] == candidate["user_id"]:
+                    leading_count += 1
 
             total_points = sum(candidate_demographics.values())
             stamina = candidate.get("stamina", 0)
 
             embed.add_field(
                 name=f"{candidate['name']} ({candidate['party']})",
-                value=f"**Completed Demographics:** {completed_count}/{len(DEMOGRAPHIC_THRESHOLDS)}\n"
+                value=f"**Leading Demographics:** {leading_count}/{len(DEMOGRAPHIC_STRENGTH)}\n"
                       f"**Total Points:** {total_points:.1f}\n"
                       f"**Stamina:** {stamina:.1f}",
                 inline=True
@@ -1624,7 +1684,7 @@ class Demographics(commands.Cog):
         return await self.candidate_autocomplete_reset(interaction, current)
 
     async def demographic_autocomplete_modify(self, interaction: discord.Interaction, current: str):
-        demographics = list(DEMOGRAPHIC_THRESHOLDS.keys())
+        demographics = list(DEMOGRAPHIC_STRENGTH.keys())
         return [app_commands.Choice(name=demo, value=demo)
                 for demo in demographics if current.lower() in demo.lower()][:25]
 
@@ -1680,9 +1740,9 @@ class Demographics(commands.Cog):
     @app_commands.autocomplete(candidate_name=candidate_autocomplete_modify, demographic=demographic_autocomplete_modify)
     @app_commands.default_permissions(administrator=True)
     async def admin_demographic_modify(self, interaction: discord.Interaction, candidate_name: str, demographic: str, points: float):
-        if demographic not in DEMOGRAPHIC_THRESHOLDS:
+        if demographic not in DEMOGRAPHIC_STRENGTH:
             await interaction.response.send_message(
-                f"❌ Invalid demographic. Choose from: {', '.join(sorted(DEMOGRAPHIC_THRESHOLDS.keys()))}",
+                f"❌ Invalid demographic. Choose from: {', '.join(sorted(DEMOGRAPHIC_STRENGTH.keys()))}",
                 ephemeral=True
             )
             return
@@ -1707,9 +1767,9 @@ class Demographics(commands.Cog):
             {"$set": {f"winners.$.demographic_points.{demographic}": new_points}}
         )
 
-        threshold = DEMOGRAPHIC_THRESHOLDS.get(demographic, 20)
-        progress_percent = (new_points / threshold) * 100
-        progress_bar = "█" * min(int(progress_percent / 10), 10) + "░" * max(0, 10 - int(progress_percent / 10))
+        # Check new leadership status
+        leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, "ALABAMA")
+        is_now_leader = leader and leader["user_id"] == target_candidate["user_id"]
 
         embed = discord.Embed(
             title="⚙️ Demographic Points Modified",
@@ -1724,7 +1784,7 @@ class Demographics(commands.Cog):
                   f"**Demographic:** {demographic}\n"
                   f"**Previous Points:** {current_points:.1f}\n"
                   f"**New Points:** {new_points:.1f}\n"
-                  f"**Progress:** {progress_bar} {new_points:.1f}/{threshold}",
+                  f"**Leadership:** {'🏆 Now Leading!' if is_now_leader else f'Behind leader by {max(0, highest_points - new_points):.1f}'}",
             inline=False
         )
 
@@ -1853,30 +1913,30 @@ class Demographics(commands.Cog):
             small_demos = []
 
             for demographic, strength in state_data.items():
-                if strength == 1.75:
+                if strength == 0.25:
                     strong_demos.append(demographic)
-                elif strength == 0.75:
+                elif strength == 0.10:
                     moderate_demos.append(demographic)
-                elif strength == 0.3:
+                elif strength == 0.05:
                     small_demos.append(demographic)
 
             if strong_demos:
                 embed.add_field(
-                    name="🔥 Strong Demographics (1.75x multiplier)",
+                    name="🔥 Strong Demographics (0.25x multiplier)",
                     value="\n".join(f"• {demo}" for demo in strong_demos),
                     inline=False
                 )
 
             if moderate_demos:
                 embed.add_field(
-                    name="📈 Moderate Demographics (0.75x multiplier)",
+                    name="📈 Moderate Demographics (0.10x multiplier)",
                     value="\n".join(f"• {demo}" for demo in moderate_demos),
                     inline=False
                 )
 
             if small_demos:
                 embed.add_field(
-                    name="📉 Small Demographics (0.3x multiplier)",
+                    name="📉 Small Demographics (0.05x multiplier)",
                     value="\n".join(f"• {demo}" for demo in small_demos),
                     inline=False
                 )
@@ -1884,7 +1944,7 @@ class Demographics(commands.Cog):
             embed.add_field(
                 name="ℹ️ How to Use",
                 value="Use demographic campaigns in this state to get the listed multipliers!\n"
-                      "Strong demographics give the best point gains.",
+                      "Strong demographics give the best point gains for leadership competition.",
                 inline=False
             )
 
@@ -1904,7 +1964,7 @@ class Demographics(commands.Cog):
 
             for state, demographics in self.STATE_DEMOGRAPHICS.items():
                 for demo, strength in demographics.items():
-                    if strength == 1.75:  # Only show strong demographics
+                    if strength == 0.25:  # Only show strong demographics
                         if demo not in demo_summary:
                             demo_summary[demo] = []
                         demo_summary[demo].append(state)
@@ -1930,7 +1990,8 @@ class Demographics(commands.Cog):
 
             embed.add_field(
                 name="💡 Pro Tip",
-                value="Use `/view_state_demographics state_name:<STATE>` to see detailed demographics for a specific state!",
+                value="Use `/view_state_demographics state_name:<STATE>` to see detailed demographics for a specific state!\n"
+                      "Focus on strong demographics in key states to gain leadership!",
                 inline=False
             )
 
@@ -1955,7 +2016,7 @@ class Demographics(commands.Cog):
         )
 
         # System configuration
-        config_text = f"**Total Demographics:** {len(DEMOGRAPHIC_THRESHOLDS)}\n"
+        config_text = f"**Total Demographics:** {len(DEMOGRAPHIC_STRENGTH)}\n"
         config_text += f"**Active Cooldowns:** {active_cooldowns}\n"
         config_text += f"**State Configurations:** {len(self.STATE_DEMOGRAPHICS)}\n"
         config_text += f"**Conflict Pairs:** {len(DEMOGRAPHIC_CONFLICTS)}"
@@ -1999,21 +2060,21 @@ class Demographics(commands.Cog):
             inline=True
         )
 
-        # Backlash thresholds
-        backlash_text = "**Early Soft Backlash:** 90% of threshold (-0.5)\n"
-        backlash_text += "**Medium Backlash:** 125% of threshold (-1.0)\n"
-        backlash_text += "**Hard Backlash:** 150% of threshold (-2.0)"
+        # Leadership system
+        leadership_text = "**System:** Competitive Leadership\n"
+        leadership_text += "**Winner:** Highest points in demographic\n"
+        leadership_text += "**Benefit:** State multipliers when leading"
 
         embed.add_field(
-            name="⚖️ Backlash System",
-            value=backlash_text,
+            name="🏆 Leadership System",
+            value=leadership_text,
             inline=True
         )
 
         # State multipliers
-        multiplier_text = "**Small:** 0.3x multiplier\n"
-        multiplier_text += "**Moderate:** 0.75x multiplier\n"
-        multiplier_text += "**Strong:** 1.75x multiplier"
+        multiplier_text = "**Small:** 0.05x multiplier\n"
+        multiplier_text += "**Moderate:** 0.10x multiplier\n"
+        multiplier_text += "**Strong:** 0.25x multiplier"
 
         embed.add_field(
             name="🗺️ State Multipliers",
@@ -2022,8 +2083,6 @@ class Demographics(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    
 
     @view_state_demographics.autocomplete("state_name")
     async def state_autocomplete_demographics(self, interaction: discord.Interaction, current: str):

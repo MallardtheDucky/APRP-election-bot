@@ -30,7 +30,7 @@ class Momentum(commands.Cog):
         """Get or create momentum configuration"""
         col = self.bot.db["momentum_config"]
         config = col.find_one({"guild_id": guild_id})
-        
+
         if not config:
             # Initialize momentum system with default settings
             config = {
@@ -48,13 +48,13 @@ class Momentum(commands.Cog):
                 "regional_momentum": {},  # Regional momentum for senate/governor races
                 "momentum_events": []  # Log of momentum changes
             }
-            
+
             # Initialize state leans based on PRESIDENTIAL_STATE_DATA
             for state_name, state_data in PRESIDENTIAL_STATE_DATA.items():
                 republican_pct = state_data.get("republican", 33.3)
                 democrat_pct = state_data.get("democrat", 33.3)
                 other_pct = state_data.get("other", 33.3)
-                
+
                 # Determine lean based on highest percentage
                 if republican_pct > democrat_pct and republican_pct > other_pct:
                     if republican_pct >= 55:
@@ -72,9 +72,9 @@ class Momentum(commands.Cog):
                         lean = {"party": "Democrat", "intensity": "Weak"}
                 else:
                     lean = {"party": "Swing", "intensity": "None"}  # Swing state
-                
+
                 config["state_leans"][state_name] = lean
-                
+
                 # Initialize momentum at 0 for all parties (only if not already exists)
                 if state_name not in config.get("state_momentum", {}):
                     if "state_momentum" not in config:
@@ -85,7 +85,7 @@ class Momentum(commands.Cog):
                         "Independent": 0.0,
                         "last_updated": datetime.utcnow()
                     }
-            
+
             # Initialize regional momentum for senate/governor races (only if not already exists)
             from .ideology import REGIONS
             if "regional_momentum" not in config:
@@ -98,9 +98,9 @@ class Momentum(commands.Cog):
                         "Independent": 0.0,
                         "last_updated": datetime.utcnow()
                     }
-            
+
             col.insert_one(config)
-        
+
         return col, config
 
     def _get_intensity_multiplier(self, intensity: str) -> float:
@@ -134,7 +134,7 @@ class Momentum(commands.Cog):
         """Check if party has high momentum making them vulnerable"""
         settings = momentum_config["settings"]
         volatility_threshold = settings.get("volatility_threshold", 50.0)
-        
+
         current_momentum = momentum_config["state_momentum"][state][party]
         return current_momentum >= volatility_threshold
 
@@ -245,7 +245,7 @@ class Momentum(commands.Cog):
         """Extract region from seat ID"""
         if not seat_id or "-" not in seat_id:
             return None
-            
+
         parts = seat_id.split("-")
         if len(parts) >= 2:
             region_code = parts[0] if seat_id.endswith("-GOV") else parts[1]
@@ -279,66 +279,10 @@ class Momentum(commands.Cog):
                 momentum_changed = False
 
                 for state_name, momentum_data in config["state_momentum"].items():
-                    for party in ["Republican", "Democrat", "Independent"]:
-                        current_momentum = momentum_data.get(party, 0.0)
-
-                        if abs(current_momentum) > 0.1:  # Only decay if momentum is significant
-                            # Apply decay - reduce momentum toward zero
-                            if current_momentum > 0:
-                                new_momentum = current_momentum * decay_rate
-                            else:
-                                new_momentum = current_momentum * decay_rate
-
-                            # If momentum gets very small, set it to 0
-                            if abs(new_momentum) < 0.1:
-                                new_momentum = 0.0
-
-                            updates[f"state_momentum.{state_name}.{party}"] = new_momentum
-                            momentum_changed = True
-
-                            # Log decay event if significant change
-                            if abs(current_momentum - new_momentum) > 0.5:
-                                self._add_momentum_event(
-                                    col, guild_id, state_name, party,
-                                    new_momentum - current_momentum, "Daily decay"
-                                )
-
-                # Apply all updates at once
-                if updates:
-                    updates[f"state_momentum.last_decay"] = datetime.utcnow()
-                    col.update_one(
-                        {"guild_id": guild_id},
-                        {"$set": updates}
-                    )
-
-                    print(f"Applied momentum decay for guild {guild_id}")
-
-        except Exception as e:
-            print(f"Error in momentum decay loop: {e}")
-
-    @tasks.loop(hours=12)  # Run decay every 12 hours
-    async def momentum_decay_loop(self):
-        """Apply momentum decay across all guilds"""
-        try:
-            col = self.bot.db["momentum_config"]
-            configs = col.find({})
-
-            for config in configs:
-                guild_id = config["guild_id"]
-
-                # Check if we're in General Campaign phase
-                time_col, time_config = self._get_time_config(guild_id)
-                if not time_config or time_config.get("current_phase", "") != "General Campaign":
-                    continue  # Skip decay if not in General Campaign
-
-                settings = config["settings"]
-                decay_rate = settings.get("momentum_decay_rate", 0.95)
-
-                # Apply decay to all state momentum
-                updates = {}
-                momentum_changed = False
-
-                for state_name, momentum_data in config["state_momentum"].items():
+                    # Skip non-dictionary entries (like 'last_decay' timestamp)
+                    if not isinstance(momentum_data, dict):
+                        continue
+                        
                     for party in ["Republican", "Democrat", "Independent"]:
                         current_momentum = momentum_data.get(party, 0.0)
 
@@ -404,7 +348,7 @@ class Momentum(commands.Cog):
                 ephemeral=True
             )
             return
-            
+
         state_upper = state.upper()
         if state_upper not in PRESIDENTIAL_STATE_DATA:
             await interaction.response.send_message(
@@ -427,7 +371,7 @@ class Momentum(commands.Cog):
         # Show state lean
         lean_party = state_lean["party"]
         lean_intensity = state_lean["intensity"]
-        
+
         if lean_party == "Swing":
             lean_color = "🟡"
             lean_text = f"{lean_color} **Swing State** (No inherent lean)"
@@ -444,13 +388,13 @@ class Momentum(commands.Cog):
         # Show current momentum for each party
         momentum_text = ""
         parties = ["Republican", "Democrat", "Independent"]
-        
+
         print(f"DEBUG: Checking momentum for state {state_upper}")
         print(f"DEBUG: State momentum data: {state_momentum}")
-        
+
         for party in parties:
             current_momentum = state_momentum.get(party, 0.0)
-            
+
             # Create momentum bar
             momentum_bar = ""
             if current_momentum > 0:
@@ -510,7 +454,7 @@ class Momentum(commands.Cog):
                 party = event["party"]
                 change = event["change"]
                 reason = event["reason"]
-                
+
                 sign = "+" if change > 0 else ""
                 events_text += f"**{party}:** {sign}{change:.1f} ({reason})\n"
 
@@ -588,7 +532,7 @@ class Momentum(commands.Cog):
         if cooldown_record:
             last_action = cooldown_record["last_action"]
             cooldown_end = last_action + timedelta(hours=6)  # 6 hour cooldown
-            
+
             if datetime.utcnow() < cooldown_end:
                 remaining = cooldown_end - datetime.utcnow()
                 hours = int(remaining.total_seconds() // 3600)
@@ -1003,6 +947,10 @@ class Momentum(commands.Cog):
         decay_summary = []
 
         for state_name, momentum_data in momentum_config["state_momentum"].items():
+            # Skip non-dictionary entries (like 'last_decay' timestamp)
+            if not isinstance(momentum_data, dict):
+                continue
+                
             for party in ["Republican", "Democrat", "Independent"]:
                 current_momentum = momentum_data.get(party, 0.0)
 
@@ -1106,7 +1054,7 @@ class Momentum(commands.Cog):
             ind_momentum = momentum_data.get("Independent", 0.0)
 
             max_momentum = max(rep_momentum, dem_momentum, ind_momentum)
-            
+
             # Check vulnerability
             vulnerable_parties = []
             for party in ["Republican", "Democrat", "Independent"]:
