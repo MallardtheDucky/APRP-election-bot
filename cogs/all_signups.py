@@ -4,6 +4,85 @@ from discord import app_commands
 from typing import List, Optional
 from datetime import datetime
 
+class CampaignPointsPaginationView(discord.ui.View):
+    def __init__(self, interaction: discord.Interaction, sort_by: str, filter_region: str, filter_party: str, year: int, total_pages: int, current_page: int):
+        super().__init__(timeout=300)
+        self.interaction = interaction
+        self.sort_by = sort_by
+        self.filter_region = filter_region
+        self.filter_party = filter_party
+        self.year = year
+        self.total_pages = total_pages
+        self.current_page = current_page
+
+        # Add page selector dropdown
+        self.add_item(CampaignPointsPageSelector(total_pages, current_page))
+
+class CampaignPointsPageSelector(discord.ui.Select):
+    def __init__(self, total_pages: int, current_page: int):
+        # Create options for page selection
+        options = []
+
+        # Show all pages if 25 or fewer, otherwise show smart selection
+        if total_pages <= 25:
+            for page in range(1, total_pages + 1):
+                label = f"Page {page}"
+                if page == current_page:
+                    label += " (Current)"
+                options.append(discord.SelectOption(
+                    label=label,
+                    value=str(page),
+                    default=(page == current_page)
+                ))
+        else:
+            # For many pages, show first few, current area, and last few
+            pages_to_show = set()
+
+            # First 3 pages
+            pages_to_show.update(range(1, min(4, total_pages + 1)))
+
+            # Current page and neighbors
+            start = max(1, current_page - 2)
+            end = min(total_pages + 1, current_page + 3)
+            pages_to_show.update(range(start, end))
+
+            # Last 3 pages
+            pages_to_show.update(range(max(1, total_pages - 2), total_pages + 1))
+
+            sorted_pages = sorted(pages_to_show)
+
+            for page in sorted_pages:
+                label = f"Page {page}"
+                if page == current_page:
+                    label += " (Current)"
+                options.append(discord.SelectOption(
+                    label=label,
+                    value=str(page),
+                    default=(page == current_page)
+                ))
+
+        super().__init__(
+            placeholder=f"Jump to page... (Current: {current_page}/{total_pages})",
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_page = int(self.values[0])
+
+        # Get the cog to call the admin_view_campaign_points method
+        cog = interaction.client.get_cog('AllSignups')
+        if cog:
+            # Create a new interaction-like object for the command
+            await cog.admin_view_campaign_points(
+                interaction,
+                sort_by=self.view.sort_by,
+                filter_region=self.view.filter_region,
+                filter_party=self.view.filter_party,
+                year=self.view.year,
+                page=selected_page
+            )
+
+
 class AllSignups(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -1041,7 +1120,7 @@ class AllSignups(commands.Cog):
         if filter_region:
             filtered_candidates = [c for c in filtered_candidates if c["region"].lower() == filter_region.lower()]
         if filter_party:
-            filtered_candidates = [c for c in filtered_candidates if c["party"].lower() == filter_party.lower()]
+            filtered_candidates = [c for c in filtered_candidates if filter_party.lower() == filter_party.lower()]
 
         if not filtered_candidates:
             filters_text = ""
@@ -1134,7 +1213,7 @@ class AllSignups(commands.Cog):
                 for part in parts:
                     if len(current_part + part + '\n\n') > 1024:
                         embed.add_field(
-                            name=f"📍 {region} (Part {part_num})",
+                            name=f"📍 {region} (Part {part_num})" if part_num > 1 else f"📍 {region}",
                             value=current_part,
                             inline=True
                         )
@@ -1184,13 +1263,17 @@ class AllSignups(commands.Cog):
         sort_by: str = "points",
         filter_region: str = None,
         filter_party: str = None,
-        filter_seat: str = None,
-        year: int = None
+        year: int = None,
+        page: int = 1
     ):
+        """View candidate points with sorting and filtering options"""
+        # Defer immediately to prevent timeout
+        await interaction.response.defer(ephemeral=True)
+
         time_col, time_config = self._get_time_config(interaction.guild.id)
 
         if not time_config:
-            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            await interaction.followup.send("❌ Election system not configured.", ephemeral=True)
             return
 
         current_year = time_config["current_rp_date"].year
@@ -1198,58 +1281,69 @@ class AllSignups(commands.Cog):
 
         signups_col, signups_config = self._get_signups_config(interaction.guild.id)
 
-        # Get candidates for target year
+        # Filter by year
         candidates = [c for c in signups_config["candidates"] if c["year"] == target_year]
 
         if not candidates:
-            await interaction.response.send_message(
-                f"❌ No signups found for {target_year}.",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"❌ No candidates found for {target_year}.", ephemeral=True)
             return
 
         # Apply filters
+        filtered_candidates = candidates
+
         if filter_region:
-            candidates = [c for c in candidates if c["region"].lower() == filter_region.lower()]
+            filtered_candidates = [c for c in filtered_candidates if c["region"].lower() == filter_region.lower()]
 
         if filter_party:
-            candidates = [c for c in candidates if c["party"].lower() == filter_party.lower()]
+            filtered_candidates = [c for c in filtered_candidates if filter_party.lower() in c["party"].lower()]
 
-        if filter_seat:
-            candidates = [c for c in candidates if filter_seat.lower() in c["seat_id"].lower()]
-
-        if not candidates:
-            await interaction.response.send_message(
-                "❌ No candidates found with those filters.",
-                ephemeral=True
-            )
+        if not filtered_candidates:
+            await interaction.followup.send("❌ No candidates found with those filters.", ephemeral=True)
             return
 
         # Sort candidates
         if sort_by.lower() == "points":
-            candidates.sort(key=lambda x: x["points"], reverse=True)
+            filtered_candidates.sort(key=lambda x: x["points"], reverse=True)
         elif sort_by.lower() == "corruption":
-            candidates.sort(key=lambda x: x["corruption"], reverse=True)
+            filtered_candidates.sort(key=lambda x: x["corruption"], reverse=True)
         elif sort_by.lower() == "stamina":
-            candidates.sort(key=lambda x: x["stamina"], reverse=True)
+            filtered_candidates.sort(key=lambda x: x["stamina"], reverse=True)
         elif sort_by.lower() == "seat":
-            candidates.sort(key=lambda x: x["seat_id"])
+            filtered_candidates.sort(key=lambda x: x["seat_id"])
         else:
-            candidates.sort(key=lambda x: x["name"].lower())
+            filtered_candidates.sort(key=lambda x: x["name"].lower())
 
-        # Create embed with top candidates
+        # Pagination settings
+        candidates_per_page = 15
+        total_candidates = len(filtered_candidates)
+        total_pages = max(1, (total_candidates + candidates_per_page - 1) // candidates_per_page)
+
+        if page < 1:
+            page = 1
+        elif page > total_pages:
+            page = total_pages
+
+        start_idx = (page - 1) * candidates_per_page
+        end_idx = start_idx + candidates_per_page
+        page_candidates = filtered_candidates[start_idx:end_idx]
+
+        # Create embed
+        filter_text = ""
+        if filter_region:
+            filter_text += f" • Region: {filter_region}"
+        if filter_party:
+            filter_text += f" • Party: {filter_party}"
+
         embed = discord.Embed(
             title=f"📊 {target_year} Primary Campaign Points",
-            description=f"Sorted by {sort_by} • {len(candidates)} candidates",
+            description=f"Sorted by {sort_by} • Page {page}/{total_pages} • {total_candidates} total candidates{filter_text}",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow()
         )
 
-        # Show top 15 candidates
-        top_candidates = candidates[:15]
+        # Build candidate list for this page
         candidate_list = ""
-
-        for i, candidate in enumerate(top_candidates, 1):
+        for i, candidate in enumerate(page_candidates, start_idx + 1):
             user = interaction.guild.get_member(candidate["user_id"])
             user_mention = user.mention if user else candidate["name"]
 
@@ -1260,65 +1354,142 @@ class AllSignups(commands.Cog):
             )
 
         embed.add_field(
-            name="🏆 Top Candidates",
-            value=candidate_list[:1024],  # Discord field limit
+            name="🏆 Candidates",
+            value=candidate_list[:1024],
             inline=False
         )
 
-        # Group by seat for competitive analysis
-        seats = {}
-        for candidate in candidates:
+        # Find most competitive seats
+        seat_counts = {}
+        for candidate in filtered_candidates:
             seat_id = candidate["seat_id"]
-            if seat_id not in seats:
-                seats[seat_id] = []
-            seats[seat_id].append(candidate)
+            seat_counts[seat_id] = seat_counts.get(seat_id, 0) + 1
 
-        competitive_seats = [(seat_id, len(candidates)) for seat_id, candidates in seats.items() if len(candidates) > 1]
-        competitive_seats.sort(key=lambda x: x[1], reverse=True)
-
-        if competitive_seats:
-            competitive_text = ""
-            for seat_id, count in competitive_seats[:5]:
+        # Sort seats by number of candidates (most competitive first)
+        competitive_seats = sorted(seat_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        competitive_text = ""
+        for seat_id, count in competitive_seats:
+            if count > 1:  # Only show seats with more than 1 candidate
                 competitive_text += f"**{seat_id}:** {count} candidates\n"
 
+        if competitive_text:
             embed.add_field(
                 name="🔥 Most Competitive Seats",
                 value=competitive_text,
                 inline=True
             )
 
-        # Summary stats
-        total_points = sum(c['points'] for c in candidates)
-        avg_corruption = sum(c['corruption'] for c in candidates) / len(candidates) if candidates else 0
-        avg_stamina = sum(c['stamina'] for c in candidates) / len(candidates) if candidates else 0
+        # Add summary statistics
+        total_points = sum(c["points"] for c in filtered_candidates)
+        avg_points = total_points / len(filtered_candidates) if filtered_candidates else 0
+        avg_corruption = sum(c["corruption"] for c in filtered_candidates) / len(filtered_candidates) if filtered_candidates else 0
+        avg_stamina = sum(c["stamina"] for c in filtered_candidates) / len(filtered_candidates) if filtered_candidates else 0
+
         embed.add_field(
             name="📈 Summary Statistics",
-            value=f"**Total Candidates:** {len(candidates)}\n"
+            value=f"**Total Candidates:** {len(filtered_candidates)}\n"
                   f"**Total Points:** {total_points:.2f}\n"
                   f"**Avg Corruption:** {avg_corruption:.1f}\n"
                   f"**Avg Stamina:** {avg_stamina:.1f}",
             inline=True
         )
 
-        # Show filter info if applied
-        filter_info = ""
-        if filter_region:
-            filter_info += f"Region: {filter_region} • "
-        if filter_party:
-            filter_info += f"Party: {filter_party} • "
-        if filter_seat:
-            filter_info += f"Seat: {filter_seat} • "
-        if filter_info:
-            embed.add_field(
-                name="🔍 Active Filters",
-                value=filter_info.rstrip(" • "),
-                inline=False
-            )
+        # Add navigation info
+        navigation_info = f"Page {page} of {total_pages}"
+        if page > 1:
+            navigation_info += f" • Previous page shows candidates {max(1, start_idx - candidates_per_page + 1)}-{start_idx}"
+        if page < total_pages:
+            next_start = end_idx + 1
+            next_end = min(total_candidates, end_idx + candidates_per_page)
+            navigation_info += f" • Next page shows candidates {next_start}-{next_end}"
 
-        if len(candidates) > 15:
-            embed.set_footer(text=f"Showing top 15 of {len(candidates)} candidates")
+        embed.add_field(
+            name="📄 Navigation",
+            value=navigation_info,
+            inline=False
+        )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Create dropdown for quick navigation if many pages
+        if total_pages > 1:
+            view = CampaignPointsPaginationView(interaction, sort_by, filter_region, filter_party, year, total_pages, page)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @admin_view_points.autocomplete("filter_region")
+    async def filter_region_autocomplete(self, interaction: discord.Interaction, current: str):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        regions = set()
+        for candidate in signups_config["candidates"]:
+            if candidate["year"] == current_year:
+                regions.add(candidate["region"])
+
+        return [app_commands.Choice(name=region, value=region)
+                for region in sorted(regions) if current.lower() in region.lower()][:25]
+
+    @admin_view_points.autocomplete("filter_party")
+    async def filter_party_autocomplete(self, interaction: discord.Interaction, current: str):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        parties = set()
+        for candidate in signups_config["candidates"]:
+            if candidate["year"] == current_year:
+                parties.add(candidate["party"])
+
+        return [app_commands.Choice(name=party, value=party)
+                for party in sorted(parties) if current.lower() in party.lower()][:25]
+
+    @admin_view_campaign_points.autocomplete("sort_by")
+    async def campaign_sort_autocomplete(self, interaction: discord.Interaction, current: str):
+        sort_options = ["points", "corruption", "stamina", "seat", "name"]
+        return [app_commands.Choice(name=option, value=option)
+                for option in sort_options if current.lower() in option.lower()][:25]
+
+    @admin_view_campaign_points.autocomplete("filter_region")
+    async def campaign_filter_region_autocomplete(self, interaction: discord.Interaction, current: str):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        regions = set()
+        for candidate in signups_config["candidates"]:
+            if candidate["year"] == current_year:
+                regions.add(candidate["region"])
+
+        return [app_commands.Choice(name=region, value=region)
+                for region in sorted(regions) if current.lower() in region.lower()][:25]
+
+    @admin_view_campaign_points.autocomplete("filter_party")
+    async def campaign_filter_party_autocomplete(self, interaction: discord.Interaction, current: str):
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config:
+            return []
+
+        current_year = time_config["current_rp_date"].year
+        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
+
+        parties = set()
+        for candidate in signups_config["candidates"]:
+            if candidate["year"] == current_year:
+                parties.add(candidate["party"])
+
+        return [app_commands.Choice(name=party, value=party)
+                for party in sorted(parties) if current.lower() in party.lower()][:25]
+
 
     @app_commands.command(
         name="admin_view_seat_competition",

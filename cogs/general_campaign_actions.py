@@ -869,6 +869,144 @@ class GeneralCampaignActions(commands.Cog):
             upsert=True
         )
 
+    def _calculate_zero_sum_percentages(self, guild_id: int, seat_id: str):
+        """Calculate zero-sum redistribution percentages for general election candidates"""
+        # Get general election candidates (primary winners) for this seat
+        winners_col = self.bot.db["winners"]
+        winners_config = winners_col.find_one({"guild_id": guild_id})
+
+        if not winners_config:
+            return {}
+
+        # Get current year
+        time_col, time_config = self._get_time_config(guild_id)
+        current_year = time_config["current_rp_date"].year if time_config else 2024
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+
+        # Find all primary winners (general election candidates) for this seat
+        # For general campaign, look for primary winners from the previous year if we're in an even year
+        # Or current year if odd year
+        primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+        seat_candidates = [
+            w for w in winners_config["winners"]
+            if w["seat_id"] == seat_id and w["year"] == primary_year and w.get("primary_winner", False)
+        ]
+
+        # If no primary winners found, fall back to all candidates for this seat in the current year
+        if not seat_candidates:
+            seat_candidates = [
+                w for w in winners_config["winners"]
+                if w["seat_id"] == seat_id and w["year"] == current_year
+            ]
+
+        if not seat_candidates:
+            return {}
+
+        # Calculate baseline percentages based on party alignment
+        baseline_percentages = {}
+        num_candidates = len(seat_candidates)
+
+        # Count major parties
+        major_parties = ["Democratic", "Republican"]
+        parties_present = set(candidate.get("party", "") for candidate in seat_candidates)
+        major_parties_present = [party for party in major_parties if party in parties_present]
+
+        if len(major_parties_present) == 2:
+            # Standard two-party setup
+            num_parties = len(parties_present)
+            if num_parties == 2:
+                # Pure two-party race
+                for candidate in seat_candidates:
+                    baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 50.0
+            else:
+                # Two major parties + others
+                remaining_percentage = 20.0  # 100 - 40 - 40
+                other_parties_count = num_parties - 2
+                other_party_percentage = remaining_percentage / other_parties_count if other_parties_count > 0 else 0
+
+                for candidate in seat_candidates:
+                    if candidate["party"] in major_parties:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 40.0
+                    else:
+                        baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = other_party_percentage
+        else:
+            # No standard major party setup, split evenly
+            for candidate in seat_candidates:
+                baseline_percentages[candidate.get('candidate', candidate.get('name', ''))] = 100.0 / num_candidates
+
+        # Apply proportional redistribution with minimum floors
+        final_percentages = {}
+
+        # Define minimum percentage floors
+        def get_minimum_floor(candidate):
+            party = candidate.get('party', '').lower()
+            if any(keyword in party for keyword in ['democrat', 'republican']):
+                return 25.0  # 25% minimum for major parties
+            else:
+                return 2.0   # 2% minimum for independents/third parties
+
+        # Calculate total campaign points across all candidates in this seat
+        total_campaign_points = sum(candidate.get('points', 0.0) for candidate in seat_candidates)
+
+        # Start with baseline percentages
+        current_percentages = baseline_percentages.copy()
+
+        # Apply campaign effects using proportional redistribution
+        if total_campaign_points > 0:
+            for candidate in seat_candidates:
+                candidate_name = candidate.get('candidate', candidate.get('name', ''))
+                candidate_points = candidate.get('points', 0.0)
+
+                if candidate_points > 0:
+                    # This candidate gains points
+                    points_gained = candidate_points
+
+                    # Calculate total percentage that can be taken from other candidates
+                    total_available_to_take = 0.0
+                    for other_candidate in seat_candidates:
+                        if other_candidate != candidate:
+                            other_name = other_candidate.get('candidate', other_candidate.get('name', ''))
+                            other_current = current_percentages[other_name]
+                            other_minimum = get_minimum_floor(other_candidate)
+                            available = max(0, other_current - other_minimum)
+                            total_available_to_take += available
+
+                    # Limit gains to what's actually available
+                    actual_gain = min(points_gained, total_available_to_take)
+                    current_percentages[candidate_name] += actual_gain
+
+                    # Distribute losses proportionally among other candidates
+                    if total_available_to_take > 0 and actual_gain > 0:
+                        for other_candidate in seat_candidates:
+                            if other_candidate != candidate:
+                                other_name = other_candidate.get('candidate', other_candidate.get('name', ''))
+                                other_current = current_percentages[other_name]
+                                other_minimum = get_minimum_floor(other_candidate)
+                                available = max(0, other_current - other_minimum)
+                                
+                                if available > 0:
+                                    loss_proportion = available / total_available_to_take
+                                    loss = actual_gain * loss_proportion
+                                    current_percentages[other_name] -= loss
+
+        # Ensure percentages sum to 100% and respect minimums
+        total_percentage = sum(current_percentages.values())
+        if total_percentage > 0:
+            for candidate_name in current_percentages:
+                current_percentages[candidate_name] = (current_percentages[candidate_name] / total_percentage) * 100.0
+
+        # Final verification and correction for floating point errors
+        final_total = sum(current_percentages.values())
+        if abs(final_total - 100.0) > 0.001:
+            # Apply micro-adjustment to the largest percentage instead of equal distribution
+            largest_candidate = max(current_percentages.keys(), key=lambda x: current_percentages[x])
+            adjustment = 100.0 - final_total
+            current_percentages[largest_candidate] += adjustment
+
+        final_percentages = current_percentages
+        return final_percentages
+
     def _add_momentum_from_general_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float, candidate_data: dict = None, target_name: str = None):
         """Adds momentum to a state based on general campaign actions."""
         try:

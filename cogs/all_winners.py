@@ -4,6 +4,109 @@ from discord import app_commands
 from typing import List, Optional
 from datetime import datetime
 
+class CampaignPointsView(discord.ui.View):
+    def __init__(self, interaction: discord.Interaction, sort_by: str, filter_state: str, filter_party: str, year: int, total_pages: int, current_page: int):
+        super().__init__(timeout=300)
+        self.interaction = interaction
+        self.sort_by = sort_by
+        self.filter_state = filter_state
+        self.filter_party = filter_party
+        self.year = year
+        self.total_pages = total_pages
+        self.current_page = current_page
+        
+        # Add page selector dropdown
+        self.add_item(PageSelector(total_pages, current_page))
+
+class PageSelector(discord.ui.Select):
+    def __init__(self, total_pages: int, current_page: int):
+        self.total_pages = total_pages
+        self.current_page = current_page
+        
+        options = []
+        # Show up to 25 pages in dropdown (Discord limit)
+        max_options = min(25, total_pages)
+        
+        if total_pages <= 25:
+            # Show all pages
+            for i in range(1, total_pages + 1):
+                label = f"Page {i}"
+                if i == current_page:
+                    label += " (Current)"
+                options.append(discord.SelectOption(
+                    label=label,
+                    value=str(i),
+                    description=f"Go to page {i}"
+                ))
+        else:
+            # Show pages around current page
+            start_range = max(1, current_page - 10)
+            end_range = min(total_pages + 1, current_page + 11)
+            
+            # Always include first page
+            if start_range > 1:
+                options.append(discord.SelectOption(
+                    label="Page 1",
+                    value="1",
+                    description="Go to first page"
+                ))
+                if start_range > 2:
+                    options.append(discord.SelectOption(
+                        label="...",
+                        value=str(max(1, current_page - 15)),
+                        description="Go back further"
+                    ))
+            
+            # Add range around current page
+            for i in range(start_range, min(end_range, start_range + 20)):
+                label = f"Page {i}"
+                if i == current_page:
+                    label += " (Current)"
+                options.append(discord.SelectOption(
+                    label=label,
+                    value=str(i),
+                    description=f"Go to page {i}"
+                ))
+            
+            # Always include last page
+            if end_range <= total_pages:
+                if end_range < total_pages:
+                    options.append(discord.SelectOption(
+                        label="...",
+                        value=str(min(total_pages, current_page + 15)),
+                        description="Go forward further"
+                    ))
+                options.append(discord.SelectOption(
+                    label=f"Page {total_pages}",
+                    value=str(total_pages),
+                    description="Go to last page"
+                ))
+        
+        super().__init__(
+            placeholder=f"Navigate to page... (Current: {current_page}/{total_pages})",
+            options=options,
+            min_values=1,
+            max_values=1
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        selected_page = int(self.values[0])
+        
+        # Get the cog and call the command again with new page
+        cog = interaction.client.get_cog('AllWinners')
+        if cog:
+            # Create a new interaction-like object for the command
+            await cog.admin_view_all_campaign_points(
+                interaction,
+                sort_by=self.view.sort_by,
+                filter_state=self.view.filter_state,
+                filter_party=self.view.filter_party,
+                year=self.view.year,
+                page=selected_page
+            )
+
 class AllWinners(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -52,9 +155,9 @@ class AllWinners(commands.Cog):
             else:  # Even year (2000)
                 signup_year = current_year - 1
                 election_year = current_year
-            
+
             await self._process_primary_winners(guild_id, signup_year, election_year)
-            
+
         elif old_phase == "Primary Election" and new_phase == "General Campaign":
             # Ensure primary winners are ready for general campaign
             # Use the current year as election year for finding primary winners
@@ -474,28 +577,28 @@ class AllWinners(commands.Cog):
         # Get presidential signups and check for primary winners
         pres_signups_col = self.bot.db["presidential_signups"]
         pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
-        
+
         if not pres_signups_config:
             return
-            
+
         # Get presidential winners from the presidential_winners collection
         pres_winners_col = self.bot.db["presidential_winners"]
         pres_winners_config = pres_winners_col.find_one({"guild_id": guild_id})
-        
+
         if not pres_winners_config or not pres_winners_config.get("winners"):
             return
-            
+
         # Reset points and stamina for presidential candidates in general campaign
         candidates_updated = []
         for i, candidate in enumerate(pres_signups_config.get("candidates", [])):
-            if (candidate.get("year") == current_year and 
+            if (candidate.get("year") == current_year and
                 candidate.get("office") in ["President", "Vice President"] and
                 candidate.get("phase") != "General Campaign"):
-                
+
                 # Check if this candidate is a primary winner
                 candidate_party = candidate.get("party", "")
                 candidate_name = candidate.get("name", "")
-                
+
                 # Map party names for presidential winners
                 party_key = None
                 if "Democratic" in candidate_party:
@@ -504,14 +607,14 @@ class AllWinners(commands.Cog):
                     party_key = "Republican"
                 else:
                     party_key = "Others"
-                
+
                 if party_key and pres_winners_config["winners"].get(party_key) == candidate_name:
                     # This candidate is a primary winner, reset for general campaign
                     pres_signups_config["candidates"][i]["points"] = 0.0
                     pres_signups_config["candidates"][i]["stamina"] = 200  # Presidential candidates get higher stamina
                     pres_signups_config["candidates"][i]["phase"] = "General Campaign"
                     candidates_updated.append(candidate_name)
-        
+
         if candidates_updated:
             pres_signups_col.update_one(
                 {"guild_id": guild_id},
@@ -980,12 +1083,16 @@ class AllWinners(commands.Cog):
         sort_by: str = "points",
         filter_state: str = None,
         filter_party: str = None,
-        year: int = None
+        year: int = None,
+        page: int = 1
     ):
+        # Defer immediately to prevent timeout
+        await interaction.response.defer(ephemeral=True)
+
         time_col, time_config = self._get_time_config(interaction.guild.id)
 
         if not time_config:
-            await interaction.response.send_message("❌ Election system not configured.", ephemeral=True)
+            await interaction.followup.send("❌ Election system not configured.", ephemeral=True)
             return
 
         current_year = time_config["current_rp_date"].year
@@ -993,15 +1100,14 @@ class AllWinners(commands.Cog):
 
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
 
-        # Get primary winners (candidates in general election)  
-        # Look for primary winners with the target year (they were transitioned to have the election year)
+        # Get primary winners (candidates in general election)
         candidates = [
             w for w in winners_config.get("winners", [])
             if w["year"] == target_year and w.get("primary_winner", False)
         ]
 
         if not candidates:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ No general election candidates found for {target_year}.",
                 ephemeral=True
             )
@@ -1015,7 +1121,7 @@ class AllWinners(commands.Cog):
             candidates = [c for c in candidates if c.get("party", "").lower() == filter_party.lower()]
 
         if not candidates:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ No candidates found with those filters.",
                 ephemeral=True
             )
@@ -1035,43 +1141,52 @@ class AllWinners(commands.Cog):
         else:
             candidates.sort(key=lambda x: x.get("candidate", "").lower())
 
-        # Create embed with top candidates
+        # Pagination setup
+        candidates_per_page = 20
+        total_pages = (len(candidates) + candidates_per_page - 1) // candidates_per_page
+        page = max(1, min(page, total_pages))
+        
+        start_idx = (page - 1) * candidates_per_page
+        end_idx = start_idx + candidates_per_page
+        page_candidates = candidates[start_idx:end_idx]
+
+        # Pre-calculate zero-sum percentages for unique seats only
+        unique_seats = list(set(c.get("seat_id") for c in page_candidates if c.get("seat_id")))
+        seat_percentages_cache = {}
+        
+        for seat_id in unique_seats:
+            if seat_id and seat_id != "N/A":
+                try:
+                    seat_percentages_cache[seat_id] = self._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
+                except Exception as e:
+                    print(f"Error calculating percentages for seat {seat_id}: {e}")
+                    seat_percentages_cache[seat_id] = {}
+
+        # Apply calculated percentages to candidates
+        for candidate in page_candidates:
+            seat_id = candidate.get('seat_id')
+            candidate_name = candidate.get('candidate', '')
+            if seat_id in seat_percentages_cache:
+                candidate['calculated_percentage'] = seat_percentages_cache[seat_id].get(candidate_name, 50.0)
+            else:
+                candidate['calculated_percentage'] = 50.0
+
+        # Create embed
         embed = discord.Embed(
             title=f"📊 {target_year} General Campaign Points",
-            description=f"Sorted by {sort_by} • {len(candidates)} candidates",
+            description=f"Sorted by {sort_by} • Page {page}/{total_pages} • {len(candidates)} total candidates",
             color=discord.Color.purple(),
             timestamp=datetime.utcnow()
         )
 
-        # Show top 15 candidates with zero-sum calculations
-        top_candidates = candidates[:15]
+        # Build candidate list
         candidate_list = ""
-
-        # Group candidates by seat for zero-sum calculations
-        seats_processed = set()
-
-        for i, candidate in enumerate(top_candidates, 1):
+        for i, candidate in enumerate(page_candidates, start_idx + 1):
             user = interaction.guild.get_member(candidate["user_id"])
             user_mention = user.mention if user else candidate["candidate"]
 
-            # Calculate zero-sum percentage for this candidate's seat
             seat_id = candidate.get('seat_id', 'N/A')
             candidate_name = candidate.get('candidate', 'N/A')
-
-            # Get zero-sum percentage if we haven't calculated for this seat yet
-            if seat_id not in seats_processed:
-                # Import the method from general_campaign_actions
-                # Assuming GeneralCampaignActions is another cog loaded with the bot
-                general_cog = self.bot.get_cog('GeneralCampaignActions')
-                if general_cog:
-                    zero_sum_percentages = general_cog._calculate_zero_sum_percentages(interaction.guild.id, seat_id)
-                    # Store calculated percentages for this seat
-                    for seat_candidate in candidates:
-                        if seat_candidate.get('seat_id') == seat_id:
-                            seat_candidate_name = seat_candidate.get('candidate', '')
-                            seat_candidate['calculated_percentage'] = zero_sum_percentages.get(seat_candidate_name, 50.0)
-                    seats_processed.add(seat_id)
-
             calculated_percentage = candidate.get('calculated_percentage', 50.0)
 
             candidate_list += (
@@ -1080,28 +1195,51 @@ class AllWinners(commands.Cog):
                 f"   └ Stamina: {candidate.get('stamina', 100)} • Corruption: {candidate.get('corruption', 0)} • {user_mention}\n\n"
             )
 
-        embed.add_field(
-            name="🏆 Top Candidates",
-            value=candidate_list[:1024],  # Discord field limit
-            inline=False
-        )
+        # Split into multiple fields if too long
+        if len(candidate_list) > 1024:
+            # Split candidate list into chunks
+            lines = candidate_list.strip().split('\n\n')
+            current_field = ""
+            field_count = 1
+            
+            for line in lines:
+                if len(current_field + line + '\n\n') <= 1024:
+                    current_field += line + '\n\n'
+                else:
+                    if current_field:
+                        embed.add_field(
+                            name=f"🏆 Candidates (Part {field_count})",
+                            value=current_field.strip(),
+                            inline=False
+                        )
+                        field_count += 1
+                    current_field = line + '\n\n'
+            
+            if current_field:
+                embed.add_field(
+                    name=f"🏆 Candidates (Part {field_count})",
+                    value=current_field.strip(),
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="🏆 Candidates",
+                value=candidate_list.strip() if candidate_list else "No candidates found",
+                inline=False
+            )
 
-        # Summary statistics with calculated percentages
+        # Summary statistics
         total_votes = sum(c.get("votes", 0) for c in candidates)
         total_points = sum(c.get("points", 0) for c in candidates)
         avg_corruption = sum(c.get("corruption", 0) for c in candidates) / len(candidates) if candidates else 0
-
-        # Calculate total of zero-sum percentages
-        total_calculated_percentage = sum(c.get("calculated_percentage", 50.0) for c in top_candidates)
 
         embed.add_field(
             name="📈 Summary Statistics",
             value=f"**Total Candidates:** {len(candidates)}\n"
                   f"**Total Points:** {total_points:.2f}\n"
                   f"**Total Votes:** {total_votes:,}\n"
-                  f"**Avg Corruption:** {avg_corruption:.1f}\n"
-                  f"**Calculated %:** {total_calculated_percentage:.1f}% (top {len(top_candidates)})",
-            inline=False
+                  f"**Avg Corruption:** {avg_corruption:.1f}",
+            inline=True
         )
 
         # Show filter info if applied
@@ -1117,10 +1255,26 @@ class AllWinners(commands.Cog):
                 inline=True
             )
 
-        if len(candidates) > 15:
-            embed.set_footer(text=f"Showing top 15 of {len(candidates)} candidates")
+        # Navigation info
+        navigation_info = f"**Page {page} of {total_pages}**\n"
+        if page > 1:
+            navigation_info += f"Use `page:{page-1}` for previous page\n"
+        if page < total_pages:
+            navigation_info += f"Use `page:{page+1}` for next page\n"
+        navigation_info += f"Showing candidates {start_idx + 1}-{min(end_idx, len(candidates))}"
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        embed.add_field(
+            name="📄 Navigation",
+            value=navigation_info,
+            inline=False
+        )
+
+        # Create dropdown for quick navigation if many pages
+        if total_pages > 1:
+            view = CampaignPointsView(interaction, sort_by, filter_state, filter_party, year, total_pages, page)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="admin_view_candidate_details",
@@ -1748,7 +1902,7 @@ class AllWinners(commands.Cog):
 
         # Get all winners for the target year
         year_winners = [w for w in winners_config.get("winners", []) if w["year"] == target_year]
-        
+
         if not year_winners:
             await interaction.response.send_message(
                 f"❌ No winners found for {target_year}.",
@@ -1766,10 +1920,10 @@ class AllWinners(commands.Cog):
                 # Keep winners from other years as-is
                 cleaned_winners.append(winner)
                 continue
-                
+
             # Create unique key for this year's winners
             winner_key = f"{winner['user_id']}_{winner['seat_id']}_{winner['year']}_{winner.get('primary_winner', False)}"
-            
+
             if winner_key in seen_winners:
                 # This is a duplicate
                 duplicates_removed += 1
@@ -1835,7 +1989,7 @@ class AllWinners(commands.Cog):
         winner_found = None
         winner_index = None
         for i, winner in enumerate(winners_config.get("winners", [])):
-            if (winner["candidate"].lower() == candidate_name.lower() and 
+            if (winner["candidate"].lower() == candidate_name.lower() and
                 winner["year"] == target_year):
                 winner_found = winner
                 winner_index = i
