@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -1492,98 +1491,164 @@ class Demographics(commands.Cog):
         description="View your demographic voting bloc progress and leaderboard"
     )
     async def demographic_status(self, interaction: discord.Interaction):
-        # Check if user is a candidate in General Campaign
-        signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+        # Defer response to prevent timeout
+        await interaction.response.defer(ephemeral=True)
 
-        if not candidate:
-            await interaction.response.send_message(
-                "❌ You must be a registered candidate in the General Campaign to view demographic status.",
-                ephemeral=True
+        try:
+            # Check if user is a candidate in General Campaign
+            signups_col, candidate = self._get_user_candidate(interaction.guild.id, interaction.user.id)
+
+            if not candidate:
+                await interaction.followup.send(
+                    "❌ You must be a registered candidate in the General Campaign to view demographic status.",
+                    ephemeral=True
+                )
+                return
+
+            candidate_name = candidate["name"]
+            current_demographics = candidate.get("demographic_points", {})
+
+            embed = discord.Embed(
+                title="📊 Demographic Voting Bloc Status",
+                description=f"**{candidate_name}** ({candidate['party']}) - General Campaign Progress",
+                color=discord.Color.gold(),
+                timestamp=datetime.utcnow()
             )
-            return
 
-        candidate_name = candidate["name"]
-        current_demographics = candidate.get("demographic_points", {})
+            # Get all candidates once to optimize leadership checks
+            time_col, time_config = self._get_time_config(interaction.guild.id)
+            current_year = time_config["current_rp_date"].year if time_config else 2024
+            primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
-        embed = discord.Embed(
-            title="📊 Demographic Voting Bloc Status",
-            description=f"**{candidate_name}** ({candidate['party']}) - General Campaign Progress",
-            color=discord.Color.gold(),
-            timestamp=datetime.utcnow()
-        )
+            # Get all candidates for leadership comparison
+            all_candidates = []
+            winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+            if winners_config:
+                winners_data = winners_config.get("winners", [])
+                
+                # Handle different data formats for winners
+                if isinstance(winners_data, list):
+                    for winner in winners_data:
+                        if (isinstance(winner, dict) and
+                            winner.get("primary_winner", False) and 
+                            winner.get("year") == primary_year and
+                            winner.get("office") in ["President", "Vice President"]):
+                            all_candidates.append(winner)
+                elif isinstance(winners_data, dict):
+                    # Old dict format: {party: candidate_name}
+                    # Get full candidate data from presidential signups
+                    signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                    if signups_config:
+                        election_year = winners_config.get("election_year", current_year)
+                        signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+                        
+                        for party, winner_name in winners_data.items():
+                            if isinstance(winner_name, str):
+                                for candidate in signups_config.get("candidates", []):
+                                    if (isinstance(candidate, dict) and
+                                        candidate.get("name", "").lower() == winner_name.lower() and
+                                        candidate.get("year") == signup_year and
+                                        candidate.get("office") == "President"):
+                                        all_candidates.append(candidate)
+                                        break
+                elif isinstance(winners_data, str):
+                    # Handle case where winners_data is unexpectedly a string
+                    print(f"Warning: winners_data is a string: {winners_data}")
+                    # Skip processing if it's just a string
+                    pass
 
-        # Show demographics with current status
-        demographics_text = ""
-        leading_count = 0
+            # Show demographics with current status
+            demographics_text = ""
+            leading_count = 0
 
-        for demographic in sorted(DEMOGRAPHIC_STRENGTH.keys()):
-            current_points = current_demographics.get(demographic, 0)
-            leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, "ALABAMA")  # Use any state for leadership check
-            
-            is_leading = leader and leader["user_id"] == candidate["user_id"]
-            if is_leading:
-                leading_count += 1
-                status = "🏆 LEADING"
+            for demographic in sorted(DEMOGRAPHIC_STRENGTH.keys()):
+                current_points = current_demographics.get(demographic, 0)
+
+                # Find leader more efficiently
+                highest_points = -1
+                is_leading = False
+
+                for other_candidate in all_candidates:
+                    other_points = other_candidate.get("demographic_points", {}).get(demographic, 0)
+                    if other_points > highest_points:
+                        highest_points = other_points
+                        is_leading = (other_candidate["user_id"] == candidate["user_id"])
+                    elif other_points == highest_points and other_candidate["user_id"] == candidate["user_id"]:
+                        is_leading = True
+
+                if is_leading and current_points > 0:
+                    leading_count += 1
+                    status = "🏆 LEADING"
+                else:
+                    gap = highest_points - current_points if highest_points > current_points else 0
+                    status = f"Behind by {gap:.1f}" if gap > 0 else "Tied for lead"
+
+                demographics_text += f"**{demographic}:** {current_points:.1f} pts ({status})\n"
+
+            # Split into multiple fields if too long
+            if len(demographics_text) > 1024:
+                # Split demographics into chunks
+                demo_items = [item for item in demographics_text.split('\n') if item.strip()]
+                chunk_size = 10
+                for i in range(0, len(demo_items), chunk_size):
+                    chunk = demo_items[i:i+chunk_size]
+                    field_name = f"📊 Demographics ({i//chunk_size + 1})"
+                    embed.add_field(
+                        name=field_name,
+                        value='\n'.join(chunk),
+                        inline=False
+                    )
             else:
-                gap = highest_points - current_points if highest_points > 0 else 0
-                status = f"Behind by {gap:.1f}" if gap > 0 else "Tied for lead"
-
-            demographics_text += f"**{demographic}:** {current_points:.1f} pts ({status})\n"
-
-        # Split into multiple fields if too long
-        if len(demographics_text) > 1024:
-            # Split demographics into chunks
-            demo_items = demographics_text.split('\n')
-            chunk_size = 10
-            for i in range(0, len(demo_items), chunk_size):
-                chunk = demo_items[i:i+chunk_size]
-                field_name = f"📊 Demographics ({i//chunk_size + 1})"
                 embed.add_field(
-                    name=field_name,
-                    value='\n'.join(chunk),
+                    name="📊 All Demographics",
+                    value=demographics_text,
                     inline=False
                 )
-        else:
+
+            # Summary stats
+            total_points = sum(current_demographics.values())
             embed.add_field(
-                name="📊 All Demographics",
-                value=demographics_text,
-                inline=False
+                name="📈 Summary",
+                value=f"**Leading Demographics:** {leading_count}/{len(DEMOGRAPHIC_STRENGTH)}\n"
+                      f"**Total Points:** {total_points:.1f}\n"
+                      f"**Average per Demo:** {total_points/len(DEMOGRAPHIC_STRENGTH):.1f}",
+                inline=True
             )
 
-        # Summary stats
-        total_points = sum(current_demographics.values())
-        embed.add_field(
-            name="📈 Summary",
-            value=f"**Leading Demographics:** {leading_count}/{len(DEMOGRAPHIC_STRENGTH)}\n"
-                  f"**Total Points:** {total_points:.1f}\n"
-                  f"**Average per Demo:** {total_points/len(DEMOGRAPHIC_STRENGTH):.1f}",
-            inline=True
-        )
+            # Show cooldown status
+            cooldown_info = ""
+            cooldowns = [
+                ("demographic_speech", 8),
+                ("demographic_poster", 6),
+                ("demographic_ad", 10)
+            ]
 
-        # Show cooldown status
-        cooldown_info = ""
-        cooldowns = [
-            ("demographic_speech", 8),
-            ("demographic_poster", 6),
-            ("demographic_ad", 10)
-        ]
+            for action, hours in cooldowns:
+                if not self._check_cooldown(interaction.guild.id, interaction.user.id, action, hours):
+                    remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, action, hours)
+                    if remaining:
+                        hours_left = int(remaining.total_seconds() // 3600)
+                        minutes_left = int((remaining.total_seconds() % 3600) // 60)
+                        cooldown_info += f"🔒 **{action.replace('_', ' ').title()}:** {hours_left}h {minutes_left}m\n"
+                    else:
+                        cooldown_info += f"✅ **{action.replace('_', ' ').title()}:** Available\n"
+                else:
+                    cooldown_info += f"✅ **{action.replace('_', ' ').title()}:** Available\n"
 
-        for action, hours in cooldowns:
-            if not self._check_cooldown(interaction.guild.id, interaction.user.id, action, hours):
-                remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, action, hours)
-                hours_left = int(remaining.total_seconds() // 3600)
-                minutes_left = int((remaining.total_seconds() % 3600) // 60)
-                cooldown_info += f"🔒 **{action.replace('_', ' ').title()}:** {hours_left}h {minutes_left}m\n"
-            else:
-                cooldown_info += f"✅ **{action.replace('_', ' ').title()}:** Available\n"
+            embed.add_field(
+                name="⏱️ Action Availability",
+                value=cooldown_info,
+                inline=True
+            )
 
-        embed.add_field(
-            name="⏱️ Action Availability",
-            value=cooldown_info,
-            inline=True
-        )
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"Error in demographic_status: {e}")
+            await interaction.followup.send(
+                "❌ An error occurred while retrieving your demographic status. Please try again.",
+                ephemeral=True
+            )
 
     # Create admin demographic command group
     admin_demo_group = app_commands.Group(name="admin_demo", description="Admin demographic management commands")
@@ -1624,11 +1689,32 @@ class Demographics(commands.Cog):
 
         # Get all primary winners
         presidential_candidates = []
-        for winner in winners_config.get("winners", []):
-            if (winner.get("primary_winner", False) and 
-                winner["year"] == primary_year and
-                winner["office"] in ["President", "Vice President"]):
-                presidential_candidates.append(winner)
+        winners_data = winners_config.get("winners", [])
+        
+        if isinstance(winners_data, list):
+            for winner in winners_data:
+                if (isinstance(winner, dict) and
+                    winner.get("primary_winner", False) and 
+                    winner.get("year") == primary_year and
+                    winner.get("office") in ["President", "Vice President"]):
+                    presidential_candidates.append(winner)
+        elif isinstance(winners_data, dict):
+            # Old dict format: {party: candidate_name}
+            # Get full candidate data from presidential signups
+            signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+            if signups_config:
+                election_year = winners_config.get("election_year", current_year)
+                signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+                
+                for party, winner_name in winners_data.items():
+                    if isinstance(winner_name, str):
+                        for candidate in signups_config.get("candidates", []):
+                            if (isinstance(candidate, dict) and
+                                candidate.get("name", "").lower() == winner_name.lower() and
+                                candidate.get("year") == signup_year and
+                                candidate.get("office") == "President"):
+                                presidential_candidates.append(candidate)
+                                break
 
         if not presidential_candidates:
             await interaction.response.send_message(

@@ -1661,7 +1661,7 @@ class AllSignups(commands.Cog):
                 "year": current_year,
                 "user_id": user.id,
                 "office": selected_seat["office"],
-                "state": selected_seat["region"],
+                "state": selected_seat["state"],
                 "seat_id": seat_id,
                 "candidate": candidate_name,
                 "party": party,
