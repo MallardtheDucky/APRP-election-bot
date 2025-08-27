@@ -563,9 +563,42 @@ class Elections(commands.Cog):
 
     async def _handle_general_election_phase(self, config, col, guild_id: int, current_year: int, channel):
         """Handle general election phase"""
-        if channel:
-            up_for_election = [s for s in config["seats"] if s.get("up_for_election")]
+        # Ensure seats that should be up for election are properly marked
+        seats_updated = 0
+        for i, seat in enumerate(config["seats"]):
+            should_be_up = False
 
+            # Check if seat should be up based on term expiration or standard cycles
+            if seat.get("term_end"):
+                # Seat has a term that expires this election year
+                if seat["term_end"].year == current_year:
+                    should_be_up = True
+            elif not seat.get("current_holder"):
+                # Vacant seat - check if it should be up this cycle
+                should_be_up = self._should_seat_be_up_for_election(seat, current_year)
+            else:
+                # Seat has a holder but check if it's up based on standard cycle
+                should_be_up = self._should_seat_be_up_for_election(seat, current_year)
+
+            # Also check if seat was already marked as up for election
+            if seat.get("up_for_election"):
+                should_be_up = True
+
+            if should_be_up and not seat.get("up_for_election"):
+                config["seats"][i]["up_for_election"] = True
+                seats_updated += 1
+
+        # Update database if seats were modified
+        if seats_updated > 0:
+            col.update_one(
+                {"guild_id": guild_id},
+                {"$set": {"seats": config["seats"]}}
+            )
+
+        # Get updated count of seats up for election
+        up_for_election = [s for s in config["seats"] if s.get("up_for_election")]
+
+        if channel:
             embed = discord.Embed(
                 title="🗳️ GENERAL ELECTION DAY!",
                 description=f"The general election is now underway for {len(up_for_election)} seats!",
@@ -578,6 +611,31 @@ class Elections(commands.Cog):
                 value="This is it! The final vote that will determine who represents you!",
                 inline=False
             )
+
+            if len(up_for_election) > 0:
+                # Group seats by type for announcement
+                seat_groups = {}
+                for seat in up_for_election:
+                    office_type = seat["office"] if seat["office"] in ["Senate", "Governor"] else "House" if "District" in seat["office"] else "National"
+                    if office_type not in seat_groups:
+                        seat_groups[office_type] = []
+                    seat_groups[office_type].append(f"{seat['seat_id']} ({seat['state']})")
+
+                seats_summary = ""
+                for office_type, seat_list in seat_groups.items():
+                    seats_summary += f"**{office_type}:** {len(seat_list)} seats\n"
+
+                embed.add_field(
+                    name="🗳️ Seats on the Ballot",
+                    value=seats_summary,
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="ℹ️ Notice",
+                    value="No seats are currently scheduled for this election cycle. Use `/election manage toggle_election` to add seats to the ballot.",
+                    inline=False
+                )
 
             try:
                 await channel.send(embed=embed)
@@ -1501,12 +1559,11 @@ class Elections(commands.Cog):
         # Get highest existing district number
         max_district = 0
         for seat in existing_districts:
-            if "District" in seat["office"]:
-                try:
-                    district_num = int(seat["office"].split("District ")[1])
-                    max_district = max(max_district, district_num)
-                except (IndexError, ValueError):
-                    continue
+            try:
+                district_num = int(seat["office"].split("District ")[1])
+                max_district = max(max_district, district_num)
+            except (IndexError, ValueError):
+                continue
 
         # Add new districts
         new_seats = []

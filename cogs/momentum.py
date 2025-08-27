@@ -924,6 +924,148 @@ class Momentum(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @momentum_admin_group.command(
+        name="reset",
+        description="Reset momentum for all states or a specific state (Admin only)"
+    )
+    @app_commands.describe(
+        state="U.S. state to reset (leave blank to reset all states)",
+        party="Specific party to reset (leave blank to reset all parties)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset_momentum(self, interaction: discord.Interaction, state: Optional[str] = None, party: Optional[str] = None):
+        momentum_col, momentum_config = self._get_momentum_config(interaction.guild.id)
+
+        # Validate state if provided
+        if state:
+            state_upper = state.upper()
+            if state_upper not in PRESIDENTIAL_STATE_DATA:
+                await interaction.response.send_message(
+                    f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
+                    ephemeral=True
+                )
+                return
+        
+        # Validate party if provided
+        if party:
+            valid_parties = ["Republican", "Democrat", "Independent"]
+            if party not in valid_parties:
+                await interaction.response.send_message(
+                    f"❌ Invalid party. Choose from: {', '.join(valid_parties)}",
+                    ephemeral=True
+                )
+                return
+
+        updates = {}
+        reset_summary = []
+
+        if state:
+            # Reset specific state
+            state_upper = state.upper()
+            if party:
+                # Reset specific party in specific state
+                old_momentum = momentum_config["state_momentum"][state_upper][party]
+                updates[f"state_momentum.{state_upper}.{party}"] = 0.0
+                reset_summary.append(f"**{state_upper} {party}:** {old_momentum:.1f} → 0.0")
+                
+                # Log reset event
+                self._add_momentum_event(
+                    momentum_col, interaction.guild.id, state_upper, party,
+                    -old_momentum, "Admin momentum reset", interaction.user.id
+                )
+            else:
+                # Reset all parties in specific state
+                for party_name in ["Republican", "Democrat", "Independent"]:
+                    old_momentum = momentum_config["state_momentum"][state_upper][party_name]
+                    if old_momentum != 0.0:
+                        updates[f"state_momentum.{state_upper}.{party_name}"] = 0.0
+                        reset_summary.append(f"**{state_upper} {party_name}:** {old_momentum:.1f} → 0.0")
+                        
+                        # Log reset event
+                        self._add_momentum_event(
+                            momentum_col, interaction.guild.id, state_upper, party_name,
+                            -old_momentum, "Admin momentum reset", interaction.user.id
+                        )
+        else:
+            # Reset all states
+            for state_name, momentum_data in momentum_config["state_momentum"].items():
+                # Skip non-dictionary entries (like 'last_decay' timestamp)
+                if not isinstance(momentum_data, dict):
+                    continue
+                
+                parties_to_reset = [party] if party else ["Republican", "Democrat", "Independent"]
+                
+                for party_name in parties_to_reset:
+                    old_momentum = momentum_data.get(party_name, 0.0)
+                    if old_momentum != 0.0:
+                        updates[f"state_momentum.{state_name}.{party_name}"] = 0.0
+                        if len(reset_summary) < 15:  # Only show first 15 for readability
+                            reset_summary.append(f"**{state_name} {party_name}:** {old_momentum:.1f} → 0.0")
+                        
+                        # Log reset event
+                        self._add_momentum_event(
+                            momentum_col, interaction.guild.id, state_name, party_name,
+                            -old_momentum, "Admin momentum reset", interaction.user.id
+                        )
+
+        # Apply all updates
+        if updates:
+            updates["state_momentum.last_reset"] = datetime.utcnow()
+            momentum_col.update_one(
+                {"guild_id": interaction.guild.id},
+                {"$set": updates}
+            )
+
+        # Create response embed
+        embed = discord.Embed(
+            title="🔄 Momentum Reset",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Determine scope description
+        if state and party:
+            scope = f"{state.upper()} {party}"
+        elif state:
+            scope = f"All parties in {state.upper()}"
+        elif party:
+            scope = f"{party} in all states"
+        else:
+            scope = "All momentum values"
+
+        embed.add_field(
+            name="📊 Reset Scope",
+            value=f"**Target:** {scope}\n"
+                  f"**Values Reset:** {len([k for k in updates.keys() if 'state_momentum' in k and 'last_reset' not in k])}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="👤 Reset By",
+            value=interaction.user.mention,
+            inline=True
+        )
+
+        if reset_summary:
+            summary_text = "\n".join(reset_summary)
+            if len([k for k in updates.keys() if 'state_momentum' in k and 'last_reset' not in k]) > 15:
+                total_resets = len([k for k in updates.keys() if 'state_momentum' in k and 'last_reset' not in k])
+                summary_text += f"\n... and {total_resets - 15} more resets"
+
+            embed.add_field(
+                name="📉 Changes Made",
+                value=summary_text,
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="📉 Changes Made",
+                value="No momentum values to reset (all were already at 0.0)",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @momentum_admin_group.command(
         name="trigger_decay",
         description="Manually trigger momentum decay for all states (Admin only)"
     )
@@ -1049,6 +1191,10 @@ class Momentum(commands.Cog):
         competitive_states = []
 
         for state_name, momentum_data in momentum_config["state_momentum"].items():
+            # Skip non-dictionary entries (like 'last_decay' timestamp)
+            if not isinstance(momentum_data, dict):
+                continue
+                
             rep_momentum = momentum_data.get("Republican", 0.0)
             dem_momentum = momentum_data.get("Democrat", 0.0)
             ind_momentum = momentum_data.get("Independent", 0.0)
@@ -1156,6 +1302,18 @@ class Momentum(commands.Cog):
         intensities = ["Strong", "Moderate", "Weak", "None"]
         return [app_commands.Choice(name=intensity, value=intensity)
                 for intensity in intensities if current.lower() in intensity.lower()][:25]
+
+    @reset_momentum.autocomplete("state")
+    async def state_autocomplete_reset(self, interaction: discord.Interaction, current: str):
+        states = list(PRESIDENTIAL_STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
+
+    @reset_momentum.autocomplete("party")
+    async def party_autocomplete_reset(self, interaction: discord.Interaction, current: str):
+        parties = ["Republican", "Democrat", "Independent"]
+        return [app_commands.Choice(name=party, value=party)
+                for party in parties if current.lower() in party.lower()][:25]
 
 async def setup(bot):
     await bot.add_cog(Momentum(bot))
