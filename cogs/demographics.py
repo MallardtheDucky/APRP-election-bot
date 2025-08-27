@@ -820,7 +820,7 @@ class Demographics(commands.Cog):
                 if winner["user_id"] == user_id:
                     current_candidate = winner
                     break
-            
+
             if not current_candidate:
                 return 0, {}
 
@@ -843,7 +843,7 @@ class Demographics(commands.Cog):
                 if candidate_entry["user_id"] == user_id:
                     current_candidate = candidate_entry
                     break
-            
+
             if not current_candidate:
                 return 0, {}
 
@@ -894,9 +894,37 @@ class Demographics(commands.Cog):
         """Get the demographic multiplier for a given state and demographic."""
         return self.STATE_DEMOGRAPHICS.get(state.upper(), {}).get(demographic, 0.10)
 
+    def _get_party_demographic_multiplier(self, candidate: dict, state: str, demographic: str) -> float:
+        """Get the party multiplier for a candidate's demographic in a state."""
+        # Placeholder for party-specific demographic bonuses.
+        # This would need to be expanded based on party platforms and demographic alignments.
+        # For now, returning a small default bonus if the demographic is somewhat aligned.
+        party = candidate.get("party", "").lower()
+        multiplier = 0.0
+
+        if party == "republican":
+            if demographic in ["Rural Voters", "Evangelical Christians", "Gun Rights Advocates", "Blue-Collar / Working-Class Voters"]:
+                multiplier = 0.05
+        elif party == "democrat":
+            if demographic in ["Urban Voters", "African American Voters", "Latino/Hispanic Voters", "LGBTQ+ Voters", "Environmental & Green Voters", "College-Educated Professionals"]:
+                multiplier = 0.05
+        elif party == "independent": # Example for an independent party
+            if demographic in ["Young Voters (18–29)", "Suburban Voters"]:
+                multiplier = 0.03
+        
+        # Add more party logic as needed
+
+        # Ensure the state also has a non-zero multiplier for this demographic to apply the party bonus
+        state_multiplier = self._get_state_demographic_multiplier(state, demographic)
+        if state_multiplier > 0:
+             return multiplier
+        else:
+             return 0.0
+
+
     def _update_candidate_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_to_add: float):
         """Helper to add points to a candidate's demographic and ensure it doesn't go below zero."""
-        
+
         update_path = ""
         if "winners" in str(collection.name):
             update_path = f"winners.$.demographic_points.{demographic}"
@@ -911,7 +939,7 @@ class Demographics(commands.Cog):
             array_filter,
             {"$inc": {update_path: points_to_add}}
         )
-        
+
         # Ensure points don't go below zero after update
         collection.update_one(
             array_filter,
@@ -968,18 +996,7 @@ class Demographics(commands.Cog):
         if target is None:
             target = candidate["name"]
 
-        # Check cooldown (8 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "demographic_speech", 8):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "demographic_speech", 8)
-            hours = int(remaining.total_seconds() // 3600)
-            minutes = int((remaining.total_seconds() % 3600) // 60)
-            await interaction.response.send_message(
-                f"❌ You must wait {hours}h {minutes}m before giving another demographic speech.",
-                ephemeral=True
-            )
-            return
-
-        # Verify target candidate exists
+        # Get target candidate
         target_signups_col, target_candidate = self._get_candidate_by_name(interaction.guild.id, target)
         if not target_candidate:
             await interaction.response.send_message(
@@ -989,21 +1006,25 @@ class Demographics(commands.Cog):
             return
 
         # Get demographic info
-        multiplier = self._get_state_demographic_multiplier(state_upper, demographic)
+        state_multiplier = self._get_state_demographic_multiplier(state_upper, demographic)
+        party_multiplier = self._get_party_demographic_multiplier(target_candidate, state_upper, demographic)
+        total_multiplier = state_multiplier + party_multiplier
         leader, highest_points = self._get_demographic_leader(interaction.guild.id, demographic, state_upper)
 
         # Send initial message asking for speech
         await interaction.response.send_message(
             f"🎯 **{candidate['name']}**, please reply to this message with your demographic-targeted speech!\n\n"
-            f"**Target:** {target_candidate['name']}\n"
+            f"**Target:** {target_candidate['name']} ({target_candidate['party']})\n"
             f"**State:** {state_upper}\n"
             f"**Demographic:** {demographic}\n"
-            f"**State Multiplier:** {multiplier:.3f}x\n"
+            f"**State Multiplier:** {state_multiplier:.3f}x\n"
+            f"**Party Bonus:** +{party_multiplier:.3f}x\n"
+            f"**Total Multiplier:** {total_multiplier:.3f}x\n"
             f"**Current Leader:** {leader['name'] if leader else 'None'} ({highest_points:.1f} points)\n"
             f"**Requirements:**\n"
             f"• Speech content (700-3000 characters)\n"
             f"• Reply within 5 minutes\n\n"
-            f"**Effect:** 1 point per 200 characters (modified by state multiplier)"
+            f"**Effect:** 1 point per 200 characters (modified by total multiplier)"
         )
 
         # Get the response message
@@ -1031,7 +1052,7 @@ class Demographics(commands.Cog):
 
             # Calculate demographic points
             base_points = (char_count / 200) * 1.0  # 1 point per 200 characters
-            final_points = base_points * multiplier
+            final_points = base_points * total_multiplier
 
             # Update candidate's demographic progress
             self._update_candidate_demographic_points(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
@@ -1229,11 +1250,17 @@ class Demographics(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
+        # Get multiplier info for display
+        state_multiplier = self._get_state_demographic_multiplier(state_upper, demographic)
+        party_multiplier = self._get_party_demographic_multiplier(target_candidate, state_upper, demographic)
+
         embed.add_field(
             name="📊 Demographic Impact",
             value=f"**Target Demographic:** {demographic}\n"
                   f"**State:** {state_upper}\n"
                   f"**Points Gained:** +{points_gained:.2f}\n"
+                  f"**State Multiplier:** {state_multiplier:.2f}x\n"
+                  f"**Party Bonus:** +{party_multiplier:.2f}x\n"
                   f"**Total Points:** {current_points:.1f}\n"
                   f"**Leadership:** {'🏆 LEADING!' if is_leader else f'Behind by {max(0, highest_points - current_points):.1f}'}\n"
                   f"**Stamina Cost:** -1.5",
@@ -1515,18 +1542,16 @@ class Demographics(commands.Cog):
                 timestamp=datetime.utcnow()
             )
 
-            # Get all candidates once to optimize leadership checks
+            # Get all primary winners
             time_col, time_config = self._get_time_config(interaction.guild.id)
             current_year = time_config["current_rp_date"].year if time_config else 2024
             primary_year = current_year - 1 if current_year % 2 == 0 else current_year
 
-            # Get all candidates for leadership comparison
             all_candidates = []
             winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
             if winners_config:
                 winners_data = winners_config.get("winners", [])
-                
-                # Handle different data formats for winners
+
                 if isinstance(winners_data, list):
                     for winner in winners_data:
                         if (isinstance(winner, dict) and
@@ -1535,13 +1560,11 @@ class Demographics(commands.Cog):
                             winner.get("office") in ["President", "Vice President"]):
                             all_candidates.append(winner)
                 elif isinstance(winners_data, dict):
-                    # Old dict format: {party: candidate_name}
-                    # Get full candidate data from presidential signups
                     signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
                     if signups_config:
                         election_year = winners_config.get("election_year", current_year)
                         signup_year = election_year - 1 if election_year % 2 == 0 else election_year
-                        
+
                         for party, winner_name in winners_data.items():
                             if isinstance(winner_name, str):
                                 for candidate in signups_config.get("candidates", []):
@@ -1552,19 +1575,22 @@ class Demographics(commands.Cog):
                                         all_candidates.append(candidate)
                                         break
                 elif isinstance(winners_data, str):
-                    # Handle case where winners_data is unexpectedly a string
                     print(f"Warning: winners_data is a string: {winners_data}")
-                    # Skip processing if it's just a string
-                    pass
 
-            # Show demographics with current status
+            if not all_candidates: # Handle case where no candidates are found
+                 await interaction.followup.send(
+                    "❌ No candidates found for leadership comparison.",
+                    ephemeral=True
+                )
+                 return
+
+
             demographics_text = ""
             leading_count = 0
 
             for demographic in sorted(DEMOGRAPHIC_STRENGTH.keys()):
                 current_points = current_demographics.get(demographic, 0)
 
-                # Find leader more efficiently
                 highest_points = -1
                 is_leading = False
 
@@ -1585,9 +1611,7 @@ class Demographics(commands.Cog):
 
                 demographics_text += f"**{demographic}:** {current_points:.1f} pts ({status})\n"
 
-            # Split into multiple fields if too long
             if len(demographics_text) > 1024:
-                # Split demographics into chunks
                 demo_items = [item for item in demographics_text.split('\n') if item.strip()]
                 chunk_size = 10
                 for i in range(0, len(demo_items), chunk_size):
@@ -1605,7 +1629,6 @@ class Demographics(commands.Cog):
                     inline=False
                 )
 
-            # Summary stats
             total_points = sum(current_demographics.values())
             embed.add_field(
                 name="📈 Summary",
@@ -1615,7 +1638,6 @@ class Demographics(commands.Cog):
                 inline=True
             )
 
-            # Show cooldown status
             cooldown_info = ""
             cooldowns = [
                 ("demographic_speech", 8),
@@ -1690,7 +1712,7 @@ class Demographics(commands.Cog):
         # Get all primary winners
         presidential_candidates = []
         winners_data = winners_config.get("winners", [])
-        
+
         if isinstance(winners_data, list):
             for winner in winners_data:
                 if (isinstance(winner, dict) and
@@ -1705,7 +1727,7 @@ class Demographics(commands.Cog):
             if signups_config:
                 election_year = winners_config.get("election_year", current_year)
                 signup_year = election_year - 1 if election_year % 2 == 0 else election_year
-                
+
                 for party, winner_name in winners_data.items():
                     if isinstance(winner_name, str):
                         for candidate in signups_config.get("candidates", []):
@@ -1725,7 +1747,7 @@ class Demographics(commands.Cog):
 
         for candidate in presidential_candidates:
             candidate_demographics = candidate.get("demographic_points", {})
-            
+
             # Count how many demographics they're leading
             leading_count = 0
             for demographic in DEMOGRAPHIC_STRENGTH.keys():
@@ -2172,6 +2194,105 @@ class Demographics(commands.Cog):
 
     @view_state_demographics.autocomplete("state_name")
     async def state_autocomplete_demographics(self, interaction: discord.Interaction, current: str):
+        states = list(self.STATE_DEMOGRAPHICS.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
+
+    @admin_demo_group.command(
+        name="manual_demographic_set",
+        description="Manually set base party percentages for a specific state"
+    )
+    @app_commands.describe(
+        state="State to modify party percentages for",
+        republican="Republican party percentage (0-100)",
+        democrat="Democrat party percentage (0-100)", 
+        other="Other/Independent percentage (0-100)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def manual_demographic_set(
+        self, 
+        interaction: discord.Interaction, 
+        state: str, 
+        republican: float, 
+        democrat: float, 
+        other: float
+    ):
+        """Manually set base party percentages for a state"""
+
+        # Validate state
+        state_upper = state.upper()
+        if state_upper not in self.STATE_DEMOGRAPHICS:
+            await interaction.response.send_message(
+                f"❌ Invalid state. Please choose from: {', '.join(sorted(self.STATE_DEMOGRAPHICS.keys()))}",
+                ephemeral=True
+            )
+            return
+
+        # Validate percentages
+        if not (0 <= republican <= 100 and 0 <= democrat <= 100 and 0 <= other <= 100):
+            await interaction.response.send_message(
+                "❌ All percentages must be between 0 and 100.",
+                ephemeral=True
+            )
+            return
+
+        # Calculate total for display purposes
+        total = republican + democrat + other
+
+        # Import and update presidential state data
+        try:
+            from .presidential_winners import PRESIDENTIAL_STATE_DATA
+
+            # Store old values for display
+            old_values = PRESIDENTIAL_STATE_DATA[state_upper].copy()
+
+            # Update the state data
+            PRESIDENTIAL_STATE_DATA[state_upper]["republican"] = round(republican, 1)
+            PRESIDENTIAL_STATE_DATA[state_upper]["democrat"] = round(democrat, 1) 
+            PRESIDENTIAL_STATE_DATA[state_upper]["other"] = round(other, 1)
+
+            embed = discord.Embed(
+                title="📊 Base Party Percentages Updated",
+                description=f"**{state_upper}** base party percentages have been manually set.",
+                color=discord.Color.green(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="Previous Values",
+                value=f"**Republican:** {old_values['republican']:.1f}%\n"
+                      f"**Democrat:** {old_values['democrat']:.1f}%\n"
+                      f"**Other:** {old_values['other']:.1f}%\n"
+                      f"**Total:** {sum(old_values.values()):.1f}%",
+                inline=True
+            )
+
+            embed.add_field(
+                name="New Values", 
+                value=f"**Republican:** {republican:.1f}%\n"
+                      f"**Democrat:** {democrat:.1f}%\n"
+                      f"**Other:** {other:.1f}%\n"
+                      f"**Total:** {total:.1f}%",
+                inline=True
+            )
+
+            embed.add_field(
+                name="⚠️ Notice",
+                value="Changes will affect future polling and election calculations for this state.",
+                inline=False
+            )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        except ImportError:
+            await interaction.response.send_message(
+                "❌ Error: Could not access presidential state data. Please check system configuration.",
+                ephemeral=True
+            )
+            return
+
+    @manual_demographic_set.autocomplete("state")
+    async def state_autocomplete_manual_set(self, interaction: discord.Interaction, current: str):
         states = list(self.STATE_DEMOGRAPHICS.keys())
         return [app_commands.Choice(name=state, value=state)
                 for state in states if current.upper() in state][:25]

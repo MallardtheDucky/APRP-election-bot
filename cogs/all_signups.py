@@ -308,7 +308,8 @@ class AllSignups(commands.Cog):
             for seat in seats:
                 incumbent = seat.get("current_holder", "Open Seat")
                 term_years = seat.get("term_years", "?")
-                seat_info += f"**{seat['seat_id']}** ({term_years}yr term)\nCurrent: {incumbent}\n\n"
+                seat_info += f"**{seat['seat_id']}** ({term_years}yr term)\n"
+                seat_info += f"Current: {incumbent}\n\n"
 
             embed.add_field(
                 name=group_name,
@@ -447,9 +448,12 @@ class AllSignups(commands.Cog):
 
     @app_commands.command(
         name="view_signups",
-        description="View all current candidate signups"
+        description="View candidate signups for a specific year"
     )
-    async def view_signups(self, interaction: discord.Interaction):
+    @app_commands.describe(
+        year="Year to view signups for (defaults to current RP year)"
+    )
+    async def view_signups(self, interaction: discord.Interaction, year: int = None):
         time_col, time_config = self._get_time_config(interaction.guild.id)
 
         if not time_config:
@@ -460,26 +464,27 @@ class AllSignups(commands.Cog):
             return
 
         current_year = time_config["current_rp_date"].year
+        target_year = year if year else current_year
         signups_col, signups_config = self._get_signups_config(interaction.guild.id)
 
-        # Filter candidates for current year
+        # Filter candidates for target year
         current_candidates = [
             c for c in signups_config["candidates"]
-            if c["year"] == current_year
+            if c["year"] == target_year
         ]
 
         # Debug information for admins
         if not current_candidates:
             total_candidates = len(signups_config["candidates"])
             all_years = list(set(c["year"] for c in signups_config["candidates"])) if signups_config["candidates"] else []
-            
-            debug_text = f"📋 No candidates have signed up for the {current_year} election yet."
+
+            debug_text = f"📋 No candidates have signed up for the {target_year} election yet."
             if total_candidates > 0:
                 debug_text += f"\n\n🔍 **Debug Info:**\n"
                 debug_text += f"• Total candidates in database: {total_candidates}\n"
                 debug_text += f"• Years with candidates: {sorted(all_years)}\n"
-                debug_text += f"• Looking for year: {current_year}"
-            
+                debug_text += f"• Looking for year: {target_year}"
+
             await interaction.response.send_message(debug_text, ephemeral=True)
             return
 
@@ -492,7 +497,7 @@ class AllSignups(commands.Cog):
             regions[region].append(candidate)
 
         embed = discord.Embed(
-            title=f"🗳️ {current_year} Primary Campaign Signups",
+            title=f"🗳️ {target_year} Primary Campaign Signups",
             description=f"Current phase: **{time_config.get('current_phase', 'Unknown')}** • Only campaign points matter in primary phase",
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
@@ -956,7 +961,7 @@ class AllSignups(commands.Cog):
                 lines.append(
                     f"{candidate['name']},{candidate['party']},{candidate['seat_id']},"
                     f"{candidate['office']},{candidate['region']},{candidate['stamina']},"
-                    f"{candidate['points']:.2f},{candidate['corruption']},{candidate['phase']},"
+                    f"{candidate['points']:.2f},{candidate['corruption']},{candidate.get('phase', 'Primary Campaign')},"
                     f"{candidate.get('winner', False)}"
                 )
             export_text = "\n".join(lines)
@@ -968,7 +973,7 @@ class AllSignups(commands.Cog):
                     f"{candidate['name']} ({candidate['party']}) - {candidate['seat_id']} "
                     f"({candidate['office']}, {candidate['region']}) | "
                     f"S:{candidate['stamina']} P:{candidate['points']:.2f} C:{candidate['corruption']} "
-                    f"Phase:{candidate['phase']} Winner:{candidate.get('winner', False)}"
+                    f"Phase:{candidate.get('phase', 'Primary Campaign')} Winner:{candidate.get('winner', False)}"
                 )
             export_text = "\n".join(export_lines)
 

@@ -159,7 +159,7 @@ class PresidentialWinners(commands.Cog):
         return col, config
 
     @commands.Cog.listener()
-    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: str, current_year: int):
+    async def on_phase_change(self, guild_id: int, old_phase: str, new_phase: int, current_year: int):
         """Handle phase changes and process presidential primary winners"""
         if old_phase == "Primary Campaign" and new_phase == "Primary Election":
             # Process presidential signups for primary elections
@@ -901,6 +901,97 @@ class PresidentialWinners(commands.Cog):
                 embed = discord.Embed(title="🏆 All Election Winners (Continued)", color=discord.Color.blue(), timestamp=datetime.utcnow())
             else:
                 await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="admin_set_state_base",
+        description="Set the base party percentages for a state (Admin only)"
+    )
+    @app_commands.describe(
+        state="State name (e.g., California, Texas)",
+        republican="Republican base percentage (0-100)",
+        democrat="Democrat base percentage (0-100)", 
+        other="Other/Independent base percentage (0-100)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_set_state_base(
+        self,
+        interaction: discord.Interaction,
+        state: str,
+        republican: float,
+        democrat: float,
+        other: float
+    ):
+        """Set the base party percentages for a state"""
+        global PRESIDENTIAL_STATE_DATA
+
+        state_upper = state.upper()
+
+        # Validate state exists
+        if state_upper not in PRESIDENTIAL_STATE_DATA:
+            available_states = list(PRESIDENTIAL_STATE_DATA.keys())[:10]  # Show first 10 for brevity
+            await interaction.response.send_message(
+                f"❌ State '{state}' not found. Available states include: {', '.join(available_states)}...",
+                ephemeral=True
+            )
+            return
+
+        # Validate percentages
+        if not (0 <= republican <= 100 and 0 <= democrat <= 100 and 0 <= other <= 100):
+            await interaction.response.send_message(
+                "❌ All percentages must be between 0 and 100.",
+                ephemeral=True
+            )
+            return
+
+        # Store old values for display
+        old_values = PRESIDENTIAL_STATE_DATA[state_upper].copy()
+        total = republican + democrat + other
+
+        # Update the state data
+        PRESIDENTIAL_STATE_DATA[state_upper]["republican"] = round(republican, 1)
+        PRESIDENTIAL_STATE_DATA[state_upper]["democrat"] = round(democrat, 1)
+        PRESIDENTIAL_STATE_DATA[state_upper]["other"] = round(other, 1)
+
+        # Create response embed
+        embed = discord.Embed(
+            title="📊 State Base Percentages Updated",
+            description=f"**{state_upper}** base party percentages have been updated.",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="Previous Values",
+            value=f"Republican: {old_values['republican']:.1f}%\n"
+                  f"Democrat: {old_values['democrat']:.1f}%\n"
+                  f"Other: {old_values['other']:.1f}%\n"
+                  f"Total: {sum(old_values.values()):.1f}%",
+            inline=True
+        )
+
+        embed.add_field(
+            name="New Values", 
+            value=f"Republican: {republican:.1f}%\n"
+                  f"Democrat: {democrat:.1f}%\n"
+                  f"Other: {other:.1f}%\n"
+                  f"Total: {total:.1f}%",
+            inline=True
+        )
+
+        embed.add_field(
+            name="💡 Note",
+            value="These changes affect presidential election calculations and state polling data.",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_set_state_base.autocomplete("state")
+    async def state_autocomplete_admin_set_base(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for state parameter in admin_set_state_base"""
+        states = list(PRESIDENTIAL_STATE_DATA.keys())
+        return [app_commands.Choice(name=state, value=state)
+                for state in states if current.upper() in state][:25]
 
 async def setup(bot):
     await bot.add_cog(PresidentialWinners(bot))

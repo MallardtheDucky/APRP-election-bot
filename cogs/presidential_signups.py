@@ -1033,7 +1033,6 @@ class PresidentialSignups(commands.Cog):
                 ticket_info = f"{party_emoji} **Party:** {candidate['party']}\n"
                 ticket_info += f"**Discord User:** {user_mention}\n"
                 ticket_info += f"**Running Mate:** {vp_name}\n"
-                ticket_info += f"**Estimated Polling:** {polling_percentage:.1f}%\n\n"
                 ticket_info += f"**Ideology:** {candidate['ideology']} ({candidate['axis']})\n"
                 ticket_info += f"**Economic:** {candidate['economic']}\n"
                 ticket_info += f"**Social:** {candidate['social']}\n"
