@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 class CampaignPointsPaginationView(discord.ui.View):
-    def __init__(self, interaction: discord.Interaction, sort_by: str, filter_region: str, filter_party: str, year: int, total_pages: int, current_page: int):
+    def __init__(self, interaction, sort_by, filter_region, filter_party, year, total_pages, current_page=1):
         super().__init__(timeout=300)
         self.interaction = interaction
         self.sort_by = sort_by
@@ -15,72 +15,221 @@ class CampaignPointsPaginationView(discord.ui.View):
         self.total_pages = total_pages
         self.current_page = current_page
 
-        # Add page selector dropdown
-        self.add_item(CampaignPointsPageSelector(total_pages, current_page))
+        # Add dropdown for page selection
+        if total_pages > 1:
+            self.add_item(PageSelectDropdown(total_pages, current_page))
 
-class CampaignPointsPageSelector(discord.ui.Select):
-    def __init__(self, total_pages: int, current_page: int):
-        # Create options for page selection
+    async def on_timeout(self):
+        # Disable all items when the view times out
+        for item in self.children:
+            item.disabled = True
+        try:
+            await self.interaction.edit_original_response(view=self)
+        except:
+            pass
+
+class PageSelectDropdown(discord.ui.Select):
+    def __init__(self, total_pages, current_page):
+        self.total_pages = total_pages
+
         options = []
+        for i in range(1, min(total_pages + 1, 26)):  # Discord limit of 25 options
+            label = f"Page {i}"
+            if i == current_page:
+                label += " (Current)"
+            options.append(discord.SelectOption(label=label, value=str(i)))
 
-        # Show all pages if 25 or fewer, otherwise show smart selection
-        if total_pages <= 25:
-            for page in range(1, total_pages + 1):
-                label = f"Page {page}"
-                if page == current_page:
-                    label += " (Current)"
-                options.append(discord.SelectOption(
-                    label=label,
-                    value=str(page),
-                    default=(page == current_page)
-                ))
-        else:
-            # For many pages, show first few, current area, and last few
-            pages_to_show = set()
-
-            # First 3 pages
-            pages_to_show.update(range(1, min(4, total_pages + 1)))
-
-            # Current page and neighbors
-            start = max(1, current_page - 2)
-            end = min(total_pages + 1, current_page + 3)
-            pages_to_show.update(range(start, end))
-
-            # Last 3 pages
-            pages_to_show.update(range(max(1, total_pages - 2), total_pages + 1))
-
-            sorted_pages = sorted(pages_to_show)
-
-            for page in sorted_pages:
-                label = f"Page {page}"
-                if page == current_page:
-                    label += " (Current)"
-                options.append(discord.SelectOption(
-                    label=label,
-                    value=str(page),
-                    default=(page == current_page)
-                ))
-
-        super().__init__(
-            placeholder=f"Jump to page... (Current: {current_page}/{total_pages})",
-            options=options
-        )
+        super().__init__(placeholder="Select a page...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        selected_page = int(self.values[0])
+        try:
+            await interaction.response.defer()
 
-        # Get the cog to call the admin_view_campaign_points method
-        cog = interaction.client.get_cog('AllSignups')
-        if cog:
-            # Create a new interaction-like object for the command
-            await cog.admin_view_campaign_points(
-                interaction,
-                sort_by=self.view.sort_by,
-                filter_region=self.view.filter_region,
-                filter_party=self.view.filter_party,
-                year=self.view.year,
-                page=selected_page
+            selected_page = int(self.values[0])
+
+            # Get the main cog to access the command logic
+            signups_cog = interaction.client.get_cog('AllSignups')
+            if not signups_cog:
+                await interaction.followup.send("❌ Error: AllSignups cog not found.", ephemeral=True)
+                return
+
+            # Get time configuration
+            time_col, time_config = signups_cog._get_time_config(interaction.guild.id)
+            if not time_config:
+                await interaction.followup.send("❌ Election system not configured.", ephemeral=True)
+                return
+
+            current_phase = time_config.get("current_phase", "")
+            target_year = self.view.year
+
+            # Get signups configuration
+            signups_col, signups_config = signups_cog._get_signups_config(interaction.guild.id)
+
+            # Filter candidates by year
+            candidates = [c for c in signups_config["candidates"] if c["year"] == target_year]
+
+            if not candidates:
+                await interaction.followup.send(f"❌ No candidates found for {target_year}.", ephemeral=True)
+                return
+
+            # Apply filters and sorting (same logic as in main command)
+            filtered_candidates = candidates
+            if self.view.filter_region:
+                filtered_candidates = [c for c in filtered_candidates if c["region"].lower() == self.view.filter_region.lower()]
+            if self.view.filter_party:
+                filtered_candidates = [c for c in filtered_candidates if self.view.filter_party.lower() in c["party"].lower()]
+
+            if not filtered_candidates:
+                await interaction.followup.send("❌ No candidates found with those filters.", ephemeral=True)
+                return
+
+            # Sort candidates
+            if self.view.sort_by.lower() == "points":
+                filtered_candidates.sort(key=lambda x: x["points"], reverse=True)
+            elif self.view.sort_by.lower() == "corruption":
+                filtered_candidates.sort(key=lambda x: x["corruption"], reverse=True)
+            elif self.view.sort_by.lower() == "stamina":
+                filtered_candidates.sort(key=lambda x: x["stamina"], reverse=True)
+            elif self.view.sort_by.lower() == "seat":
+                filtered_candidates.sort(key=lambda x: x["seat_id"])
+            else:
+                filtered_candidates.sort(key=lambda x: x["name"].lower())
+
+            # Pagination
+            candidates_per_page = 10
+            total_candidates = len(filtered_candidates)
+            total_pages = max(1, (total_candidates + candidates_per_page - 1) // candidates_per_page)
+            page = max(1, min(selected_page, total_pages))
+
+            start_idx = (page - 1) * candidates_per_page
+            end_idx = start_idx + candidates_per_page
+            page_candidates = filtered_candidates[start_idx:end_idx]
+
+            # Create embed (same logic as main command)
+            filter_text = ""
+            if self.view.filter_region:
+                filter_text += f" • Region: {self.view.filter_region}"
+            if self.view.filter_party:
+                filter_text += f" • Party: {self.view.filter_party}"
+
+            embed = discord.Embed(
+                title=f"📊 {target_year} Primary Campaign Points",
+                description=f"Sorted by {self.view.sort_by} • Page {page}/{total_pages} • {total_candidates} total candidates{filter_text}",
+                color=discord.Color.orange(),
+                timestamp=datetime.utcnow()
             )
+
+            # Build candidate list
+            candidate_entries = []
+            for i, candidate in enumerate(page_candidates, start_idx + 1):
+                user = interaction.guild.get_member(candidate["user_id"])
+                user_mention = user.mention if user else f"User ID: {candidate['user_id']}"
+
+                entry = (
+                    f"**{i}.** {candidate['name']} ({candidate['party']})\n"
+                    f"   └ {candidate['seat_id']} • Points: {candidate['points']:.2f}\n"
+                    f"   └ Stamina: {candidate['stamina']} • Corruption: {candidate['corruption']} • {user_mention}\n\n"
+                )
+                candidate_entries.append(entry)
+
+            # Split candidates into multiple fields if needed
+            current_field = ""
+            field_count = 1
+
+            for entry in candidate_entries:
+                if len(current_field + entry) > 1020:
+                    embed.add_field(
+                        name=f"🏆 Candidates (Part {field_count})" if field_count > 1 else "🏆 Candidates",
+                        value=current_field.strip(),
+                        inline=False
+                    )
+                    current_field = entry
+                    field_count += 1
+                else:
+                    current_field += entry
+
+            if current_field:
+                embed.add_field(
+                    name=f"🏆 Candidates (Part {field_count})" if field_count > 1 else "🏆 Candidates",
+                    value=current_field.strip(),
+                    inline=False
+                )
+
+            # Add statistics and navigation
+            seat_counts = {}
+            for candidate in filtered_candidates:
+                seat_id = candidate["seat_id"]
+                seat_counts[seat_id] = seat_counts.get(seat_id, 0) + 1
+
+            # Show most competitive seats
+            competitive_seats = sorted(seat_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            competitive_text = ""
+            for seat_id, count in competitive_seats:
+                if count > 1:
+                    competitive_text += f"**{seat_id}:** {count} candidates\n"
+
+            if competitive_text:
+                embed.add_field(
+                    name="🔥 Most Competitive Seats",
+                    value=competitive_text,
+                    inline=True
+                )
+
+            # Add summary statistics
+            total_points = sum(c["points"] for c in filtered_candidates)
+            avg_points = total_points / len(filtered_candidates) if filtered_candidates else 0
+            avg_corruption = sum(c["corruption"] for c in filtered_candidates) / len(filtered_candidates) if filtered_candidates else 0
+            avg_stamina = sum(c["stamina"] for c in filtered_candidates) / len(filtered_candidates) if filtered_candidates else 0
+
+            embed.add_field(
+                name="📈 Summary Statistics",
+                value=f"**Total Candidates:** {len(filtered_candidates)}\n"
+                      f"**Total Points:** {total_points:.2f}\n"
+                      f"**Avg Corruption:** {avg_corruption:.1f}\n"
+                      f"**Avg Stamina:** {avg_stamina:.1f}",
+                inline=True
+            )
+
+            navigation_info = f"Page {page}/{total_pages}"
+            if page > 1:
+                prev_start = max(1, start_idx - candidates_per_page + 1) 
+                navigation_info += f" • Previous page shows candidates {prev_start}-{start_idx}"
+            if page < total_pages:
+                next_start = end_idx + 1
+                next_end = min(total_candidates, end_idx + candidates_per_page)
+                navigation_info += f" • Next page shows candidates {next_start}-{next_end}"
+
+            navigation_info += f"\nShowing candidates {start_idx + 1}-{min(end_idx, total_candidates)}"
+
+            embed.add_field(
+                name="📄 Navigation",
+                value=navigation_info,
+                inline=False
+            )
+
+            # Create new view with updated page - this is the key fix
+            new_view = CampaignPointsPaginationView(
+                interaction, 
+                self.view.sort_by, 
+                self.view.filter_region, 
+                self.view.filter_party, 
+                self.view.year, 
+                total_pages, 
+                page  # Pass the selected page as current_page
+            )
+
+            # Use edit_original_response instead of followup to maintain the same message
+            try:
+                await interaction.edit_original_response(embed=embed, view=new_view)
+            except discord.NotFound:
+                # If edit fails, fall back to followup
+                await interaction.followup.send(embed=embed, view=new_view, ephemeral=True)
+
+        except Exception as e:
+            print(f"Error in dropdown callback: {e}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send("❌ An error occurred while changing pages.", ephemeral=True)
 
 
 class AllSignups(commands.Cog):
@@ -1313,8 +1462,8 @@ class AllSignups(commands.Cog):
         else:
             filtered_candidates.sort(key=lambda x: x["name"].lower())
 
-        # Pagination settings
-        candidates_per_page = 15
+        # Pagination settings - reduced to handle field length limits better
+        candidates_per_page = 10
         total_candidates = len(filtered_candidates)
         total_pages = max(1, (total_candidates + candidates_per_page - 1) // candidates_per_page)
 
@@ -1341,23 +1490,44 @@ class AllSignups(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
-        # Build candidate list for this page
-        candidate_list = ""
+        # Build candidate list for this page, handling field length limits
+        candidate_entries = []
         for i, candidate in enumerate(page_candidates, start_idx + 1):
             user = interaction.guild.get_member(candidate["user_id"])
-            user_mention = user.mention if user else candidate["name"]
+            user_mention = user.mention if user else f"User ID: {candidate['user_id']}"
 
-            candidate_list += (
+            entry = (
                 f"**{i}.** {candidate['name']} ({candidate['party']})\n"
                 f"   └ {candidate['seat_id']} • Points: {candidate['points']:.2f}\n"
                 f"   └ Stamina: {candidate['stamina']} • Corruption: {candidate['corruption']} • {user_mention}\n\n"
             )
+            candidate_entries.append(entry)
 
-        embed.add_field(
-            name="🏆 Candidates",
-            value=candidate_list[:1024],
-            inline=False
-        )
+        # Split candidates into multiple fields if needed (Discord 1024 char limit per field)
+        current_field = ""
+        field_count = 1
+
+        for entry in candidate_entries:
+            # Check if adding this entry would exceed the limit
+            if len(current_field + entry) > 1020:  # Leave some buffer
+                # Add the current field and start a new one
+                embed.add_field(
+                    name=f"🏆 Candidates (Part {field_count})" if field_count > 1 else "🏆 Candidates",
+                    value=current_field.strip(),
+                    inline=False
+                )
+                current_field = entry
+                field_count += 1
+            else:
+                current_field += entry
+
+        # Add any remaining candidates
+        if current_field:
+            embed.add_field(
+                name=f"🏆 Candidates (Part {field_count})" if field_count > 1 else "🏆 Candidates",
+                value=current_field.strip(),
+                inline=False
+            )
 
         # Find most competitive seats
         seat_counts = {}
@@ -1395,13 +1565,15 @@ class AllSignups(commands.Cog):
         )
 
         # Add navigation info
-        navigation_info = f"Page {page} of {total_pages}"
+        navigation_info = f"Page {page}/{total_pages}"
         if page > 1:
             navigation_info += f" • Previous page shows candidates {max(1, start_idx - candidates_per_page + 1)}-{start_idx}"
         if page < total_pages:
             next_start = end_idx + 1
             next_end = min(total_candidates, end_idx + candidates_per_page)
             navigation_info += f" • Next page shows candidates {next_start}-{next_end}"
+
+        navigation_info += f"\nShowing candidates {start_idx + 1}-{min(end_idx, total_candidates)}"
 
         embed.add_field(
             name="📄 Navigation",
@@ -1801,7 +1973,7 @@ class AllSignups(commands.Cog):
 
         # Determine current phase for appropriate starting stats
         current_phase = time_config.get("current_phase", "")
-        
+
         # During General Campaign phase, add directly to all_winners as a primary winner
         if current_phase == "General Campaign":
             # Get all_winners configuration

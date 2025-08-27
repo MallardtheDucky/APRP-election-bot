@@ -14,98 +14,224 @@ class CampaignPointsView(discord.ui.View):
         self.year = year
         self.total_pages = total_pages
         self.current_page = current_page
-        
+
         # Add page selector dropdown
         self.add_item(PageSelector(total_pages, current_page))
 
 class PageSelector(discord.ui.Select):
     def __init__(self, total_pages: int, current_page: int):
-        self.total_pages = total_pages
-        self.current_page = current_page
-        
+        # Create options for page selection
         options = []
-        # Show up to 25 pages in dropdown (Discord limit)
-        max_options = min(25, total_pages)
-        
+
+        # Show all pages if 25 or fewer, otherwise show smart selection
         if total_pages <= 25:
-            # Show all pages
-            for i in range(1, total_pages + 1):
-                label = f"Page {i}"
-                if i == current_page:
+            for page in range(1, total_pages + 1):
+                label = f"Page {page}"
+                if page == current_page:
                     label += " (Current)"
                 options.append(discord.SelectOption(
                     label=label,
-                    value=str(i),
-                    description=f"Go to page {i}"
+                    value=str(page),
+                    default=(page == current_page)
                 ))
         else:
-            # Show pages around current page
-            start_range = max(1, current_page - 10)
-            end_range = min(total_pages + 1, current_page + 11)
-            
-            # Always include first page
-            if start_range > 1:
-                options.append(discord.SelectOption(
-                    label="Page 1",
-                    value="1",
-                    description="Go to first page"
-                ))
-                if start_range > 2:
-                    options.append(discord.SelectOption(
-                        label="...",
-                        value=str(max(1, current_page - 15)),
-                        description="Go back further"
-                    ))
-            
-            # Add range around current page
-            for i in range(start_range, min(end_range, start_range + 20)):
-                label = f"Page {i}"
-                if i == current_page:
+            # For many pages, show first few, current area, and last few
+            pages_to_show = set()
+
+            # First 3 pages
+            pages_to_show.update(range(1, min(4, total_pages + 1)))
+
+            # Current page and neighbors
+            start = max(1, current_page - 2)
+            end = min(total_pages + 1, current_page + 3)
+            pages_to_show.update(range(start, end))
+
+            # Last 3 pages
+            pages_to_show.update(range(max(1, total_pages - 2), total_pages + 1))
+
+            sorted_pages = sorted(pages_to_show)
+
+            for page in sorted_pages:
+                label = f"Page {page}"
+                if page == current_page:
                     label += " (Current)"
                 options.append(discord.SelectOption(
                     label=label,
-                    value=str(i),
-                    description=f"Go to page {i}"
+                    value=str(page),
+                    default=(page == current_page)
                 ))
-            
-            # Always include last page
-            if end_range <= total_pages:
-                if end_range < total_pages:
-                    options.append(discord.SelectOption(
-                        label="...",
-                        value=str(min(total_pages, current_page + 15)),
-                        description="Go forward further"
-                    ))
-                options.append(discord.SelectOption(
-                    label=f"Page {total_pages}",
-                    value=str(total_pages),
-                    description="Go to last page"
-                ))
-        
+
         super().__init__(
-            placeholder=f"Navigate to page... (Current: {current_page}/{total_pages})",
-            options=options,
-            min_values=1,
-            max_values=1
+            placeholder=f"Jump to page... (Current: {current_page}/{total_pages})",
+            options=options
         )
-    
+
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        
         selected_page = int(self.values[0])
-        
-        # Get the cog and call the command again with new page
+        await interaction.response.defer()
+
+        # Get the cog and regenerate the page content
         cog = interaction.client.get_cog('AllWinners')
-        if cog:
-            # Create a new interaction-like object for the command
-            await cog.admin_view_all_campaign_points(
-                interaction,
-                sort_by=self.view.sort_by,
-                filter_state=self.view.filter_state,
-                filter_party=self.view.filter_party,
-                year=self.view.year,
-                page=selected_page
+        if not cog:
+            await interaction.followup.send("❌ Error: Cog not found", ephemeral=True)
+            return
+
+        # Get time and winners config
+        time_col, time_config = cog._get_time_config(interaction.guild.id)
+        if not time_config:
+            await interaction.followup.send("❌ Election system not configured.", ephemeral=True)
+            return
+
+        current_year = time_config["current_rp_date"].year
+        current_phase = time_config.get("current_phase", "")
+        target_year = self.view.year if self.view.year else current_year
+
+        winners_col, winners_config = cog._get_winners_config(interaction.guild.id)
+
+        # Get primary winners (candidates in general election)
+        candidates = [
+            w for w in winners_config.get("winners", [])
+            if w.get("primary_winner", False) and w["year"] == target_year
+        ]
+
+        # Apply filters
+        if self.view.filter_state:
+            candidates = [c for c in candidates if self.view.filter_state.upper() in c.get("seat_id", "")]
+        if self.view.filter_party:
+            candidates = [c for c in candidates if self.view.filter_party.lower() in c.get("party", "").lower()]
+
+        # Sort candidates
+        if self.view.sort_by == "points":
+            candidates.sort(key=lambda x: x.get("points", 0), reverse=True)
+        elif self.view.sort_by == "total_points":
+            candidates.sort(key=lambda x: x.get("total_points", 0), reverse=True)
+        elif self.view.sort_by == "corruption":
+            candidates.sort(key=lambda x: x.get("corruption", 0), reverse=True)
+        elif self.view.sort_by == "seat":
+            candidates.sort(key=lambda x: x.get("seat_id", ""))
+        elif self.view.sort_by == "name":
+            candidates.sort(key=lambda x: x.get("candidate", ""))
+
+        # Pagination
+        candidates_per_page = 10
+        total_pages = max(1, (len(candidates) + candidates_per_page - 1) // candidates_per_page)
+        start_idx = (selected_page - 1) * candidates_per_page
+        end_idx = start_idx + candidates_per_page
+        page_candidates = candidates[start_idx:end_idx]
+
+        # Calculate percentages if in General Campaign
+        if current_phase == "General Campaign":
+            for candidate in page_candidates:
+                percentages = cog._calculate_zero_sum_percentages(interaction.guild.id, candidate.get("seat_id", ""))
+                candidate['calculated_percentage'] = percentages.get(candidate.get("candidate", ""), 50.0)
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"📊 {target_year} General Campaign Points",
+            description=f"Sorted by {self.view.sort_by} • Page {selected_page}/{total_pages} • {len(candidates)} total candidates",
+            color=discord.Color.purple(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Build candidate list
+        candidate_entries = []
+        for i, candidate in enumerate(page_candidates, start_idx + 1):
+            user = interaction.guild.get_member(candidate.get("user_id"))
+            user_mention = user.mention if user else candidate.get("candidate", "Unknown")
+
+            points_display = f"{candidate.get('points', 0):.2f}"
+            if current_phase == "General Campaign":
+                total_points = candidate.get('total_points', 0)
+                if total_points > 0:
+                    points_display = f"{total_points:.2f}"
+
+                percentage = candidate.get('calculated_percentage', 50.0)
+                points_display += f" ({percentage:.1f}%)"
+
+            entry = (
+                f"**{i}.** {candidate.get('candidate', 'Unknown')} ({candidate.get('party', 'Unknown')})\n"
+                f"   └ {candidate.get('seat_id', 'Unknown')} • Points: {points_display}\n"
+                f"   └ Stamina: {candidate.get('stamina', 100)} • "
+                f"Corruption: {candidate.get('corruption', 0)} • {user_mention}"
             )
+            candidate_entries.append(entry)
+
+        # Split into fields to handle Discord's field limits
+        field_content = ""
+        field_count = 1
+        for entry in candidate_entries:
+            if len(field_content + entry + "\n\n") > 1024:
+                embed.add_field(
+                    name=f"🏆 Candidates{f' (Part {field_count})' if field_count > 1 else ''}",
+                    value=field_content,
+                    inline=False
+                )
+                field_content = entry + "\n\n"
+                field_count += 1
+            else:
+                field_content += entry + "\n\n"
+
+        if field_content:
+            embed.add_field(
+                name=f"🏆 Candidates{f' (Part {field_count})' if field_count > 1 else ''}",
+                value=field_content,
+                inline=False
+            )
+
+        # Add statistics
+        if candidates:
+            total_points = sum(c.get("points", 0) for c in candidates)
+            total_votes = sum(c.get("votes", 0) for c in candidates)
+            avg_corruption = sum(c.get("corruption", 0) for c in candidates) / len(candidates)
+
+            embed.add_field(
+                name="📈 Summary Statistics",
+                value=f"**Total Candidates:** {len(candidates)}\n"
+                      f"**Total Points:** {total_points:.2f}\n"
+                      f"**Total Votes:** {total_votes:,}\n"
+                      f"**Avg Corruption:** {avg_corruption:.1f}",
+                inline=True
+            )
+
+        # Show filter info if applied
+        filter_info = ""
+        if self.view.filter_state:
+            filter_info += f"State: {self.view.filter_state} • "
+        if self.view.filter_party:
+            filter_info += f"Party: {self.view.filter_party} • "
+        if filter_info:
+            embed.add_field(
+                name="🔍 Active Filters",
+                value=filter_info.rstrip(" • "),
+                inline=True
+            )
+
+        # Navigation info
+        navigation_info = f"**Page {selected_page} of {total_pages}**\n"
+        if selected_page > 1:
+            navigation_info += f"Use `page:{selected_page-1}` for previous page\n"
+        if selected_page < total_pages:
+            navigation_info += f"Use `page:{selected_page+1}` for next page\n"
+        navigation_info += f"Showing candidates {start_idx + 1}-{min(end_idx, len(candidates))}"
+
+        embed.add_field(
+            name="📄 Navigation",
+            value=navigation_info,
+            inline=False
+        )
+
+        # Create new view with updated page
+        new_view = CampaignPointsView(
+            interaction, 
+            self.view.sort_by, 
+            self.view.filter_state, 
+            self.view.filter_party, 
+            self.view.year, 
+            total_pages, 
+            selected_page
+        )
+
+        await interaction.edit_original_response(embed=embed, view=new_view)
 
 class AllWinners(commands.Cog):
     def __init__(self, bot):
@@ -1096,6 +1222,7 @@ class AllWinners(commands.Cog):
             return
 
         current_year = time_config["current_rp_date"].year
+        current_phase = time_config.get("current_phase", "")
         target_year = year if year else current_year
 
         winners_col, winners_config = self._get_winners_config(interaction.guild.id)
@@ -1141,11 +1268,11 @@ class AllWinners(commands.Cog):
         else:
             candidates.sort(key=lambda x: x.get("candidate", "").lower())
 
-        # Pagination setup
-        candidates_per_page = 20
+        # Pagination setup - reduced for better field handling
+        candidates_per_page = 10
         total_pages = (len(candidates) + candidates_per_page - 1) // candidates_per_page
         page = max(1, min(page, total_pages))
-        
+
         start_idx = (page - 1) * candidates_per_page
         end_idx = start_idx + candidates_per_page
         page_candidates = candidates[start_idx:end_idx]
@@ -1153,7 +1280,7 @@ class AllWinners(commands.Cog):
         # Pre-calculate zero-sum percentages for unique seats only
         unique_seats = list(set(c.get("seat_id") for c in page_candidates if c.get("seat_id")))
         seat_percentages_cache = {}
-        
+
         for seat_id in unique_seats:
             if seat_id and seat_id != "N/A":
                 try:
@@ -1179,52 +1306,59 @@ class AllWinners(commands.Cog):
             timestamp=datetime.utcnow()
         )
 
-        # Build candidate list
-        candidate_list = ""
+        # Build candidate list with field splitting for large lists
+        candidate_entries = []
         for i, candidate in enumerate(page_candidates, start_idx + 1):
-            user = interaction.guild.get_member(candidate["user_id"])
-            user_mention = user.mention if user else candidate["candidate"]
+            # Get user info
+            user = interaction.guild.get_member(candidate.get("user_id"))
+            user_mention = user.mention if user else candidate.get("candidate", "Unknown")
 
-            seat_id = candidate.get('seat_id', 'N/A')
-            candidate_name = candidate.get('candidate', 'N/A')
-            calculated_percentage = candidate.get('calculated_percentage', 50.0)
+            points_display = f"{candidate.get('points', 0):.2f}"
+            if current_phase == "General Campaign":
+                total_points = candidate.get('total_points', 0)
+                if total_points > 0:
+                    points_display = f"{total_points:.2f}"
 
-            candidate_list += (
-                f"**{i}.** {candidate_name} ({candidate.get('party', 'N/A')})\n"
-                f"   └ {seat_id} • Points: {candidate.get('points', 0):.2f} • Votes: {candidate.get('votes', 0)} • %: {calculated_percentage:.1f}%\n"
+                # Show percentage if available
+                percentage = candidate.get('calculated_percentage', 50.0)
+                points_display += f" ({percentage:.1f}%)"
+
+            entry = (
+                f"**{i}.** {candidate.get('candidate', 'Unknown')} ({candidate.get('party', 'Unknown')})\n"
+                f"   └ {candidate.get('seat_id', 'N/A')} • Points: {points_display}\n"
                 f"   └ Stamina: {candidate.get('stamina', 100)} • Corruption: {candidate.get('corruption', 0)} • {user_mention}\n\n"
             )
+            candidate_entries.append(entry)
 
-        # Split into multiple fields if too long
-        if len(candidate_list) > 1024:
-            # Split candidate list into chunks
-            lines = candidate_list.strip().split('\n\n')
-            current_field = ""
-            field_count = 1
-            
-            for line in lines:
-                if len(current_field + line + '\n\n') <= 1024:
-                    current_field += line + '\n\n'
-                else:
-                    if current_field:
-                        embed.add_field(
-                            name=f"🏆 Candidates (Part {field_count})",
-                            value=current_field.strip(),
-                            inline=False
-                        )
-                        field_count += 1
-                    current_field = line + '\n\n'
-            
-            if current_field:
+        # Split candidates into multiple fields if needed (Discord 1024 char limit per field)
+        current_field = ""
+        field_count = 1
+
+        for entry in candidate_entries:
+            # Check if adding this entry would exceed the limit
+            if len(current_field + entry) > 1020:  # Leave some buffer
+                # Add the current field and start a new one
                 embed.add_field(
-                    name=f"🏆 Candidates (Part {field_count})",
-                    value=current_field.strip(),
+                    name=f"🏆 Candidates (Part {field_count})" if field_count > 1 else "🏆 Candidates",
+                    value=current_field.strip() if current_field.strip() else "No candidates found",
                     inline=False
                 )
-        else:
+                current_field = entry
+                field_count += 1
+            else:
+                current_field += entry
+
+        # Add any remaining candidates
+        if current_field:
+            embed.add_field(
+                name=f"🏆 Candidates (Part {field_count})" if field_count > 1 else "🏆 Candidates",
+                value=current_field.strip() if current_field.strip() else "No candidates found",
+                inline=False
+            )
+        elif not candidate_entries:
             embed.add_field(
                 name="🏆 Candidates",
-                value=candidate_list.strip() if candidate_list else "No candidates found",
+                value="No candidates found",
                 inline=False
             )
 

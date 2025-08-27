@@ -367,7 +367,7 @@ class PresCampaignActions(commands.Cog):
 
         print(f"Transferred/Updated points for {candidate_name} ({political_party}) in {state_name} to all_winners system.")
 
-    def _update_state_baseline_data(self, guild_id: int, political_party: str, points_gained: float):
+    def _update_state_baseline_data(self, guild_id: int, state_name: str, political_party: str, points_gained: float):
         """Update PRESIDENTIAL_STATE_DATA based on significant campaign activity"""
         from .presidential_winners import PRESIDENTIAL_STATE_DATA
 
@@ -378,39 +378,8 @@ class PresCampaignActions(commands.Cog):
         if points_gained < 1.0:
             return
 
-        # Determine which state to update based on the campaign action (this needs to be passed in)
-        # For now, we'll assume state_name is available from the calling function.
-        # If not, a default or error handling is needed.
-        
-        # Placeholder for state_name - this should be passed from the command function
-        # For demonstration, let's assume a state is passed or determined.
-        # Example: state_name = "Iowa"
-        # This part needs to be integrated with the command that calls this function.
-        # For now, we'll skip the update if state_name is not provided.
-
-        # The function that calls this (e.g., _update_presidential_candidate_stats) should pass the state_name
-        # For example: self._update_state_baseline_data(guild_id, state_name, political_party, points_gained)
-        # The current implementation of _update_presidential_candidate_stats does not pass state_name to this function.
-        # Let's adjust it to pass state_name if it's available.
-
-        # This function is called from _transfer_pres_points_to_winners, which DOES pass state_name.
-        # So, the issue is likely that state_name is not always available or is incorrectly passed.
-        # Let's ensure state_name is correctly passed and used here.
-
-        # For the purpose of this fix, let's assume state_name is correctly passed.
-        # If it's not, the logic here won't apply correctly.
-
-        # Example: If state_name = "TEXAS" and political_party = "Republican Party"
-        # This function needs the state_name to work.
-
-        # Correcting the call site in _transfer_pres_points_to_winners:
-        # It already calls _update_state_baseline_data(guild_id, state_name, political_party, points_gained)
-        # So, the state_name should be available here.
-
-        # Let's proceed assuming state_name is correctly passed.
-
-        # Example: If state_name is "IOWA"
-        state_name_upper = state_name.upper() # Ensure it's uppercase for dictionary lookup
+        # Ensure state_name is uppercase for dictionary lookup
+        state_name_upper = state_name.upper()
 
         if state_name_upper not in PRESIDENTIAL_STATE_DATA:
             print(f"Warning: State '{state_name_upper}' not found in PRESIDENTIAL_STATE_DATA. Cannot update baseline.")
@@ -1120,7 +1089,7 @@ class PresCampaignActions(commands.Cog):
                 content=f"⏰ **{candidate.get('name', 'User')}**, your speech timed out. Please use `/pres_speech` again and reply with your speech within 5 minutes."
             )
         except Exception as e:
-            print(f"Error in _process_pres_speech: {e}")
+            print(f"Error in pres_speech: {e}")
             await interaction.edit_original_response(
                 content=f"❌ An error occurred while processing your speech. Please try again."
             )
@@ -1754,7 +1723,7 @@ class PresCampaignActions(commands.Cog):
                                                      state_upper, polling_boost=polling_boost, stamina_cost=1)
 
             # For general campaign only, transfer points to all_winners system
-            current_phase = time_config.get("current_phase", "") if time_config else ""
+            current_phase = time_config.get("current_phase", "")
             if current_phase == "General Campaign":
                 self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_upper, polling_boost)
 
@@ -2434,10 +2403,43 @@ class PresCampaignActions(commands.Cog):
             winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
             if winners_config:
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-                candidates = [
-                    w for w in winners_config.get("winners", [])
-                    if w.get("primary_winner", False) and w["year"] == primary_year and w["office"] in ["President", "Vice President"]
-                ]
+                winners_data = winners_config.get("winners", [])
+                
+                candidates = []
+                # Handle both list and dict formats for winners
+                if isinstance(winners_data, list):
+                    # New list format
+                    candidates = [
+                        w for w in winners_data
+                        if (isinstance(w, dict) and 
+                            w.get("primary_winner", False) and 
+                            w.get("year") == primary_year and 
+                            w.get("office") in ["President", "Vice President"])
+                    ]
+                elif isinstance(winners_data, dict):
+                    # Old dict format: {party: candidate_name}
+                    # Need to get full candidate data from presidential signups
+                    signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+                    if signups_config:
+                        election_year = winners_config.get("election_year", current_year)
+                        signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+
+                        candidates_list = signups_config.get("candidates", [])
+                        if isinstance(candidates_list, list):
+                            for candidate in candidates_list:
+                                if (isinstance(candidate, dict) and
+                                    candidate.get("year") == signup_year and
+                                    candidate.get("office") in ["President", "Vice President"]):
+                                    # Check if this candidate won their primary
+                                    candidate_name = candidate.get("name")
+                                    for party, winner_name in winners_data.items():
+                                        if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
+                                            # Create a general campaign candidate object
+                                            general_candidate = candidate.copy()
+                                            general_candidate["primary_winner"] = True
+                                            general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                            general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                            candidates.append(general_candidate)
         else:
             # Get from presidential signups
             signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
