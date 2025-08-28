@@ -839,6 +839,618 @@ class PresCampaignActions(commands.Cog):
         final_percentages = current_percentages
         return final_percentages
 
+    @app_commands.command(
+        name="pres_private_poll",
+        description="Conduct a private poll for presidential candidates in a U.S. state (3% margin of error)"
+    )
+    @app_commands.describe(state="U.S. state to poll for presidential candidates")
+    async def pres_private_poll(self, interaction: discord.Interaction, state: str):
+        # Validate and format state
+        state_upper = state.upper()
+        if state_upper not in PRESIDENTIAL_STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
+                ephemeral=True
+            )
+            return
+
+        # Check if we're in a campaign phase
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config or time_config.get("current_phase", "") not in ["Primary Campaign", "General Campaign"]:
+            await interaction.response.send_message(
+                "❌ Presidential polls can only be conducted during campaign phases.",
+                ephemeral=True
+            )
+            return
+
+        current_phase = time_config.get("current_phase", "")
+        current_year = time_config["current_rp_date"].year
+
+        # Get presidential candidates
+        pres_candidates = []
+
+        if current_phase == "General Campaign":
+            # Look in presidential winners collection for general campaign
+            winners_col, winners_config = self._get_presidential_winners_config(interaction.guild.id)
+            if winners_config:
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                winners_data = winners_config.get("winners", [])
+
+                if isinstance(winners_data, list):
+                    pres_candidates = [
+                        w for w in winners_data
+                        if (isinstance(w, dict) and
+                            w.get("primary_winner", False) and
+                            w.get("year") == primary_year and
+                            w.get("office") == "President")
+                    ]
+                elif isinstance(winners_data, dict):
+                    # Handle old dict format
+                    signups_col = self.bot.db["presidential_signups"]
+                    signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+                    if signups_config:
+                        election_year = winners_config.get("election_year", current_year)
+                        signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+
+                        for candidate in signups_config.get("candidates", []):
+                            if (candidate.get("year") == signup_year and
+                                candidate.get("office") == "President"):
+                                candidate_name_check = candidate.get("name")
+                                for party, winner_name in winners_data.items():
+                                    if isinstance(winner_name, str) and winner_name.lower() == candidate_name_check.lower():
+                                        general_candidate = candidate.copy()
+                                        general_candidate["primary_winner"] = True
+                                        general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                        general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                        pres_candidates.append(general_candidate)
+            
+            # If no candidates found in presidential_winners, try all_winners system as fallback
+            if not pres_candidates:
+                all_winners_col = self.bot.db["winners"]
+                all_winners_config = all_winners_col.find_one({"guild_id": interaction.guild.id})
+                if all_winners_config:
+                    # Look for primary winners from the correct year
+                    primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                    for winner in all_winners_config.get("winners", []):
+                        if (isinstance(winner, dict) and
+                            winner.get("office") == "President" and
+                            winner.get("primary_winner", False) and
+                            winner.get("year") == primary_year):
+                            # Convert all_winners format to expected format
+                            candidate_dict = {
+                                "name": winner.get("candidate"),
+                                "user_id": winner.get("user_id"),
+                                "party": winner.get("party"),
+                                "office": winner.get("office"),
+                                "year": winner.get("year"),
+                                "stamina": winner.get("stamina", 200),
+                                "corruption": winner.get("corruption", 0),
+                                "total_points": winner.get("points", 0.0),
+                                "state_points": winner.get("state_points", {}),
+                                "primary_winner": True
+                            }
+                            pres_candidates.append(candidate_dict)
+        else:
+            # Look in presidential signups for primary campaign
+            signups_col = self.bot.db["presidential_signups"]
+            signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+            if signups_config:
+                pres_candidates = [
+                    c for c in signups_config.get("candidates", [])
+                    if (c.get("year") == current_year and
+                        c.get("office") == "President")
+                ]
+
+        if not pres_candidates:
+            await interaction.response.send_message(
+                f"❌ No presidential candidates found for the current {current_phase.lower()}.",
+                ephemeral=True
+            )
+            return
+
+        # Get state baseline data
+        state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {})
+        baseline_rep = state_data.get("republican", 33.0)
+        baseline_dem = state_data.get("democrat", 33.0)
+        baseline_other = state_data.get("other", 34.0)
+
+        # Calculate state-specific polling for each candidate (no margin of error for private poll)
+        poll_results = []
+
+        if current_phase == "General Campaign":
+            # Use general election calculation for state
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, "President")
+            
+            for candidate in pres_candidates:
+                candidate_name = candidate.get('name')
+                base_percentage = general_percentages.get(candidate_name, 50.0 / len(pres_candidates))
+                
+                # Adjust based on state alignment and candidate's state points
+                state_points = candidate.get("state_points", {}).get(state_upper, 0.0)
+                state_adjustment = min(state_points * 0.5, 15.0)  # Cap at 15% adjustment
+                
+                # Party alignment bonus/penalty
+                candidate_party = candidate.get("party", "").lower()
+                if "republican" in candidate_party:
+                    party_alignment = (baseline_rep - 33.0) * 0.3  # 30% of state lean
+                elif "democrat" in candidate_party:
+                    party_alignment = (baseline_dem - 33.0) * 0.3
+                else:
+                    party_alignment = (baseline_other - 34.0) * 0.3
+                
+                actual_percentage = base_percentage + state_adjustment + party_alignment
+                actual_percentage = max(5.0, min(95.0, actual_percentage))
+                
+                # Apply 3% margin of error for private poll
+                import random
+                poll_result = actual_percentage + random.uniform(-3.0, 3.0)
+                poll_result = max(1.0, min(99.0, poll_result))
+                
+                poll_results.append({
+                    "candidate": candidate,
+                    "name": candidate_name,
+                    "poll": poll_result,
+                    "actual": actual_percentage
+                })
+        else:
+            # Primary campaign - group by party and calculate within party
+            parties = {}
+            for candidate in pres_candidates:
+                party = candidate.get("party", "Independent")
+                if party not in parties:
+                    parties[party] = []
+                parties[party].append(candidate)
+
+            for party, party_candidates in parties.items():
+                if len(party_candidates) == 1:
+                    candidate = party_candidates[0]
+                    candidate_name = candidate.get('name')
+                    actual_percentage = 85.0
+                    
+                    import random
+                    poll_result = actual_percentage + random.uniform(-3.0, 3.0)
+                    poll_result = max(1.0, min(99.0, poll_result))
+
+                    poll_results.append({
+                        "candidate": candidate,
+                        "name": candidate_name,
+                        "poll": poll_result,
+                        "actual": actual_percentage,
+                        "party": party
+                    })
+                else:
+                    total_points = sum(c.get('points', 0) for c in party_candidates)
+                    for candidate in party_candidates:
+                        candidate_name = candidate.get('name')
+
+                        if total_points == 0:
+                            actual_percentage = 100.0 / len(party_candidates)
+                        else:
+                            candidate_points = candidate.get('points', 0)
+                            actual_percentage = (candidate_points / total_points) * 100.0
+                            actual_percentage = max(15.0, actual_percentage)
+
+                        import random
+                        poll_result = actual_percentage + random.uniform(-3.0, 3.0)
+                        poll_result = max(1.0, min(99.0, poll_result))
+
+                        poll_results.append({
+                            "candidate": candidate,
+                            "name": candidate_name,
+                            "poll": poll_result,
+                            "actual": actual_percentage,
+                            "party": party
+                        })
+
+        poll_results.sort(key=lambda x: x["poll"], reverse=True)
+
+        # Generate polling details
+        polling_orgs = [
+            "Internal Campaign Research", "Private Polling Firm", "Strategic Research LLC",
+            "Confidential Analytics Group", "Elite Polling Institute"
+        ]
+        import random
+        polling_org = random.choice(polling_orgs)
+        sample_size = random.randint(1200, 2500)
+        days_ago = random.randint(1, 3)
+
+        embed = discord.Embed(
+            title=f"🔒 Private Presidential Poll: {state_upper}",
+            description=f"**Presidential Race in {state_upper}** • {current_phase} ({current_year})",
+            color=discord.Color.gold(),
+            timestamp=datetime.utcnow()
+        )
+
+        def create_progress_bar(percentage, width=20):
+            filled = int((percentage / 100) * width)
+            empty = width - filled
+            return "█" * filled + "░" * empty
+
+        if current_phase == "General Campaign":
+            # General election - show all candidates together
+            results_text = ""
+            for i, result in enumerate(poll_results, 1):
+                party_abbrev = result['candidate'].get('party', 'I')[0] if result['candidate'].get('party') else "I"
+                progress_bar = create_progress_bar(result['poll'])
+
+                results_text += f"**{i}. {result['name']}**\n"
+                results_text += f"**{party_abbrev} - {result['candidate'].get('party', 'Independent')}**\n"
+                results_text += f"{progress_bar} **{result['poll']:.1f}%** (Actual: ~{result['actual']:.1f}%)\n\n"
+
+            embed.add_field(
+                name=f"🇺🇸 Presidential General Election - {state_upper}",
+                value=results_text,
+                inline=False
+            )
+        else:
+            # Primary campaign - group by party
+            parties_displayed = {}
+            for result in poll_results:
+                party = result.get("party", "Independent")
+                if party not in parties_displayed:
+                    parties_displayed[party] = []
+                parties_displayed[party].append(result)
+
+            for party, party_results in parties_displayed.items():
+                party_text = ""
+                party_abbrev = party[0] if party else "I"
+
+                for i, result in enumerate(party_results, 1):
+                    progress_bar = create_progress_bar(result['poll'])
+
+                    party_text += f"**{i}. {result['name']}**\n"
+                    party_text += f"**{party_abbrev} - {party}**\n"
+                    party_text += f"{progress_bar} **{result['poll']:.1f}%** (Actual: ~{result['actual']:.1f}%)\n\n"
+
+                embed.add_field(
+                    name=f"🎗️ {party} Primary - {state_upper}",
+                    value=party_text,
+                    inline=True
+                )
+
+        # Add state context
+        embed.add_field(
+            name=f"📍 {state_upper} Context",
+            value=f"**Baseline Republican:** {baseline_rep:.1f}%\n"
+                  f"**Baseline Democrat:** {baseline_dem:.1f}%\n"
+                  f"**Baseline Other:** {baseline_other:.1f}%",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📋 Poll Details",
+            value=f"**Polling Organization:** {polling_org}\n"
+                  f"**Sample Size:** {sample_size:,} likely voters\n"
+                  f"**Margin of Error:** ±3.0%\n"
+                  f"**Field Period:** {days_ago} day{'s' if days_ago > 1 else ''} ago",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔒 Privacy Notice",
+            value="This is a private poll with accurate polling data and reduced margin of error. Results include both polled numbers and estimated actual support levels.",
+            inline=False
+        )
+
+        embed.set_footer(text=f"Private poll conducted by {polling_org}")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="pres_state_poll", 
+        description="Conduct a state poll for presidential candidates (7% margin of error)"
+    )
+    @app_commands.describe(
+        state="U.S. state to poll",
+        candidate_name="Presidential candidate to highlight (optional)"
+    )
+    async def pres_state_poll(self, interaction: discord.Interaction, state: str, candidate_name: Optional[str] = None):
+        # Validate and format state
+        state_upper = state.upper()
+        if state_upper not in PRESIDENTIAL_STATE_DATA:
+            await interaction.response.send_message(
+                f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
+                ephemeral=True
+            )
+            return
+
+        # Check if we're in a campaign phase
+        time_col, time_config = self._get_time_config(interaction.guild.id)
+        if not time_config or time_config.get("current_phase", "") not in ["Primary Campaign", "General Campaign"]:
+            await interaction.response.send_message(
+                "❌ Presidential polls can only be conducted during campaign phases.",
+                ephemeral=True
+            )
+            return
+
+        current_phase = time_config.get("current_phase", "")
+        current_year = time_config["current_rp_date"].year
+
+        # Get presidential candidates
+        pres_candidates = []
+        highlighted_candidate = None
+
+        if current_phase == "General Campaign":
+            # Look in presidential winners collection for general campaign
+            pres_col = self.bot.db["presidential_winners"]
+            pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+            if pres_config:
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                winners_data = pres_config.get("winners", [])
+
+                if isinstance(winners_data, list):
+                    pres_candidates = [
+                        w for w in winners_data
+                        if (isinstance(w, dict) and
+                            w.get("primary_winner", False) and
+                            w.get("year") == primary_year and
+                            w.get("office") == "President")
+                    ]
+                elif isinstance(winners_data, dict):
+                    # Handle old dict format
+                    signups_col = self.bot.db["presidential_signups"]
+                    signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
+                    if signups_config:
+                        election_year = pres_config.get("election_year", current_year)
+                        signup_year = election_year - 1 if election_year % 2 == 0 else election_year
+
+                        for candidate in signups_config.get("candidates", []):
+                            if (candidate.get("year") == signup_year and
+                                candidate.get("office") == "President"):
+                                candidate_name_check = candidate.get("name")
+                                for party, winner_name in winners_data.items():
+                                    if isinstance(winner_name, str) and winner_name.lower() == candidate_name_check.lower():
+                                        general_candidate = candidate.copy()
+                                        general_candidate["primary_winner"] = True
+                                        general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                        general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                        pres_candidates.append(general_candidate)
+            
+            # If no candidates found in presidential_winners, try all_winners system as fallback
+            if not pres_candidates:
+                all_winners_col = self.bot.db["winners"]
+                all_winners_config = all_winners_col.find_one({"guild_id": interaction.guild.id})
+                if all_winners_config:
+                    # Look for primary winners from the correct year
+                    primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                    for winner in all_winners_config.get("winners", []):
+                        if (isinstance(winner, dict) and
+                            winner.get("office") == "President" and
+                            winner.get("primary_winner", False) and
+                            winner.get("year") == primary_year):
+                            # Convert all_winners format to expected format
+                            candidate_dict = {
+                                "name": winner.get("candidate"),
+                                "user_id": winner.get("user_id"),
+                                "party": winner.get("party"),
+                                "office": winner.get("office"),
+                                "year": winner.get("year"),
+                                "stamina": winner.get("stamina", 200),
+                                "corruption": winner.get("corruption", 0),
+                                "total_points": winner.get("points", 0.0),
+                                "state_points": winner.get("state_points", {}),
+                                "primary_winner": True
+                            }
+                            pres_candidates.append(candidate_dict)
+        else:
+            # Look in presidential signups for primary campaign
+            pres_col = self.bot.db["presidential_signups"]
+            pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+            if pres_config:
+                pres_candidates = [
+                    c for c in pres_config.get("candidates", [])
+                    if (c.get("year") == current_year and
+                        c.get("office") == "President")
+                ]
+
+        if not pres_candidates:
+            await interaction.response.send_message(
+                f"❌ No presidential candidates found for the current {current_phase.lower()}.",
+                ephemeral=True
+            )
+            return
+
+        # Find highlighted candidate if specified by name
+        if candidate_name:
+            for candidate in pres_candidates:
+                candidate_display_name = candidate.get('name')
+                if candidate_display_name and candidate_display_name.lower() == candidate_name.lower():
+                    highlighted_candidate = candidate
+                    break
+
+        # Get state baseline data
+        state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {})
+        baseline_rep = state_data.get("republican", 33.0)
+        baseline_dem = state_data.get("democrat", 33.0)
+        baseline_other = state_data.get("other", 34.0)
+
+        # Calculate state-specific polling for each candidate
+        poll_results = []
+
+        if current_phase == "General Campaign":
+            # Use general election calculation for state
+            general_percentages = self._calculate_general_election_percentages(interaction.guild.id, "President")
+            
+            for candidate in pres_candidates:
+                candidate_name = candidate.get('name')
+                base_percentage = general_percentages.get(candidate_name, 50.0 / len(pres_candidates))
+                
+                # Adjust based on state alignment and candidate's state points
+                state_points = candidate.get("state_points", {}).get(state_upper, 0.0)
+                state_adjustment = min(state_points * 0.5, 15.0)  # Cap at 15% adjustment
+                
+                # Party alignment bonus/penalty
+                candidate_party = candidate.get("party", "").lower()
+                if "republican" in candidate_party:
+                    party_alignment = (baseline_rep - 33.0) * 0.3  # 30% of state lean
+                elif "democrat" in candidate_party:
+                    party_alignment = (baseline_dem - 33.0) * 0.3
+                else:
+                    party_alignment = (baseline_other - 34.0) * 0.3
+                
+                actual_percentage = base_percentage + state_adjustment + party_alignment
+                actual_percentage = max(5.0, min(95.0, actual_percentage))
+                
+                # Apply 7% margin of error
+                import random
+                poll_result = actual_percentage + random.uniform(-7.0, 7.0)
+                poll_result = max(1.0, min(99.0, poll_result))
+                
+                poll_results.append({
+                    "candidate": candidate,
+                    "name": candidate_name,
+                    "poll": poll_result,
+                    "actual": actual_percentage,
+                    "is_highlighted": candidate == highlighted_candidate
+                })
+        else:
+            # Primary campaign - group by party and calculate within party
+            parties = {}
+            for candidate in pres_candidates:
+                party = candidate.get("party", "Independent")
+                if party not in parties:
+                    parties[party] = []
+                parties[party].append(candidate)
+
+            for party, party_candidates in parties.items():
+                if len(party_candidates) == 1:
+                    candidate = party_candidates[0]
+                    candidate_name = candidate.get('name')
+                    actual_percentage = 85.0
+                    
+                    import random
+                    poll_result = actual_percentage + random.uniform(-7.0, 7.0)
+                    poll_result = max(1.0, min(99.0, poll_result))
+
+                    poll_results.append({
+                        "candidate": candidate,
+                        "name": candidate_name,
+                        "poll": poll_result,
+                        "actual": actual_percentage,
+                        "party": party,
+                        "is_highlighted": candidate == highlighted_candidate
+                    })
+                else:
+                    total_points = sum(c.get('points', 0) for c in party_candidates)
+                    for candidate in party_candidates:
+                        candidate_name = candidate.get('name')
+
+                        if total_points == 0:
+                            actual_percentage = 100.0 / len(party_candidates)
+                        else:
+                            candidate_points = candidate.get('points', 0)
+                            actual_percentage = (candidate_points / total_points) * 100.0
+                            actual_percentage = max(15.0, actual_percentage)
+
+                        import random
+                        poll_result = actual_percentage + random.uniform(-7.0, 7.0)
+                        poll_result = max(1.0, min(99.0, poll_result))
+
+                        poll_results.append({
+                            "candidate": candidate,
+                            "name": candidate_name,
+                            "poll": poll_result,
+                            "actual": actual_percentage,
+                            "party": party,
+                            "is_highlighted": candidate == highlighted_candidate
+                        })
+
+        poll_results.sort(key=lambda x: x["poll"], reverse=True)
+
+        # Generate polling details
+        polling_orgs = [
+            f"{state} State University Poll", f"{state} Political Research", f"{state} Voter Survey",
+            f"Local {state} Polling", f"{state} Election Monitor"
+        ]
+        import random
+        polling_org = random.choice(polling_orgs)
+        sample_size = random.randint(600, 1200)
+        days_ago = random.randint(1, 5)
+
+        embed = discord.Embed(
+            title=f"📊 {state_upper} Presidential Poll",
+            description=f"**Presidential Race in {state_upper}** • {current_phase} ({current_year})",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        def create_progress_bar(percentage, width=20):
+            filled = int((percentage / 100) * width)
+            empty = width - filled
+            return "█" * filled + "░" * empty
+
+        if current_phase == "General Campaign":
+            # General election - show all candidates together
+            results_text = ""
+            for i, result in enumerate(poll_results, 1):
+                highlight = "👑 " if result["is_highlighted"] else ""
+                party_abbrev = result['candidate'].get('party', 'I')[0] if result['candidate'].get('party') else "I"
+                progress_bar = create_progress_bar(result['poll'])
+
+                results_text += f"**{i}. {highlight}{result['name']}**\n"
+                results_text += f"**{party_abbrev} - {result['candidate'].get('party', 'Independent')}**\n"
+                results_text += f"{progress_bar} **{result['poll']:.1f}%**\n\n"
+
+            embed.add_field(
+                name=f"🇺🇸 Presidential General Election - {state_upper}",
+                value=results_text,
+                inline=False
+            )
+        else:
+            # Primary campaign - group by party
+            parties_displayed = {}
+            for result in poll_results:
+                party = result.get("party", "Independent")
+                if party not in parties_displayed:
+                    parties_displayed[party] = []
+                parties_displayed[party].append(result)
+
+            for party, party_results in parties_displayed.items():
+                party_text = ""
+                party_abbrev = party[0] if party else "I"
+
+                for i, result in enumerate(party_results, 1):
+                    highlight = "👑 " if result["is_highlighted"] else ""
+                    progress_bar = create_progress_bar(result['poll'])
+
+                    party_text += f"**{i}. {highlight}{result['name']}**\n"
+                    party_text += f"**{party_abbrev} - {party}**\n"
+                    party_text += f"{progress_bar} **{result['poll']:.1f}%**\n\n"
+
+                embed.add_field(
+                    name=f"🎗️ {party} Primary - {state_upper}",
+                    value=party_text,
+                    inline=True
+                )
+
+        # Add state context
+        embed.add_field(
+            name=f"📍 {state_upper} Context",
+            value=f"**Baseline Republican:** {baseline_rep:.1f}%\n"
+                  f"**Baseline Democrat:** {baseline_dem:.1f}%\n"
+                  f"**Baseline Other:** {baseline_other:.1f}%",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📋 Poll Details",
+            value=f"**Polling Organization:** {polling_org}\n"
+                  f"**Sample Size:** {sample_size:,} likely voters\n"
+                  f"**Margin of Error:** ±7.0%\n"
+                  f"**Field Period:** {days_ago} day{'s' if days_ago > 1 else ''} ago",
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚠️ Disclaimer",
+            value="This is a simulated state poll with a ±7% margin of error. Results factor in state political alignment and candidate campaign activity.",
+            inline=False
+        )
+
+        embed.set_footer(text=f"State poll conducted by {polling_org}")
+
+        await interaction.response.send_message(embed=embed)
+
     class PresidentialSpeechModal(discord.ui.Modal, title='Presidential Campaign Speech'):
         def __init__(self, target_candidate: str, state_name: str, ideology: str):
             super().__init__()
@@ -2075,6 +2687,12 @@ class PresCampaignActions(commands.Cog):
         filtered_ideologies = [ideology for ideology in ideology_list if current.lower() in ideology.lower()]
         return [app_commands.Choice(name=ideology, value=ideology) for ideology in filtered_ideologies[:25]]
 
+    @pres_private_poll.autocomplete("state")
+    async def state_autocomplete_private_poll(self, interaction: discord.Interaction, current: str):
+        states = list(PRESIDENTIAL_STATE_DATA.keys())
+        filtered_states = [state for state in states if current.upper() in state.upper()]
+        return [app_commands.Choice(name=state, value=state) for state in filtered_states[:25]]
+
     async def _get_presidential_candidate_choices(self, interaction: discord.Interaction, current: str):
         """Get presidential candidate choices for autocomplete"""
         try:
@@ -2708,7 +3326,7 @@ class PresCampaignActions(commands.Cog):
 
     @app_commands.command(
         name="pres_poll",
-        description="Conduct an NPC poll for a presidential candidate (shows polling with 7% margin of error)"
+        description="Conduct an NPC poll for a presidential candidate (7% margin of error)"
     )
     @app_commands.describe(candidate_name="The presidential candidate to poll (leave blank to poll yourself)")
     async def pres_poll(self, interaction: discord.Interaction, candidate_name: Optional[str] = None):
@@ -2963,308 +3581,16 @@ class PresCampaignActions(commands.Cog):
     async def candidate_autocomplete_pres_poll(self, interaction: discord.Interaction, current: str):
         return await self._get_presidential_candidate_choices(interaction, current)
 
-    @app_commands.command(
-        name="pres_polling",
-        description="Conduct NPC presidential poll for a U.S. state (party support with 7% margin of error)"
-    )
-    @app_commands.describe(state="U.S. state to poll for presidential support")
-    async def pres_polling(self, interaction: discord.Interaction, state: str):
-        # Check if we're in a campaign phase
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        if not time_config or time_config.get("current_phase", "") not in ["Primary Campaign", "General Campaign"]:
-            await interaction.response.send_message(
-                "❌ Presidential polls can only be conducted during campaign phases.",
-                ephemeral=True
-            )
-            return
+    
 
-        current_phase = time_config.get("current_phase", "")
-        current_year = time_config["current_rp_date"].year
-
-        # Validate and format state
-        state_upper = state.upper()
-        if state_upper not in PRESIDENTIAL_STATE_DATA:
-            await interaction.response.send_message(
-                f"❌ Invalid state. Please choose from: {', '.join(sorted(PRESIDENTIAL_STATE_DATA.keys()))}",
-                ephemeral=True
-            )
-            return
-
-        # Get base party percentages from PRESIDENTIAL_STATE_DATA
-        state_data = PRESIDENTIAL_STATE_DATA[state_upper]
-        republican_base = state_data["republican"]
-        democrat_base = state_data["democrat"]
-        independent_base = state_data["other"]
-
-        # Apply 7% margin of error to each party
-        def calculate_poll_result_internal(actual_percentage: float, margin_of_error: float = 7.0) -> float:
-            variation = random.uniform(-margin_of_error, margin_of_error)
-            poll_result = actual_percentage + variation
-            return max(0.1, min(99.9, poll_result))
-
-        raw_poll_results = {
-            "Republican": calculate_poll_result_internal(republican_base),
-            "Democrat": calculate_poll_result_internal(democrat_base),
-            "Independent": calculate_poll_result_internal(independent_base)
-        }
-
-        # Normalize to ensure total equals 100%
-        total_percentage = sum(raw_poll_results.values())
-        poll_results = {}
-        for party, percentage in raw_poll_results.items():
-            poll_results[party] = (percentage / total_percentage) * 100.0
-
-
-        # Sort results for display
-        sorted_results = sorted(poll_results.items(), key=lambda item: item[1], reverse=True)
-
-        # Generate polling details
-        polling_orgs = [
-            "Presidential Polling Institute", "State Political Research", "National Election Survey",
-            "Presidential Analytics Group", "Democracy Polling Center", "Election Forecast Network"
-        ]
-        polling_org = random.choice(polling_orgs)
-        sample_size = random.randint(1000, 2500)
-        days_ago = random.randint(1, 5)
-
-        embed = discord.Embed(
-            title=f"📊 Presidential Polling: {state_upper}",
-            description=f"**Presidential Party Support** • {current_phase} ({current_year})",
-            color=discord.Color.blue(),
-            timestamp=datetime.utcnow()
-        )
-
-        # Create visual progress bar function
-        def create_progress_bar(percentage, width=20):
-            filled = int((percentage / 100) * width)
-            empty = width - filled
-            return "█" * filled + "░" * empty
-
-        # Add poll results with party colors
-        results_text = ""
-        party_colors = {"Republican": "🔴", "Democrat": "🔵", "Independent": "🟣"}
-
-        for party, poll_percentage in sorted_results:
-            color_emoji = party_colors.get(party, "⚪")
-            progress_bar = create_progress_bar(poll_percentage)
-
-            results_text += f"{color_emoji} **{party}**\n"
-            results_text += f"{progress_bar} **{poll_percentage:.1f}%**\n\n"
-
-        embed.add_field(
-            name="🗳️ Presidential Support",
-            value=results_text,
-            inline=False
-        )
-
-        embed.add_field(
-            name="📋 Poll Details",
-            value=f"**Polling Organization:** {polling_org}\n"
-                  f"**Sample Size:** {sample_size:,} likely voters\n"
-                  f"**Margin of Error:** ±7.0%\n"
-                  f"**Field Period:** {days_ago} day{'s' if days_ago > 1 else ''} ago",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚠️ Disclaimer",
-            value="This is a simulated presidential poll with a ±7% margin of error based on state political leanings.",
-            inline=False
-        )
-
-        embed.set_footer(text=f"Presidential poll conducted by {polling_org}")
-
-        await interaction.response.send_message(embed=embed)
-
-    @pres_polling.autocomplete("state")
-    async def state_autocomplete_polling(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+    
 
     @app_commands.command(
-        name="pres_private_poll",
-        description="Conduct a private presidential poll for a candidate (3% margin of error, costs 1 stamina, candidates only)"
-    )
-    @app_commands.describe(candidate_name="The presidential candidate to poll (leave blank to poll yourself)")
-    async def pres_private_poll(self, interaction: discord.Interaction, candidate_name: Optional[str] = None):
-        # Check if we're in a campaign phase
-        time_col, time_config = self._get_time_config(interaction.guild.id)
-        if not time_config or time_config.get("current_phase", "") not in ["Primary Campaign", "General Campaign"]:
-            await interaction.response.send_message(
-                "❌ Polls can only be conducted during campaign phases.",
-                ephemeral=True
-            )
-            return
-
-        current_phase = time_config.get("current_phase", "")
-        current_year = time_config["current_rp_date"].year
-
-        # Check if user is a valid candidate
-        user_candidate = None
-
-        # Check in signups
-        signups_col = self.bot.db["signups"]
-        signups_config = signups_col.find_one({"guild_id": interaction.guild.id})
-        if signups_config:
-            for candidate in signups_config["candidates"]:
-                if candidate["user_id"] == interaction.user.id and candidate["year"] == current_year:
-                    user_candidate = candidate
-                    break
-
-        # Check in winners if general campaign
-        if not user_candidate and current_phase == "General Campaign":
-            winners_col = self.bot.db["winners"]
-            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
-            if winners_config:
-                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-                for winner in winners_config["winners"]:
-                    if (winner["user_id"] == interaction.user.id and
-                        winner.get("primary_winner", False) and
-                        winner["year"] == primary_year):
-                        user_candidate = winner
-                        break
-
-        # Check in presidential signups
-        if not user_candidate:
-            pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
-            for candidate in pres_config.get("candidates", []):
-                if (candidate["user_id"] == interaction.user.id and
-                    candidate["year"] == current_year):
-                    user_candidate = candidate
-                    break
-
-        if not user_candidate:
-            await interaction.response.send_message(
-                "❌ Only active candidates can use private polling.",
-                ephemeral=True
-            )
-            return
-
-        # Check stamina
-        current_stamina = user_candidate.get("stamina", 0)
-        if current_stamina < 1:
-            await interaction.response.send_message(
-                "❌ You need at least 1 stamina to conduct a private poll.",
-                ephemeral=True
-            )
-            return
-
-        # Deduct stamina
-        if user_candidate.get("office") == "President" or user_candidate.get("office") == "Vice President":
-            pres_col, pres_config = self._get_presidential_config(interaction.guild.id)
-            pres_col.update_one(
-                {"guild_id": interaction.guild.id, "candidates.user_id": interaction.user.id},
-                {"$inc": {"candidates.$.stamina": -1}}
-            )
-        elif signups_config:
-            for i, candidate in enumerate(signups_config["candidates"]):
-                if candidate["user_id"] == interaction.user.id and candidate["year"] == current_year:
-                    signups_config["candidates"][i]["stamina"] = max(0, current_stamina - 1)
-                    signups_col.update_one(
-                        {"guild_id": interaction.guild.id},
-                        {"$set": {"candidates": signups_config["candidates"]}}
-                    )
-                    break
-        elif current_phase == "General Campaign":
-            winners_col = self.bot.db["winners"]
-            winners_col.update_one(
-                {"guild_id": interaction.guild.id, "winners.user_id": interaction.user.id},
-                {"$inc": {"winners.$.stamina": -1}}
-            )
-
-        # If no candidate specified, poll the user if they're a presidential candidate
-        if not candidate_name:
-            if user_candidate.get("office") in ["President", "Vice President"]:
-                candidate_name = user_candidate.get("name")
-            else:
-                await interaction.response.send_message(
-                    "❌ You must specify a presidential candidate name to poll.",
-                    ephemeral=True
-                )
-                return
-
-        # Get the candidate
-        pres_col, candidate_data = self._get_presidential_candidate_by_name(interaction.guild.id, candidate_name)
-        if not candidate_data:
-            await interaction.response.send_message(
-                f"❌ Presidential candidate '{candidate_name}' not found.",
-                ephemeral=True
-            )
-            return
-
-        # Calculate national polling percentage with 3% margin of error
-        actual_percentage = self._calculate_presidential_polling_percentage(interaction.guild.id, candidate_data)
-        poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
-
-        # Generate random polling organization
-        polling_orgs = [
-            "Internal Campaign Research", "Private Polling Firm", "Campaign Analytics",
-            "Strategic Presidential Polling", "Confidential Research LLC"
-        ]
-        polling_org = random.choice(polling_orgs)
-        sample_size = random.randint(1500, 3000)
-        days_ago = random.randint(1, 3)
-
-        embed = discord.Embed(
-            title="🔒 Private Presidential Poll Results",
-            description=f"**CONFIDENTIAL RESULTS - VISIBLE ONLY TO YOU**\n\nLatest private polling data for **{candidate_data['name']}**",
-            color=discord.Color.gold(),
-            timestamp=datetime.utcnow()
-        )
-
-        embed.add_field(
-            name="🇺🇸 Presidential Candidate",
-            value=f"**{candidate_data['name']}** ({candidate_data['party']})\n"
-                  f"Running for: President\n"
-                  f"Running Mate: {candidate_data.get('vp_candidate', 'Not selected')}",
-            inline=True
-        )
-
-        # Create visual progress bar
-        def create_progress_bar(percentage, width=20):
-            filled = int((percentage / 100) * width)
-            empty = width - filled
-            return "█" * filled + "░" * empty
-
-        progress_bar = create_progress_bar(poll_result)
-        party_abbrev = candidate_data['party'][0] if candidate_data['party'] else "I"
-
-        embed.add_field(
-            name="📈 Private Poll Results",
-            value=f"**{party_abbrev} - {candidate_data['party']}**\n"
-                  f"{progress_bar} **{poll_result:.1f}%**\n"
-                  f"Actual Support: ~{actual_percentage:.1f}%\n"
-                  f"Phase: {current_phase}",
-            inline=True
-        )
-
-        embed.add_field(
-            name="📋 Poll Details",
-            value=f"**Polling Organization:** {polling_org}\n"
-                  f"**Sample Size:** {sample_size:,} likely voters\n"
-                  f"**Margin of Error:** ±3.0%\n"
-                  f"**Field Period:** {days_ago} day{'s' if days_ago > 1 else ''} ago\n"
-                  f"**Stamina Cost:** 1 (Remaining: {current_stamina - 1})",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🔒 Privacy Notice",
-            value="This is a private poll commissioned by your campaign. Results include both polled numbers and estimated actual support levels.",
-            inline=False
-        )
-
-        embed.set_footer(text=f"Private poll conducted by {polling_org}")
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @app_commands.command(
-        name="media_pres_poll",
+        name="pres_media_poll",
         description="Conduct a media presidential poll (10% margin of error, free, anyone can use)"
     )
     @app_commands.describe(candidate_name="The presidential candidate to poll")
-    async def media_pres_poll(self, interaction: discord.Interaction, candidate_name: str):
+    async def pres_media_poll(self, interaction: discord.Interaction, candidate_name: str):
         # Check if we're in a campaign phase
         time_col, time_config = self._get_time_config(interaction.guild.id)
         if not time_config or time_config.get("current_phase", "") not in ["Primary Campaign", "General Campaign"]:
@@ -3350,11 +3676,42 @@ class PresCampaignActions(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @pres_polling.autocomplete("state")
-    async def state_autocomplete_polling(self, interaction: discord.Interaction, current: str):
-        states = list(PRESIDENTIAL_STATE_DATA.keys())
-        return [app_commands.Choice(name=state, value=state)
-                for state in states if current.upper() in state][:25]
+    
+
+    def _calculate_presidential_polling_percentage(self, guild_id: int, candidate_data: dict) -> float:
+        """Calculate presidential polling percentage based on candidate data"""
+        # If in general campaign, use national polling
+        time_col, time_config = self._get_time_config(guild_id)
+        current_phase = time_config.get("current_phase", "") if time_config else ""
+        candidate_name = candidate_data.get("name")
+
+        if current_phase == "General Campaign":
+            return self._calculate_national_polling_by_population(guild_id, candidate_name)
+        else:
+            # If in primary campaign, calculate based on points relative to competition
+            signups_col, signups_config = self._get_presidential_config(guild_id)
+            if signups_config:
+                current_year = time_config["current_rp_date"].year
+                primary_competitors = [
+                    c for c in signups_config.get("candidates", [])
+                    if (c["office"] == candidate_data.get("office") and
+                        c["party"] == candidate_data.get("party") and
+                        c["year"] == current_year)
+                ]
+
+                if len(primary_competitors) == 1:
+                    return 85.0  # Unopposed in primary
+
+                total_points = sum(c.get('points', 0) for c in primary_competitors)
+                if total_points == 0:
+                    return 100.0 / len(primary_competitors)  # Even split
+
+                candidate_points = candidate_data.get('points', 0)
+                percentage = (candidate_points / total_points) * 100.0
+                return max(15.0, percentage)  # Ensure minimum viable percentage
+            else:
+                return 50.0  # Default if no config found
+
 
 async def setup(bot):
     await bot.add_cog(PresCampaignActions(bot))
