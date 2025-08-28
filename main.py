@@ -98,8 +98,11 @@ async def main():
             print("✓ Loaded admin_central")
             await bot.load_extension("cogs.pres_campaign_actions")
             print("✓ Loaded pres_campaign_actions")
-            print("All cogs loaded successfully!")
+            await bot.load_extension("cogs.special_elections")
+            print("✓ Loaded special_elections")
             await bot.load_extension("cogs.momentum")
+            print("✓ Loaded momentum")
+            print("All cogs loaded successfully!")
             
         except Exception as e:
             print(f"Error loading cogs: {e}")
