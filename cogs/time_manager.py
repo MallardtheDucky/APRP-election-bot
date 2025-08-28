@@ -15,7 +15,7 @@ class TimeManager(commands.Cog):
     time_group = app_commands.Group(name="time", description="Time management commands")
 
     # Create admin subgroup for time commands
-    time_admin_group = app_commands.Group(name="admin", description="Admin time commands", parent=time_group)
+    time_admin_group = app_commands.Group(name="admin", description="Admin time commands", parent=time_group, default_permissions=discord.Permissions(administrator=True))
 
     def cog_unload(self):
         self.time_loop.cancel()
@@ -586,6 +586,203 @@ class TimeManager(commands.Cog):
         except Exception as e:
             print(f"Error in time loop: {e}")
 
+    @tasks.loop(minutes=1)
+    async def time_ticker(self): # Renamed from time_loop to time_ticker to avoid conflict
+        """Update RP time every minute"""
+        try:
+            col = self.bot.db["time_configs"]
+            configs = col.find({})
+
+            for config in configs:
+                # Skip time progression if paused
+                if config.get("time_paused", False):
+                    continue
+
+                current_rp_date, current_phase = self._calculate_current_rp_time(config)
+                guild = self.bot.get_guild(config["guild_id"])
+
+                if not guild:
+                    continue
+
+                # Check if phase changed
+                if current_phase != config["current_phase"]:
+                    # Phase transition occurred
+                    old_phase = config["current_phase"]
+
+                    # Reset stamina when transitioning to General Campaign
+                    if current_phase == "General Campaign":
+                        await self._reset_stamina_for_general_campaign(config["guild_id"], current_rp_date.year)
+
+                    # Dispatch event to elections cog for automatic handling
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to all_winners cog for automatic handling
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to presidential_winners cog for automatic handling
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Find a general channel to announce phase change
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🗳️ Election Phase Change",
+                            description=f"We have entered the **{current_phase}** phase!",
+                            color=discord.Color.green(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="Current RP Date", 
+                            value=current_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass  # Ignore if can't send message
+
+                # Check if 24 hours have passed for stamina regeneration
+                last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
+                current_time = datetime.utcnow()
+                hours_since_last_regen = (current_time - last_stamina_regen).total_seconds() / 3600
+
+                if hours_since_last_regen >= 24:
+                    # 24 hours have passed - regenerate stamina
+                    await self._regenerate_daily_stamina(config["guild_id"])
+
+                    # Update last regeneration time
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {"$set": {"last_stamina_regen": current_time}}
+                    )
+
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} after {hours_since_last_regen:.1f} hours")
+
+                # Update database
+                col.update_one(
+                    {"guild_id": config["guild_id"]},
+                    {
+                        "$set": {
+                            "current_rp_date": current_rp_date,
+                            "current_phase": current_phase,
+                            "last_real_update": datetime.utcnow()
+                        }
+                    }
+                )
+
+                # Check if we need to auto-reset cycle (after General Election ends)
+                if (current_phase == "General Election" and 
+                    current_rp_date.month == 12 and current_rp_date.day >= 31):
+                    # Auto-reset to next cycle (next odd year for signups)
+                    next_year = current_rp_date.year + 1
+                    new_rp_date = datetime(next_year, 2, 1)
+
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {
+                            "$set": {
+                                "current_rp_date": new_rp_date,
+                                "current_phase": "Signups",
+                                "last_real_update": datetime.utcnow()
+                            }
+                        }
+                    )
+
+                    # Dispatch event to elections cog for new cycle automation
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to all_winners cog for new cycle automation
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to presidential_winners cog for new cycle automation
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Announce new cycle
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🔄 New Election Cycle Started!",
+                            description=f"The {next_year} election cycle has begun! We are now in the **Signups** phase.",
+                            color=discord.Color.gold(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="New RP Date", 
+                            value=new_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass
+
+                # Update voice channel if enabled and configured
+                if (config.get("update_voice_channels", True) and 
+                    config.get("voice_channel_id")):
+                    date_string = current_rp_date.strftime("%B %d, %Y")
+                    channel = guild.get_channel(config["voice_channel_id"])
+                    if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
+                        try:
+                            new_name = f"📅 {date_string}"
+                            # Force update if names don't match or if there's a significant time difference
+                            current_name = channel.name
+                            should_update = (current_name != new_name or 
+                                           not current_name.startswith("📅") or
+                                           "1999" not in current_name)
+
+                            if should_update:
+                                await channel.edit(name=new_name)
+                                print(f"Updated voice channel from '{current_name}' to: {new_name}")
+                        except Exception as e:
+                            print(f"Failed to update voice channel: {e}")
+                            # Try again in next loop iteration
+                            pass
+
+        except Exception as e:
+            print(f"Error in time loop: {e}")
+
     @time_ticker.before_loop
     async def before_time_ticker(self):
         await self.bot.wait_until_ready()
@@ -623,11 +820,17 @@ class TimeManager(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @time_admin_group.command( # Changed to time_admin_group
+    @time_admin_group.command(
         name="set_current_time",
-        description="Set the current RP date and time"
+        description="Set the current RP date and time (Admin only)"
     )
+    @app_commands.describe(
+        year="Year",
+        month="Month (1-12)",
+        day="Day (1-31)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def set_current_time(
         self, 
         interaction: discord.Interaction, 
@@ -691,11 +894,13 @@ class TimeManager(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @time_admin_group.command( # Changed to time_admin_group
+    @time_admin_group.command(
         name="set_time_scale",
-        description="Set how many real minutes equal one RP day"
+        description="Set how many real minutes equal one RP day (Admin only)"
     )
+    @app_commands.describe(minutes="Real minutes per RP day")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def set_time_scale(
         self, 
         interaction: discord.Interaction, 
@@ -731,11 +936,12 @@ class TimeManager(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @time_admin_group.command( # Changed to time_admin_group
+    @time_admin_group.command(
         name="reset_cycle",
         description="Reset the election cycle to the beginning (Signups phase)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def reset_cycle(self, interaction: discord.Interaction):
         config = self._get_time_config(interaction.guild.id)
         col = self.bot.db["time_configs"]
@@ -875,11 +1081,13 @@ class TimeManager(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @time_admin_group.command( # Changed to time_admin_group
+    @time_admin_group.command(
         name="set_voice_channel",
-        description="Set which voice channel to update with RP date"
+        description="Set voice channel to update with current date (Admin only)"
     )
+    @app_commands.describe(channel="Voice channel to update with date")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def set_voice_channel(
         self, 
         interaction: discord.Interaction, 
@@ -898,11 +1106,12 @@ class TimeManager(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @time_admin_group.command( # Changed to time_admin_group
+    @time_admin_group.command(
         name="toggle_voice_updates",
-        description="Toggle automatic voice channel name updates with current RP date"
+        description="Enable/disable voice channel date updates (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def toggle_voice_updates(self, interaction: discord.Interaction):
         config = self._get_time_config(interaction.guild.id)
         col = self.bot.db["time_configs"]
@@ -921,11 +1130,12 @@ class TimeManager(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.checks.has_permissions(administrator=True)
-    @time_admin_group.command( # Changed to time_admin_group
+    @time_admin_group.command(
         name="update_voice_channel",
         description="Manually update the configured voice channel with current RP date"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def update_voice_channel(self, interaction: discord.Interaction):
         config = self._get_time_config(interaction.guild.id)
         col = self.bot.db["time_configs"]
@@ -961,11 +1171,12 @@ class TimeManager(commands.Cog):
                 ephemeral=True
             )
 
-    @app_commands.checks.has_permissions(administrator=True)
     @time_admin_group.command(
         name="pause_time",
-        description="Pause or unpause RP time progression (Admin only)"
+        description="Pause or resume time progression (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def pause_time(self, interaction: discord.Interaction):
         config = self._get_time_config(interaction.guild.id)
         col = self.bot.db["time_configs"]
@@ -1006,11 +1217,12 @@ class TimeManager(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
     @time_admin_group.command(
         name="regenerate_stamina",
         description="Manually regenerate stamina for all candidates (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def regenerate_stamina(self, interaction: discord.Interaction):
         await self._regenerate_daily_stamina(interaction.guild.id)
 
@@ -1037,11 +1249,12 @@ class TimeManager(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.checks.has_permissions(administrator=True)
     @time_admin_group.command(
         name="force_sync_voice",
         description="Force sync the voice channel name with current RP date (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def force_sync_voice(self, interaction: discord.Interaction):
         config = self._get_time_config(interaction.guild.id)
 

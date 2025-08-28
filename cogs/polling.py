@@ -15,7 +15,7 @@ class Polling(commands.Cog):
     poll_group = app_commands.Group(name="poll", description="Polling commands")
 
     # Combine admin and info into single manage group
-    poll_manage_group = app_commands.Group(name="manage", description="Poll management commands", parent=poll_group)
+    poll_manage_group = app_commands.Group(name="manage", description="Poll management commands", parent=poll_group, default_permissions=discord.Permissions(administrator=True))
 
 
     def _get_signups_config(self, guild_id: int):

@@ -703,12 +703,13 @@ class Delegates(commands.Cog):
 
     # Create command groups to reduce command count
     delegate_group = app_commands.Group(name="delegate", description="Delegate system commands")
-    delegate_admin_group = app_commands.Group(name="admin", description="Admin delegate commands", parent=delegate_group)
+    delegate_admin_group = app_commands.Group(name="admin", description="Admin delegate commands", parent=delegate_group, default_permissions=discord.Permissions(administrator=True))
 
     @delegate_admin_group.command(
         name="toggle_system",
         description="Enable or disable the automatic delegate system (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def toggle_delegate_system(self, interaction: discord.Interaction):
         delegates_col, delegates_config = self._get_delegates_config(interaction.guild.id)
