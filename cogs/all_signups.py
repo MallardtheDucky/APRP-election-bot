@@ -192,7 +192,7 @@ class PageSelectDropdown(discord.ui.Select):
 
             navigation_info = f"Page {page}/{total_pages}"
             if page > 1:
-                prev_start = max(1, start_idx - candidates_per_page + 1) 
+                prev_start = max(1, start_idx - candidates_per_page + 1)
                 navigation_info += f" • Previous page shows candidates {prev_start}-{start_idx}"
             if page < total_pages:
                 next_start = end_idx + 1
@@ -209,12 +209,12 @@ class PageSelectDropdown(discord.ui.Select):
 
             # Create new view with updated page - this is the key fix
             new_view = CampaignPointsPaginationView(
-                interaction, 
-                self.view.sort_by, 
-                self.view.filter_region, 
-                self.view.filter_party, 
-                self.view.year, 
-                total_pages, 
+                interaction,
+                self.view.sort_by,
+                self.view.filter_region,
+                self.view.filter_party,
+                self.view.year,
+                total_pages,
                 page  # Pass the selected page as current_page
             )
 
@@ -379,6 +379,20 @@ class AllSignups(commands.Cog):
             return election_year % 4 == 0  # 2000, 2004, 2008, etc.
 
         return False
+
+    def _get_regions_from_elections(self, guild_id: int) -> List[str]:
+        """Get available regions from elections config"""
+        elections_col, elections_config = self._get_elections_config(guild_id)
+
+        if not elections_config or not elections_config.get("seats"):
+            return []
+
+        regions = set()
+        for seat in elections_config["seats"]:
+            if seat["state"] != "National":  # Exclude National for regional signups
+                regions.add(seat["state"])
+
+        return sorted(list(regions))
 
     async def region_autocomplete(
         self,
@@ -679,9 +693,11 @@ class AllSignups(commands.Cog):
         description="View candidate signups for a specific year"
     )
     @app_commands.describe(
-        year="Year to view signups for (defaults to current RP year)"
+        year="Year to view signups for (defaults to current RP year)",
+        region="Filter by specific region (optional)"
     )
-    async def view_signups(self, interaction: discord.Interaction, year: int = None):
+    @app_commands.autocomplete(region=region_autocomplete)
+    async def view_signups(self, interaction: discord.Interaction, year: int = None, region: str = None):
         time_col, time_config = self._get_time_config(interaction.guild.id)
 
         if not time_config:
@@ -701,55 +717,120 @@ class AllSignups(commands.Cog):
             if c["year"] == target_year
         ]
 
+        # Apply region filter if specified
+        if region:
+            current_candidates = [
+                c for c in current_candidates
+                if c["region"].lower() == region.lower()
+            ]
+
         # Debug information for admins
         if not current_candidates:
             total_candidates = len(signups_config["candidates"])
             all_years = list(set(c["year"] for c in signups_config["candidates"])) if signups_config["candidates"] else []
 
-            debug_text = f"📋 No candidates have signed up for the {target_year} election yet."
-            if total_candidates > 0:
-                debug_text += f"\n\n🔍 **Debug Info:**\n"
-                debug_text += f"• Total candidates in database: {total_candidates}\n"
-                debug_text += f"• Years with candidates: {sorted(all_years)}\n"
-                debug_text += f"• Looking for year: {target_year}"
+            if region:
+                debug_text = f"📋 No candidates found for **{region}** in the {target_year} election."
+                # Show available regions
+                all_candidates_year = [c for c in signups_config["candidates"] if c["year"] == target_year]
+                available_regions = list(set(c["region"] for c in all_candidates_year))
+                if available_regions:
+                    debug_text += f"\n\n🌍 **Available regions for {target_year}:** {', '.join(sorted(available_regions))}"
+            else:
+                debug_text = f"📋 No candidates have signed up for the {target_year} election yet."
+                if total_candidates > 0:
+                    debug_text += f"\n\n🔍 **Debug Info:**\n"
+                    debug_text += f"• Total candidates in database: {total_candidates}\n"
+                    debug_text += f"• Years with candidates: {sorted(all_years)}\n"
+                    debug_text += f"• Looking for year: {target_year}"
 
             await interaction.response.send_message(debug_text, ephemeral=True)
             return
 
-        # Group by region for better display
-        regions = {}
-        for candidate in current_candidates:
-            region = candidate["region"]
-            if region not in regions:
-                regions[region] = []
-            regions[region].append(candidate)
+        # Create embed with region filtering info
+        title = f"🗳️ {target_year} Primary Campaign Signups"
+        if region:
+            title += f" - {region}"
+
+        description = f"Current phase: **{time_config.get('current_phase', 'Unknown')}** • Only campaign points matter in primary phase"
+        if region:
+            description += f"\n🔍 Filtered by region: **{region}**"
 
         embed = discord.Embed(
-            title=f"🗳️ {target_year} Primary Campaign Signups",
-            description=f"Current phase: **{time_config.get('current_phase', 'Unknown')}** • Only campaign points matter in primary phase",
+            title=title,
+            description=description,
             color=discord.Color.blue(),
             timestamp=datetime.utcnow()
         )
 
-        for region, candidates in sorted(regions.items()):
+        if region:
+            # Show only the filtered region in a single organized view
             candidate_list = ""
-            for candidate in candidates:
+            # Sort candidates by seat_id for better organization
+            sorted_candidates = sorted(current_candidates, key=lambda x: x['seat_id'])
+
+            for candidate in sorted_candidates:
                 candidate_list += f"**{candidate['name']}** ({candidate['party']})\n"
                 candidate_list += f"└ {candidate['seat_id']} - {candidate['office']}\n\n"
 
-
             embed.add_field(
-                name=f"📍 {region}",
-                value=candidate_list,
-                inline=True
+                name=f"📍 {region} Candidates",
+                value=candidate_list if candidate_list else "No candidates found",
+                inline=False
+            )
+        else:
+            # Group by region for better display when showing all regions
+            regions = {}
+            for candidate in current_candidates:
+                candidate_region = candidate["region"]
+                if candidate_region not in regions:
+                    regions[candidate_region] = []
+                regions[candidate_region].append(candidate)
+
+            # Sort regions alphabetically and display each in a field
+            for region_name in sorted(regions.keys()):
+                candidates = regions[region_name]
+                candidate_list = ""
+
+                # Sort candidates within each region by seat_id
+                sorted_candidates = sorted(candidates, key=lambda x: x['seat_id'])
+
+                for candidate in sorted_candidates:
+                    candidate_list += f"**{candidate['name']}** ({candidate['party']})\n"
+                    candidate_list += f"└ {candidate['seat_id']} - {candidate['office']}\n\n"
+
+                embed.add_field(
+                    name=f"📍 {region_name}",
+                    value=candidate_list,
+                    inline=True
+                )
+
+        # Add summary information
+        if region:
+            embed.add_field(
+                name="📊 Region Summary",
+                value=f"**Candidates in {region}:** {len(current_candidates)}",
+                inline=False
+            )
+        else:
+            regions_count = len(set(c["region"] for c in current_candidates))
+            embed.add_field(
+                name="📊 Total Summary",
+                value=f"**Total Candidates:** {len(current_candidates)}\n"
+                      f"**Regions with Candidates:** {regions_count}",
+                inline=False
             )
 
-        embed.add_field(
-            name="📊 Summary",
-            value=f"**Total Candidates:** {len(current_candidates)}\n"
-                  f"**Regions with Candidates:** {len(regions)}",
-            inline=False
-        )
+        # Add view controls if there are multiple regions available
+        if not region:
+            all_regions = sorted(set(c["region"] for c in current_candidates))
+            if len(all_regions) > 1:
+                embed.add_field(
+                    name="🔍 Filter Options",
+                    value=f"Use the `region` parameter to filter by a specific region.\n"
+                          f"**Available regions:** {', '.join(all_regions)}",
+                    inline=False
+                )
 
         await interaction.response.send_message(embed=embed)
 

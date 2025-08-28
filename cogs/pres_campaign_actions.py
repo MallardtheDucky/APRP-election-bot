@@ -54,8 +54,8 @@ class PresCampaignActions(commands.Cog):
                 # New list format
                 for winner in winners_data:
                     if (isinstance(winner, dict) and
-                        winner.get("user_id") == user_id and 
-                        winner.get("primary_winner", False) and 
+                        winner.get("user_id") == user_id and
+                        winner.get("primary_winner", False) and
                         winner.get("year") == primary_year and
                         winner.get("office") in ["President", "Vice President"]):
                         return winners_col, winner
@@ -94,7 +94,7 @@ class PresCampaignActions(commands.Cog):
                 return None, None
 
             for candidate in signups_config.get("candidates", []):
-                if (candidate["user_id"] == user_id and 
+                if (candidate["user_id"] == user_id and
                     candidate["year"] == current_year and
                     candidate["office"] in ["President", "Vice President"]):
                     return signups_col, candidate
@@ -162,7 +162,7 @@ class PresCampaignActions(commands.Cog):
 
                                 if all_winners_config:
                                     for winner in all_winners_config.get("winners", []):
-                                        if (isinstance(winner, dict) and 
+                                        if (isinstance(winner, dict) and
                                             winner.get("candidate", "").lower() == candidate_name.lower() and
                                             winner.get("office") in ["President", "Vice President"]):
                                             found_user_id = winner.get("user_id", 0)
@@ -196,7 +196,7 @@ class PresCampaignActions(commands.Cog):
                     if isinstance(winners_list, list):
                         for winner in winners_list:
                             if (isinstance(winner, dict) and
-                                winner.get("candidate", "").lower() == candidate_name.lower() and 
+                                winner.get("candidate", "").lower() == candidate_name.lower() and
                                 winner.get("primary_winner", False) and
                                 winner.get("year") == primary_year and
                                 winner.get("office") in ["President", "Vice President"]):
@@ -227,7 +227,7 @@ class PresCampaignActions(commands.Cog):
                 if isinstance(candidates_list, list):
                     for candidate in candidates_list:
                         if (isinstance(candidate, dict) and
-                            candidate.get("name", "").lower() == candidate_name.lower() and 
+                            candidate.get("name", "").lower() == candidate_name.lower() and
                             candidate.get("year") == current_year and
                             candidate.get("office") in ["President", "Vice President"]):
                             return signups_col, candidate
@@ -240,8 +240,8 @@ class PresCampaignActions(commands.Cog):
             traceback.print_exc()
             return None, None
 
-    def _update_presidential_candidate_stats(self, collection, guild_id: int, user_id: int, 
-                                           state_name: str, polling_boost: float = 0, 
+    def _update_presidential_candidate_stats(self, collection, guild_id: int, user_id: int,
+                                           state_name: str, polling_boost: float = 0,
                                            stamina_cost: int = 0, corruption_increase: int = 0, candidate_data: dict = None):
         """Update presidential candidate's polling, stamina, and corruption"""
         time_col, time_config = self._get_time_config(guild_id)
@@ -250,13 +250,13 @@ class PresCampaignActions(commands.Cog):
         # Apply momentum multiplier during General Campaign
         actual_polling_boost = polling_boost
         momentum_multiplier = 1.0
-        
+
         if current_phase == "General Campaign":
             # Get momentum multiplier
             momentum_cog = self.bot.get_cog('Momentum')
             if momentum_cog and candidate_data:
                 momentum_col, momentum_config = momentum_cog._get_momentum_config(guild_id)
-                
+
                 # Determine party key
                 party = candidate_data.get("party", "").lower()
                 if "republican" in party or "gop" in party:
@@ -265,10 +265,10 @@ class PresCampaignActions(commands.Cog):
                     party_key = "Democrat"
                 else:
                     party_key = "Independent"
-                
+
                 momentum_multiplier = momentum_cog._calculate_momentum_campaign_multiplier(state_name.upper(), party_key, momentum_config)
                 actual_polling_boost = polling_boost * momentum_multiplier
-                
+
                 print(f"DEBUG: Applied momentum multiplier {momentum_multiplier:.2f}x to polling boost: {polling_boost:.2f} -> {actual_polling_boost:.2f}")
 
         if current_phase == "General Campaign":
@@ -405,8 +405,8 @@ class PresCampaignActions(commands.Cog):
             PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] - reduction), 1)
 
         # Ensure totals stay reasonable (around 100%)
-        total = (PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] + 
-                PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] + 
+        total = (PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] +
+                PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] +
                 PRESIDENTIAL_STATE_DATA[state_name_upper]["other"])
 
         # Normalize if total exceeds 105% or falls below 95%
@@ -517,14 +517,14 @@ class PresCampaignActions(commands.Cog):
 
             if not candidate or not isinstance(candidate, dict) or not candidate.get("party"):
                 print(f"DEBUG: No valid candidate data found for user {user_id}, attempting to find by name from all_winners")
-                
+
                 # Try to find candidate in all_winners system as fallback
                 all_winners_col = self.bot.db["winners"]
                 all_winners_config = all_winners_col.find_one({"guild_id": guild_id})
-                
+
                 if all_winners_config:
                     current_year = time_config["current_rp_date"].year if time_config else 2024
-                    
+
                     # Try multiple search strategies to find the candidate
                     search_strategies = [
                         # Strategy 1: Look for primary winners from previous year
@@ -536,45 +536,45 @@ class PresCampaignActions(commands.Cog):
                         # Strategy 4: Look for any presidential candidate (any year)
                         {"office": ["President", "Vice President"]},
                     ]
-                    
+
                     for strategy in search_strategies:
                         for winner in all_winners_config.get("winners", []):
                             if not isinstance(winner, dict) or winner.get("user_id") != user_id:
                                 continue
-                                
+
                             # Check year if specified
                             if "year" in strategy and winner.get("year") != strategy["year"]:
                                 continue
-                                
+
                             # Check primary winner if specified
                             if "primary_winner" in strategy and not winner.get("primary_winner", False):
                                 continue
-                                
+
                             # Check office if specified
                             if "office" in strategy:
                                 winner_office = winner.get("office", "")
                                 if winner_office not in strategy["office"]:
                                     continue
-                            
+
                             # Found a match!
                             candidate = winner
                             print(f"DEBUG: Found candidate in all_winners using strategy {search_strategies.index(strategy) + 1}: {candidate.get('candidate', 'Unknown')}")
                             break
-                        
+
                         if candidate:
                             break
-                
+
                 if not candidate or not isinstance(candidate, dict) or not candidate.get("party"):
                     print(f"DEBUG: Could not find candidate data for user {user_id} in database, creating minimal candidate object")
-                    
+
                     # As a final fallback, create a minimal candidate object for momentum purposes
                     # This handles cases where the campaign action is valid but database lookup fails
-                    
+
                     # Try to determine party from the target candidate if available
                     fallback_party = "Independent"  # Default fallback
                     if candidate_data and isinstance(candidate_data, dict):
                         fallback_party = candidate_data.get("party", "Independent")
-                    
+
                     candidate = {
                         "name": f"User_{user_id}",
                         "user_id": user_id,
@@ -605,10 +605,10 @@ class PresCampaignActions(commands.Cog):
             # Calculate campaign effectiveness multiplier based on current momentum
             current_momentum = momentum_config["state_momentum"].get(state_name, {}).get(party_key, 0.0)
             campaign_multiplier = momentum_cog._calculate_momentum_campaign_multiplier(state_name, party_key, momentum_config)
-            
+
             # Apply momentum multiplier to the original campaign points
             boosted_points = points_gained * campaign_multiplier
-            
+
             print(f"DEBUG: Original points: {points_gained:.2f}, Momentum multiplier: {campaign_multiplier:.2f}x, Boosted points: {boosted_points:.2f}")
 
             # Calculate momentum gained - convert campaign points to momentum
@@ -697,10 +697,10 @@ class PresCampaignActions(commands.Cog):
         if isinstance(winners_data, list):
             # New list format
             candidates = [
-                w for w in winners_data 
-                if (isinstance(w, dict) and 
-                    w.get("primary_winner", False) and 
-                    w.get("year") == primary_year and 
+                w for w in winners_data
+                if (isinstance(w, dict) and
+                    w.get("primary_winner", False) and
+                    w.get("year") == primary_year and
                     w.get("office") == office)
             ]
         elif isinstance(winners_data, dict):
@@ -961,9 +961,9 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Check cooldown (12 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 12):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 12)
+        # Check cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             await interaction.response.send_message(
@@ -1007,8 +1007,8 @@ class PresCampaignActions(commands.Cog):
         response_message = await interaction.original_response()
 
         def check(message):
-            return (message.author.id == interaction.user.id and 
-                    message.reference and 
+            return (message.author.id == interaction.user.id and
+                    message.reference and
                     message.reference.message_id == response_message.id)
 
         try:
@@ -1039,16 +1039,16 @@ class PresCampaignActions(commands.Cog):
             polling_boost = base_polling_boost + ideology_bonus
 
             # Update target candidate stats
-            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-                                                     state_name.upper(), polling_boost=polling_boost, stamina_cost=2.25)
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
+                                                     state_name, polling_boost=polling_boost, stamina_cost=2.25)
 
             # Transfer points to all_winners system for proper tracking
-            self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_name.upper(), polling_boost)
+            self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_name, polling_boost)
 
             # Create public speech announcement
             embed = discord.Embed(
                 title="🎤 Presidential Campaign Speech",
-                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_name}** in {state_name.upper()}!",
+                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}** in {state_name.upper()}!",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
@@ -1066,7 +1066,7 @@ class PresCampaignActions(commands.Cog):
 
             embed.add_field(
                 name="📊 Impact",
-                value=f"**Target:** {target_name}\n**State:** {state_name.upper()}\n**State Points:** +{polling_boost:.2f}\n**Base Points:** +{base_polling_boost:.2f}\n**Ideology Bonus:** +{ideology_bonus:.2f}\n**Characters:** {char_count:,}",
+                value=f"**Target:** {target_candidate['name']}\n**State:** {state_name.upper()}\n**State Points:** +{polling_boost:.2f}\n**Base Points:** +{base_polling_boost:.2f}\n**Ideology Bonus:** +{ideology_bonus:.2f}\n**Characters:** {char_count:,}",
                 inline=True
             )
 
@@ -1076,7 +1076,7 @@ class PresCampaignActions(commands.Cog):
                 inline=True
             )
 
-            embed.set_footer(text=f"Next speech available in 12 hours")
+            embed.set_footer(text=f"Next speech available in 1 hour")
 
             # Check if interaction has already been responded to
             if interaction.response.is_done():
@@ -1100,12 +1100,12 @@ class PresCampaignActions(commands.Cog):
     )
     @app_commands.describe(
         state="U.S. state for campaigning",
-        target="The presidential candidate who will receive benefits (optional)",
-        canvassing_message="Your canvassing message (100-300 characters)"
+        canvassing_message="Your canvassing message (100-300 characters)",
+        target="The presidential candidate who will receive benefits (optional)"
     )
     async def pres_canvassing(
-        self, 
-        interaction: discord.Interaction, 
+        self,
+        interaction: discord.Interaction,
         state: str,
         canvassing_message: str,
         target: Optional[str] = None
@@ -1172,7 +1172,7 @@ class PresCampaignActions(commands.Cog):
         polling_boost = self._apply_buff_debuff_multiplier(0.1, target_candidate["user_id"], interaction.guild.id, "pres_canvassing")
 
         # Update target candidate stats
-        self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+        self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
                                                  state_upper, polling_boost=polling_boost, stamina_cost=1)
 
         # Transfer points to all_winners system for proper tracking
@@ -1294,9 +1294,9 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Check cooldown (24 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_donor", 24):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_donor", 24)
+        # Check cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_donor", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_donor", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             await interaction.response.send_message(
@@ -1330,8 +1330,8 @@ class PresCampaignActions(commands.Cog):
         response_message = await interaction.original_response()
 
         def check(message):
-            return (message.author.id == interaction.user.id and 
-                    message.reference and 
+            return (message.author.id == interaction.user.id and
+                    message.reference and
                     message.reference.message_id == response_message.id)
 
         try:
@@ -1353,12 +1353,12 @@ class PresCampaignActions(commands.Cog):
             # Set cooldown after successful validation
             self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_donor")
 
-            # Calculate polling boost - 1% per 1000 characters  
+            # Calculate polling boost - 1% per 1000 characters
             polling_boost = (char_count / 1000) * 1.0
             polling_boost = min(polling_boost, 3.0)
 
             # Update target candidate stats
-            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate.get("user_id"), 
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate.get("user_id"),
                                                      state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5)
 
             # Transfer points to all_winners system for proper tracking
@@ -1394,7 +1394,7 @@ class PresCampaignActions(commands.Cog):
                 inline=True
             )
 
-            embed.set_footer(text=f"Next donor appeal available in 24 hours")
+            embed.set_footer(text=f"Next donor appeal available in 1 hour")
 
             await reply_message.reply(embed=embed)
 
@@ -1461,9 +1461,9 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Check cooldown (6 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_ad", 6):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_ad", 6)
+        # Check cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_ad", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_ad", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             await interaction.response.send_message(
@@ -1489,8 +1489,8 @@ class PresCampaignActions(commands.Cog):
         response_message = await interaction.original_response()
 
         def check(message):
-            return (message.author.id == interaction.user.id and 
-                    message.reference and 
+            return (message.author.id == interaction.user.id and
+                    message.reference and
                     message.reference.message_id == response_message.id and
                     len(message.attachments) > 0)
 
@@ -1514,7 +1514,7 @@ class PresCampaignActions(commands.Cog):
             polling_boost = random.uniform(0.3, 0.5)
 
             # Update target candidate stats
-            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
                                                      state_upper, polling_boost=polling_boost, stamina_cost=1.5)
 
             # Transfer points to all_winners system for proper tracking
@@ -1550,7 +1550,7 @@ class PresCampaignActions(commands.Cog):
                 inline=True
             )
 
-            embed.set_footer(text="Next ad available in 6 hours")
+            embed.set_footer(text="Next ad available in 1 hour")
 
             await reply_message.reply(embed=embed)
 
@@ -1569,8 +1569,8 @@ class PresCampaignActions(commands.Cog):
         image="Upload your campaign poster image"
     )
     async def pres_poster(
-        self, 
-        interaction: discord.Interaction, 
+        self,
+        interaction: discord.Interaction,
         state: str,
         image: discord.Attachment,
         target: Optional[str] = None
@@ -1660,9 +1660,9 @@ class PresCampaignActions(commands.Cog):
             target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
 
             # Comprehensive validation of target candidate
-            if (not target_candidate or 
-                not isinstance(target_candidate, dict) or 
-                not target_candidate.get("name") or 
+            if (not target_candidate or
+                not isinstance(target_candidate, dict) or
+                not target_candidate.get("name") or
                 not target_candidate.get("user_id")):
                 await interaction.followup.send(
                     f"❌ Target presidential candidate '{target}' not found or has invalid data.",
@@ -1679,9 +1679,9 @@ class PresCampaignActions(commands.Cog):
                 )
                 return
 
-            # Check cooldown (6 hours)
-            if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_poster", 6):
-                remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_poster", 6)
+            # Check cooldown (1 hour)
+            if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_poster", 1):
+                remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_poster", 1)
                 hours = int(remaining.total_seconds() // 3600)
                 minutes = int((remaining.total_seconds() % 3600) // 60)
                 await interaction.followup.send(
@@ -1719,7 +1719,7 @@ class PresCampaignActions(commands.Cog):
                 return
 
             # Update target candidate stats
-            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_user_id, 
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_user_id,
                                                      state_upper, polling_boost=polling_boost, stamina_cost=1)
 
             # For general campaign only, transfer points to all_winners system
@@ -1762,7 +1762,7 @@ class PresCampaignActions(commands.Cog):
             )
 
             embed.set_image(url=image.url)
-            embed.set_footer(text="Next poster available in 6 hours")
+            embed.set_footer(text="Next poster available in 1 hour")
 
             # Since we deferred the response, always use followup
             await interaction.followup.send(embed=embed)
@@ -1878,9 +1878,9 @@ class PresCampaignActions(commands.Cog):
             )
             return
 
-        # Check cooldown (12 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 12):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 12)
+        # Check cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             await interaction.response.send_message(
@@ -1924,8 +1924,8 @@ class PresCampaignActions(commands.Cog):
         response_message = await interaction.original_response()
 
         def check(message):
-            return (message.author.id == interaction.user.id and 
-                    message.reference and 
+            return (message.author.id == interaction.user.id and
+                    message.reference and
                     message.reference.message_id == response_message.id)
 
         try:
@@ -1956,7 +1956,7 @@ class PresCampaignActions(commands.Cog):
             polling_boost = base_polling_boost + ideology_bonus
 
             # Update target candidate stats
-            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+            self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
                                                      state_upper, polling_boost=polling_boost, stamina_cost=2.25)
 
             # Transfer points to all_winners system for proper tracking
@@ -1965,7 +1965,7 @@ class PresCampaignActions(commands.Cog):
             # Create public speech announcement
             embed = discord.Embed(
                 title="🎤 Presidential Campaign Speech",
-                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target}** in {state_upper}!",
+                description=f"**{candidate['name']}** ({candidate['party']}) gives a speech supporting **{target_candidate['name']}** in {state_upper}!",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
@@ -1983,7 +1983,7 @@ class PresCampaignActions(commands.Cog):
 
             embed.add_field(
                 name="📊 Impact",
-                value=f"**Target:** {target}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Base Points:** +{base_polling_boost:.2f}\n**Ideology Bonus:** +{ideology_bonus:.2f}\n**Characters:** {char_count:,}",
+                value=f"**Target:** {target_candidate['name']}\n**State:** {state_upper}\n**State Points:** +{polling_boost:.2f}\n**Base Points:** +{base_polling_boost:.2f}\n**Ideology Bonus:** +{ideology_bonus:.2f}\n**Characters:** {char_count:,}",
                 inline=True
             )
 
@@ -1993,7 +1993,7 @@ class PresCampaignActions(commands.Cog):
                 inline=True
             )
 
-            embed.set_footer(text=f"Next speech available in 12 hours")
+            embed.set_footer(text=f"Next speech available in 1 hour")
 
             # Check if interaction has already been responded to
             if interaction.response.is_done():
@@ -2142,7 +2142,7 @@ class PresCampaignActions(commands.Cog):
 
                                     print(f"Debug: office: {office}, primary_winner: {primary_winner}, year: {year}, candidate: {candidate_name}")
 
-                                    if (office in ["President", "Vice President"] and 
+                                    if (office in ["President", "Vice President"] and
                                         primary_winner and
                                         year == primary_year and
                                         candidate_name):
@@ -2150,6 +2150,7 @@ class PresCampaignActions(commands.Cog):
                                         print(f"Added general campaign candidate from all_winners: {candidate_name}")
                                 else:
                                     print(f"Error: winner is not a dict, it's {type(winner)}: {winner}")
+
                         else:
                             print(f"Error: winners_list is not a list, it's {type(winners_list)}: {winners_list}")
 
@@ -2180,7 +2181,7 @@ class PresCampaignActions(commands.Cog):
 
                                     print(f"Debug: year: {year}, office: {office}, name: {name}")
 
-                                    if (year == target_year and 
+                                    if (year == target_year and
                                         office in ["President", "Vice President"] and
                                         name):
                                         candidate_names.append(name)
@@ -2300,36 +2301,36 @@ class PresCampaignActions(commands.Cog):
         # Check cooldowns for all actions
         cooldown_info = ""
 
-        # Check speech cooldown (12 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 12):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 12)
+        # Check speech cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_speech", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_speech", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             cooldown_info += f"🎤 **Speech:** {hours}h {minutes}m remaining\n"
         else:
             cooldown_info += "✅ **Speech:** Available\n"
 
-        # Check donor cooldown (24 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_donor", 24):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_donor", 24)
+        # Check donor cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_donor", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_donor", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             cooldown_info += f"💰 **Donor Appeal:** {hours}h {minutes}m remaining\n"
         else:
             cooldown_info += "✅ **Donor Appeal:** Available\n"
 
-        # Check ad cooldown (6 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_ad", 6):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_ad", 6)
+        # Check ad cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_ad", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_ad", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             cooldown_info += f"📺 **Video Ad:** {hours}h {minutes}m remaining\n"
         else:
             cooldown_info += "✅ **Video Ad:** Available\n"
 
-        # Check poster cooldown (6 hours)
-        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_poster", 6):
-            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_poster", 6)
+        # Check poster cooldown (1 hour)
+        if not self._check_cooldown(interaction.guild.id, interaction.user.id, "pres_poster", 1):
+            remaining = self._get_cooldown_remaining(interaction.guild.id, interaction.user.id, "pres_poster", 1)
             hours = int(remaining.total_seconds() // 3600)
             minutes = int((remaining.total_seconds() % 3600) // 60)
             cooldown_info += f"🖼️ **Poster:** {hours}h {minutes}m remaining\n"
@@ -2404,16 +2405,16 @@ class PresCampaignActions(commands.Cog):
             if winners_config:
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
                 winners_data = winners_config.get("winners", [])
-                
+
                 candidates = []
                 # Handle both list and dict formats for winners
                 if isinstance(winners_data, list):
                     # New list format
                     candidates = [
                         w for w in winners_data
-                        if (isinstance(w, dict) and 
-                            w.get("primary_winner", False) and 
-                            w.get("year") == primary_year and 
+                        if (isinstance(w, dict) and
+                            w.get("primary_winner", False) and
+                            w.get("year") == primary_year and
                             w.get("office") in ["President", "Vice President"])
                     ]
                 elif isinstance(winners_data, dict):
@@ -2480,7 +2481,7 @@ class PresCampaignActions(commands.Cog):
                 user_mention = user.mention if user else candidate_name
 
                 if current_phase == "General Campaign":
-                    general_percentages = self._calculate_general_election_percentages(interaction.guild.id, "President")
+                    general_percentages = self._calculate_general_election_percentages(interaction.guild.id, candidate["office"])
                     polling = general_percentages.get(candidate_name, 50.0)
                     total_points = candidate.get("total_points", 0)
                     pres_text += (
@@ -2992,7 +2993,7 @@ class PresCampaignActions(commands.Cog):
         # Get base party percentages from PRESIDENTIAL_STATE_DATA
         state_data = PRESIDENTIAL_STATE_DATA[state_upper]
         republican_base = state_data["republican"]
-        democrat_base = state_data["democrat"] 
+        democrat_base = state_data["democrat"]
         independent_base = state_data["other"]
 
         # Apply 7% margin of error to each party
