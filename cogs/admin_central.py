@@ -1,4 +1,3 @@
-
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -20,86 +19,86 @@ class AdminCentral(commands.Cog):
 
     # Subgroups for different admin areas - all inherit admin permissions from parent
     admin_election_group = app_commands.Group(
-        name="election", 
-        description="Election admin commands", 
+        name="election",
+        description="Election admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_party_group = app_commands.Group(
-        name="party", 
-        description="Party admin commands", 
+        name="party",
+        description="Party admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_time_group = app_commands.Group(
-        name="time", 
-        description="Time admin commands", 
+        name="time",
+        description="Time admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_poll_group = app_commands.Group(
-        name="poll", 
-        description="Polling admin commands", 
+        name="poll",
+        description="Polling admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_system_group = app_commands.Group(
-        name="system", 
-        description="System admin commands", 
+        name="system",
+        description="System admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_momentum_group = app_commands.Group(
-        name="momentum", 
-        description="Momentum admin commands", 
+        name="momentum",
+        description="Momentum admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_presidential_group = app_commands.Group(
-        name="presidential", 
-        description="Presidential election admin commands", 
+        name="presidential",
+        description="Presidential election admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_campaign_group = app_commands.Group(
-        name="campaign", 
-        description="Campaign admin commands", 
+        name="campaign",
+        description="Campaign admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_delegates_group = app_commands.Group(
-        name="delegates", 
-        description="Delegate admin commands", 
+        name="delegates",
+        description="Delegate admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_endorsements_group = app_commands.Group(
-        name="endorsements", 
-        description="Endorsement admin commands", 
+        name="endorsements",
+        description="Endorsement admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_demographics_group = app_commands.Group(
-        name="demographics", 
-        description="Demographics admin commands", 
+        name="demographics",
+        description="Demographics admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_voting_group = app_commands.Group(
-        name="voting", 
-        description="Voting admin commands", 
+        name="voting",
+        description="Voting admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_ideology_group = app_commands.Group(
-        name="ideology", 
-        description="Ideology admin commands", 
+        name="ideology",
+        description="Ideology admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
     admin_signup_group = app_commands.Group(
-        name="signup", 
-        description="Signup admin commands", 
+        name="signup",
+        description="Signup admin commands",
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
@@ -169,7 +168,7 @@ class AdminCentral(commands.Cog):
         seats: int
     ):
         elections_col = self.bot.db["elections_config"]
-        
+
         elections_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$push": {"seats": {"state": state, "office": office, "seats": seats}}},
@@ -229,7 +228,7 @@ class AdminCentral(commands.Cog):
         office: str
     ):
         winners_col = self.bot.db["winners"]
-        
+
         winners_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$push": {"winners": {
@@ -263,7 +262,7 @@ class AdminCentral(commands.Cog):
         lines = seats_data.strip().split('\n')
         added_count = 0
         elections_col = self.bot.db["elections_config"]
-        
+
         for line in lines:
             if ':' in line:
                 parts = line.split(':')
@@ -315,7 +314,7 @@ class AdminCentral(commands.Cog):
             return
 
         parties_col = self.bot.db["parties_config"]
-        
+
         parties_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$push": {"parties": {
@@ -346,7 +345,7 @@ class AdminCentral(commands.Cog):
         name: str
     ):
         parties_col = self.bot.db["parties_config"]
-        
+
         result = parties_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$pull": {"parties": {"name": name}}}
@@ -394,7 +393,7 @@ class AdminCentral(commands.Cog):
                 "is_default": True
             }
         ]
-        
+
         parties_col.update_one(
             {"guild_id": interaction.guild.id},
             {"$set": {"parties": default_parties}},
@@ -488,7 +487,7 @@ class AdminCentral(commands.Cog):
         amount: int
     ):
         momentum_col = self.bot.db["momentum"]
-        
+
         momentum_col.update_one(
             {"guild_id": interaction.guild.id, "state": state, "party": party},
             {"$inc": {"momentum": amount}},
@@ -555,9 +554,9 @@ class AdminCentral(commands.Cog):
     ):
         lines = votes_data.strip().split('\n')
         updated_count = 0
-        
+
         polling_col = self.bot.db["polling"]
-        
+
         for line in lines:
             if ':' in line:
                 candidate, votes_str = line.split(':', 1)
@@ -598,16 +597,16 @@ class AdminCentral(commands.Cog):
         runner_up_votes: int = None
     ):
         polling_col = self.bot.db["polling"]
-        
+
         # Set winner votes
         polling_col.update_one(
             {"guild_id": interaction.guild.id, "candidate": winner},
             {"$set": {"votes": winner_votes, "is_winner": True}},
             upsert=True
         )
-        
+
         response_msg = f"✅ Set {winner} as winner with {winner_votes:,} votes"
-        
+
         # Set runner-up votes if provided
         if runner_up and runner_up_votes is not None:
             polling_col.update_one(
@@ -791,7 +790,7 @@ class AdminCentral(commands.Cog):
     async def admin_toggle_delegate_system(self, interaction: discord.Interaction):
         delegates_col = self.bot.db["delegates_config"]
         config = delegates_col.find_one({"guild_id": interaction.guild.id})
-        
+
         if not config:
             config = {"guild_id": interaction.guild.id, "enabled": True}
             delegates_col.insert_one(config)
@@ -819,7 +818,7 @@ class AdminCentral(commands.Cog):
     async def admin_pause_delegate_system(self, interaction: discord.Interaction):
         delegates_col = self.bot.db["delegates_config"]
         config = delegates_col.find_one({"guild_id": interaction.guild.id})
-        
+
         if not config:
             config = {"guild_id": interaction.guild.id, "paused": False}
             delegates_col.insert_one(config)
@@ -857,7 +856,7 @@ class AdminCentral(commands.Cog):
         delegate_count: int
     ):
         delegates_col = self.bot.db["delegates"]
-        
+
         delegates_col.update_one(
             {"guild_id": interaction.guild.id, "candidate": winner},
             {"$inc": {"delegates": delegate_count}},
@@ -987,11 +986,11 @@ class AdminCentral(commands.Cog):
         state: str = None
     ):
         winners_col = self.bot.db["primary_winners"]
-        
+
         filter_dict = {"guild_id": interaction.guild.id, "candidate": candidate}
         if state:
             filter_dict["state"] = state
-            
+
         winners_col.update_one(
             filter_dict,
             {"$set": {"votes": votes, "updated_at": datetime.utcnow()}},
@@ -1238,7 +1237,7 @@ class AdminCentral(commands.Cog):
         party: str = None
     ):
         signups_col = self.bot.db["election_signups"]
-        
+
         signup_data = {
             "guild_id": interaction.guild.id,
             "user_id": user.id,
@@ -1246,7 +1245,7 @@ class AdminCentral(commands.Cog):
             "signup_date": datetime.utcnow(),
             "admin_forced": True
         }
-        
+
         if state:
             signup_data["state"] = state
         if party:
@@ -1256,7 +1255,7 @@ class AdminCentral(commands.Cog):
 
         location_text = f" in {state}" if state else ""
         party_text = f" ({party})" if party else ""
-        
+
         await interaction.response.send_message(
             f"✅ Force signed up {user.mention} for {office}{location_text}{party_text}",
             ephemeral=True
@@ -1281,13 +1280,13 @@ class AdminCentral(commands.Cog):
         state: str = None
     ):
         signups_col = self.bot.db["election_signups"]
-        
+
         filter_dict = {
             "guild_id": interaction.guild.id,
             "user_id": user.id,
             "office": office
         }
-        
+
         if state:
             filter_dict["state"] = state
 
@@ -1304,6 +1303,307 @@ class AdminCentral(commands.Cog):
                 f"❌ No signup found for {user.mention} in {office}",
                 ephemeral=True
             )
+
+    # SPECIAL ELECTION COMMANDS
+    @admin_election_group.command(
+        name="vacate_seat",
+        description="Mark a seat as vacant (triggers eligibility for special election)"
+    )
+    @app_commands.describe(
+        seat_id="The seat ID to mark as vacant",
+        reason="Reason for vacancy"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_vacate_seat(
+        self,
+        interaction: discord.Interaction,
+        seat_id: str,
+        reason: str = "Administrative action"
+    ):
+        elections_col = self.bot.db["elections_config"]
+        config = elections_col.find_one({"guild_id": interaction.guild.id})
+
+        if not config:
+            await interaction.response.send_message("❌ Elections system not configured.", ephemeral=True)
+            return
+
+        # Find the seat
+        seat_found = None
+        for i, seat in enumerate(config["seats"]):
+            if seat["seat_id"].upper() == seat_id.upper():
+                seat_found = i
+                break
+
+        if seat_found is None:
+            await interaction.response.send_message(f"❌ Seat '{seat_id}' not found.", ephemeral=True)
+            return
+
+        seat = config["seats"][seat_found]
+        previous_holder = seat.get("current_holder", "No one")
+
+        # Mark seat as vacant
+        config["seats"][seat_found].update({
+            "current_holder": None,
+            "current_holder_id": None,
+            "up_for_election": True,
+            "vacancy_reason": reason,
+            "vacancy_date": datetime.utcnow()
+        })
+
+        elections_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"seats": config["seats"]}}
+        )
+
+        # Check if it's a House seat (eligible for special election)
+        is_house_seat = seat_id.startswith("REP-") or "District" in seat["office"]
+
+        embed = discord.Embed(
+            title="🏛️ Seat Vacated",
+            description=f"Seat **{seat_id}** has been marked as vacant.",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="📋 Seat Details",
+            value=f"**Seat:** {seat_id}\n"
+                  f"**Office:** {seat['office']}\n"
+                  f"**State:** {seat['state']}\n"
+                  f"**Previous Holder:** {previous_holder}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="ℹ️ Vacancy Info",
+            value=f"**Reason:** {reason}\n"
+                  f"**Date:** {datetime.utcnow().strftime('%m/%d/%Y %H:%M')} UTC",
+            inline=True
+        )
+
+        if is_house_seat:
+            embed.add_field(
+                name="🚨 Special Election Eligible",
+                value="This House seat is eligible for a special election. Use `/special admin call_election` to schedule one.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="ℹ️ Next Election",
+                value="This seat will be filled in the next regular election cycle.",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_election_group.command(
+        name="fill_seat",
+        description="Fill a vacant seat with a user (opposite of vacate)"
+    )
+    @app_commands.describe(
+        seat_id="The seat ID to fill",
+        user="User to assign to the seat",
+        term_start_year="Term start year (optional)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_fill_seat(
+        self,
+        interaction: discord.Interaction,
+        seat_id: str,
+        user: discord.Member,
+        term_start_year: int = None
+    ):
+        elections_col = self.bot.db["elections_config"]
+        config = elections_col.find_one({"guild_id": interaction.guild.id})
+
+        if not config:
+            await interaction.response.send_message("❌ Elections system not configured.", ephemeral=True)
+            return
+
+        # Find the seat
+        seat_found = None
+        for i, seat in enumerate(config["seats"]):
+            if seat["seat_id"].upper() == seat_id.upper():
+                seat_found = i
+                break
+
+        if seat_found is None:
+            await interaction.response.send_message(f"❌ Seat '{seat_id}' not found.", ephemeral=True)
+            return
+
+        seat = config["seats"][seat_found]
+
+        # Calculate term dates
+        if term_start_year is None:
+            # Get current RP year from time manager
+            time_col = self.bot.db["time_configs"]
+            time_config = time_col.find_one({"guild_id": interaction.guild.id})
+            if time_config:
+                term_start_year = time_config["current_rp_date"].year
+            else:
+                term_start_year = 2024  # Default fallback
+
+        term_start = datetime(term_start_year, 1, 1)
+        term_end = datetime(term_start_year + seat["term_years"], 1, 1)
+
+        # Fill the seat
+        config["seats"][seat_found].update({
+            "current_holder": user.display_name,
+            "current_holder_id": user.id,
+            "term_start": term_start,
+            "term_end": term_end,
+            "up_for_election": False,
+            "vacancy_reason": None,
+            "vacancy_date": None
+        })
+
+        elections_col.update_one(
+            {"guild_id": interaction.guild.id},
+            {"$set": {"seats": config["seats"]}}
+        )
+
+        embed = discord.Embed(
+            title="✅ Seat Filled",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="👤 New Holder",
+            value=user.mention,
+            inline=True
+        )
+
+        embed.add_field(
+            name="🏛️ Seat Details",
+            value=f"**Seat ID:** {seat_id}\n**Office:** {seat['office']}\n**State/Region:** {seat['state']}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📅 Term Information",
+            value=f"**Start:** {term_start_year}\n**End:** {term_start_year + seat['term_years']}\n**Length:** {seat['term_years']} years",
+            inline=True
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_election_group.command(
+        name="list_vacant_seats",
+        description="List all currently vacant seats"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_list_vacant_seats(self, interaction: discord.Interaction):
+        elections_col = self.bot.db["elections_config"]
+        config = elections_col.find_one({"guild_id": interaction.guild.id})
+
+        if not config:
+            await interaction.response.send_message("❌ Elections system not configured.", ephemeral=True)
+            return
+
+        # Find vacant seats
+        vacant_seats = [
+            seat for seat in config["seats"]
+            if not seat.get("current_holder")
+        ]
+
+        if not vacant_seats:
+            await interaction.response.send_message("✅ No seats are currently vacant.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🏛️ Vacant Seats",
+            description=f"Found {len(vacant_seats)} vacant seat(s)",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Group by type
+        house_seats = []
+        senate_seats = []
+        governor_seats = []
+        other_seats = []
+
+        for seat in vacant_seats:
+            if seat["seat_id"].startswith("REP-") or "District" in seat["office"]:
+                house_seats.append(seat)
+            elif seat["office"] == "Senate":
+                senate_seats.append(seat)
+            elif seat["office"] == "Governor":
+                governor_seats.append(seat)
+            else:
+                other_seats.append(seat)
+
+        if house_seats:
+            house_text = ""
+            for seat in house_seats[:10]:  # Limit to prevent embed overflow
+                vacancy_info = ""
+                if seat.get("vacancy_reason"):
+                    vacancy_info = f" - {seat['vacancy_reason']}"
+                house_text += f"• **{seat['seat_id']}** ({seat['state']}){vacancy_info}\n"
+
+            if len(house_seats) > 10:
+                house_text += f"... and {len(house_seats) - 10} more"
+
+            embed.add_field(
+                name=f"🏠 House Seats ({len(house_seats)}) - Special Election Eligible",
+                value=house_text,
+                inline=False
+            )
+
+        if senate_seats:
+            senate_text = ""
+            for seat in senate_seats:
+                vacancy_info = ""
+                if seat.get("vacancy_reason"):
+                    vacancy_info = f" - {seat['vacancy_reason']}"
+                senate_text += f"• **{seat['seat_id']}** ({seat['state']}){vacancy_info}\n"
+
+            embed.add_field(
+                name=f"🏛️ Senate Seats ({len(senate_seats)})",
+                value=senate_text,
+                inline=False
+            )
+
+        if governor_seats:
+            gov_text = ""
+            for seat in governor_seats:
+                vacancy_info = ""
+                if seat.get("vacancy_reason"):
+                    vacancy_info = f" - {seat['vacancy_reason']}"
+                gov_text += f"• **{seat['seat_id']}** ({seat['state']}){vacancy_info}\n"
+
+            embed.add_field(
+                name=f"🏛️ Governor Seats ({len(governor_seats)})",
+                value=gov_text,
+                inline=False
+            )
+
+        if other_seats:
+            other_text = ""
+            for seat in other_seats:
+                vacancy_info = ""
+                if seat.get("vacancy_reason"):
+                    vacancy_info = f" - {seat['vacancy_reason']}"
+                other_text += f"• **{seat['seat_id']}** ({seat['state']}){vacancy_info}\n"
+
+            embed.add_field(
+                name=f"🏛️ Other Seats ({len(other_seats)})",
+                value=other_text,
+                inline=False
+            )
+
+        embed.add_field(
+            name="ℹ️ Actions Available",
+            value="• **House seats:** Use `/special admin call_election` for special elections\n"
+                  "• **Other seats:** Use `/admincentral election fill_seat` to fill directly",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(AdminCentral(bot))
