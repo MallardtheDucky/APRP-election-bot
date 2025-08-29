@@ -1,3 +1,4 @@
+
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -17,7 +18,7 @@ class HelpDropdown(discord.ui.Select):
                 value="basic"
             ),
             discord.SelectOption(
-                label="🏛️ Setup Commands",
+                label="🏛️ Setup Commands", 
                 description="Guild setup and configuration",
                 value="setup"
             ),
@@ -28,7 +29,7 @@ class HelpDropdown(discord.ui.Select):
             ),
             discord.SelectOption(
                 label="📊 Polling Commands",
-                description="Polling and survey commands",
+                description="Polling and survey commands", 
                 value="polling"
             ),
             discord.SelectOption(
@@ -72,6 +73,11 @@ class HelpDropdown(discord.ui.Select):
                 value="momentum"
             ),
             discord.SelectOption(
+                label="🚨 Special Elections",
+                description="Special election commands",
+                value="special"
+            ),
+            discord.SelectOption(
                 label="🔧 Admin Commands",
                 description="Administrator-only commands",
                 value="admin"
@@ -102,6 +108,7 @@ class HandbookDropdown(discord.ui.Select):
             discord.SelectOption(label="🌊 Momentum System", description="Understanding momentum mechanics", value="momentum"),
             discord.SelectOption(label="🏛️ Presidential Campaigns", description="Presidential election strategies", value="presidential"),
             discord.SelectOption(label="🎉 Party Management", description="Political party administration", value="party_management"),
+            discord.SelectOption(label="🚨 Special Elections", description="Special election system guide", value="special_elections"),
             discord.SelectOption(label="🎓 Advanced Strategies", description="Complex campaign techniques", value="advanced"),
             discord.SelectOption(label="🔧 Admin Tools", description="Administrative commands guide", value="admin_tools"),
             discord.SelectOption(label="🛠️ Troubleshooting", description="Common issues and solutions", value="troubleshooting")
@@ -165,7 +172,7 @@ class HandbookView(discord.ui.View):
 • `/help commands` - View all available commands
 • `/time current_time` - Check current phase and date
 • `/signup` - Register as a candidate (during signup phase)
-• `/speech` - Give a basic campaign speech
+• `/speech` - Give a basic campaign speech (1 hour cooldown)
 • `/momentum status` - Check state momentum
 • `/demographic_status` - View demographic progress (presidential candidates)"""
             },
@@ -200,7 +207,7 @@ Example Timeline:
 - November: General Election
 - December-January: Transition/Governance
 
-**Use `/time set_time_scale` to control pacing:**
+**Use `/time admin set_time_scale` to control pacing:**
 - Fast pace: 30 (30 real minutes = 1 RP day)
 - Medium pace: 60 (1 real hour = 1 RP day)
 - Slow pace: 120 (2 real hours = 1 RP day)
@@ -225,166 +232,108 @@ Example Timeline:
             },
             "campaign_strategies": {
                 "title": "🎯 Campaign Strategies",
-                "content": """**Core Campaign Actions**
+                "content": """**Understanding Campaign Actions (All 1 Hour Cooldowns)**
 
 **1. Speeches** (`/speech`)
-- **Purpose:** Build general support and name recognition across states
-- **Effectiveness:** 1.0-2.5 points base (modified by momentum and demographics)
-- **Stamina Cost:** 2.0 points, Cooldown: 4 hours
-- **Best Used:** Early campaign foundation building, maintaining presence
-- **Strategic Tips:** Consistent speeches build momentum over time
+- Purpose: Build general support and name recognition
+- Requirements: 700-3000 characters, reply within 5 minutes
+- Effectiveness: Moderate, broad appeal
+- Stamina Cost: 1.5, Cooldown: 1 hour
+- Best Used: Early campaign, building base support
+- Tips: Write engaging content, longer speeches = more points
 
 **2. Canvassing** (`/canvassing`)
-- **Purpose:** Intensive ground game in specific targeted states
-- **Effectiveness:** 1.5-3.0 points (high regional focus)
-- **Stamina Cost:** 3.0 points, Cooldown: 6 hours
-- **Best Used:** Swing states, competitive districts, demographic targeting
-- **Strategic Tips:** Most effective when combined with demographic appeals
+- Purpose: Target specific regions with ground game
+- Requirements: 100-300 character message
+- Effectiveness: High in targeted regions
+- Stamina Cost: 1, Cooldown: 1 hour  
+- Best Used: Swing states, competitive districts
 
 **3. Advertisements** (`/ad`)
-- **Purpose:** High-impact media campaigns with wide reach
-- **Effectiveness:** 2.0-4.0 points (very high with momentum)
-- **Stamina Cost:** 4.0 points, Cooldown: 10 hours
-- **Best Used:** Late campaign pushes, major media markets
-- **Requirements:** Must include video/image upload for authenticity
+- Purpose: Wide reach across multiple regions
+- Requirements: Video file upload, reply within 5 minutes
+- Effectiveness: High but expensive
+- Stamina Cost: 1.5, Cooldown: 1 hour
+- Best Used: Late campaign, major media markets
 
 **4. Posters** (`/poster`)
-- **Purpose:** Cost-effective continuous presence and branding
-- **Effectiveness:** 0.5-1.5 points (consistent but moderate)
-- **Stamina Cost:** 1.5 points, Cooldown: 3 hours
-- **Best Used:** Maintaining visibility, budget-conscious campaigns
-- **Requirements:** Must include image upload for visual impact
+- Purpose: Cheap way to build name recognition
+- Requirements: Image file upload
+- Effectiveness: Low but cost-efficient
+- Stamina Cost: 1, Cooldown: 1 hour
+- Best Used: Continuous presence
 
 **5. Donor Appeals** (`/donor`)
-- **Purpose:** Fundraising and building campaign infrastructure
-- **Effectiveness:** Variable (builds resources for future actions)
-- **Stamina Cost:** 2.5 points, Cooldown: 8 hours
-- **Best Used:** Early campaign funding, crisis response preparation
+- Purpose: Fundraising for future campaigns
+- Requirements: 400-3000 characters, reply within 5 minutes
+- Effectiveness: Varies by region and timing
+- Stamina Cost: 1.5, Cooldown: 1 hour
+- Warning: Adds +5 corruption, risk of scandals
 
-**6. Demographic Appeals** (`/demographic_appeal`)
-- **Purpose:** Target specific voter demographics with tailored messaging
-- **Effectiveness:** 1.0-3.0 points (varies by demographic strength in state)
-- **Stamina Cost:** 2.5 points, Cooldown: 5 hours
-- **Best Used:** Building coalition strength, targeting core demographics
+**Advanced Action Strategies**
 
-**7. Town Halls** (`/town_hall`)
-- **Purpose:** Direct voter engagement and issue-focused campaigning
-- **Effectiveness:** 1.5-2.5 points (strong local impact)
-- **Stamina Cost:** 3.0 points, Cooldown: 8 hours
-- **Best Used:** Addressing local concerns, building grassroots support
+**Timing Your Actions**
+1. **Early Campaign** (First 1/3) - Focus on posters and speeches, build name recognition, conservative stamina use
+2. **Mid Campaign** (Middle 1/3) - Increase canvassing frequency, target demographics, moderate stamina expenditure  
+3. **Late Campaign** (Final 1/3) - Heavy use of ads, focus on swing states, maximum demographic targeting
 
-**8. Voter Registration** (`/voter_registration`)
-- **Purpose:** Expand voter base and build long-term support
-- **Effectiveness:** 1.0-2.0 points (cumulative benefits)
-- **Stamina Cost:** 2.0 points, Cooldown: 6 hours
-- **Best Used:** Early campaign, demographic expansion
+**Regional Targeting Strategy**
+**Tier 1: Must-Win States** - Party strongholds, focus 40% of resources
+**Tier 2: Competitive States** - True swing states, focus 50% of resources  
+**Tier 3: Stretch Goals** - Opposition strongholds with potential, focus 10% of resources
 
-**9. Grassroots Events** (`/grassroots`)
-- **Purpose:** Community organizing and volunteer mobilization
-- **Effectiveness:** 1.2-2.2 points (builds campaign infrastructure)
-- **Stamina Cost:** 2.5 points, Cooldown: 7 hours
-- **Best Used:** Building sustained campaign presence, volunteer networks
-
-**Advanced Campaign Strategy**
-
-**Campaign Phase Optimization**
-1. **Signup Phase** (Phase 1) - Prepare strategy, research demographics and state leans
-2. **Primary Campaign** (Phase 2-3) - Build momentum, establish demographic coalitions
-3. **Primary Election** (Phase 4) - Limited actions, final appeals to party base
-4. **General Campaign** (Phase 5-6) - Full campaign deployment, swing state focus
-5. **General Election** (Phase 7) - Final push, get-out-the-vote efforts
-
-**Action Timing Strategy**
-**Early Campaign (Weeks 1-2):**
-- Focus: Speeches (2.0 stamina) and Posters (1.5 stamina) for base building
-- Goal: Establish name recognition, build initial momentum
-- Reserve: Maintain 60-80 stamina for sustained activity
-
-**Mid Campaign (Weeks 3-4):**
-- Focus: Canvassing (3.0 stamina) and Demographic Appeals (2.5 stamina)
-- Goal: Target swing states, build demographic coalitions
-- Reserve: Maintain 40-60 stamina for flexibility
-
-**Late Campaign (Weeks 5-6):**
-- Focus: Advertisements (4.0 stamina) and Town Halls (3.0 stamina)
-- Goal: Maximum impact, swing voter persuasion
-- Reserve: Use remaining stamina aggressively
-
-**Regional Resource Allocation**
-**Tier 1: Core States (35% of resources)**
-- Party strongholds where you MUST win
-- Defensive campaigning to prevent upsets
-- Focus on maintaining momentum above 25 points
-
-**Tier 2: Swing States (50% of resources)**
-- True competitive battlegrounds
-- Highest ROI for campaign actions
-- Target momentum of 40-60 points
-
-**Tier 3: Expansion States (15% of resources)**
-- Opposition-leaning states with potential
-- High-risk, high-reward targets
-- Only pursue if ahead in Tier 1 and 2
-
-**Stamina Management System**
-- **Maximum Stamina:** 200 points (refreshes over time)
-- **Optimal Range:** Keep stamina between 50-150 for flexibility
-- **Crisis Reserve:** Always maintain 30-40 stamina for emergency responses
-- **Cooldown Planning:** Track all action cooldowns, plan 8-12 hours ahead
-- **Recovery Rate:** Stamina regenerates at ~1 point per hour
-
-**Action Effectiveness Multipliers**
-- **Momentum Bonus:** Each 25 momentum points = +50% effectiveness
-- **Demographic Strength:** 1.75x in strong states, 0.3x in weak states
-- **State Lean:** Additional multipliers based on natural party strength
-- **Coalition Bonus:** Synergy between compatible demographic appeals"""
+**Resource Management**
+- **Total Stamina**: Usually 100 for general, 200 for presidential
+- **Critical Threshold**: Below 50 stamina = reduced effectiveness
+- **Emergency Reserve**: Always keep 20-30 stamina for responses
+- Track cooldowns, plan ahead, coordinate with running mates"""
             },
             "demographics": {
                 "title": "👥 Demographics & Targeting",
-                "content": """**Complete Demographic List (20+ Groups)**
+                "content": """**Complete Demographic List (20+ Groups) - NO THRESHOLDS**
 
 **Geographic Demographics**
-- Urban Voters (25 point threshold)
-- Suburban Voters (20 point threshold)  
-- Rural Voters (18 point threshold)
+- Urban Voters
+- Suburban Voters  
+- Rural Voters
 
 **Religious Demographics**
-- Evangelical Christians (18 point threshold)
+- Evangelical Christians
 
 **Racial/Ethnic Demographics**
-- African American Voters (22 point threshold)
-- Latino/Hispanic Voters (22 point threshold)
-- Asian American Voters (18 point threshold)
-- Native American Voters (12 point threshold)
+- African American Voters
+- Latino/Hispanic Voters
+- Asian American Voters
+- Native American Voters
 
 **Economic Demographics**
-- Blue-Collar / Working-Class Voters (20 point threshold)
-- College-Educated Professionals (20 point threshold)
-- Wealthy / High-Income Voters (15 point threshold)
-- Low-Income Voters (22 point threshold)
-- Tech & Innovation Workers (18 point threshold)
+- Blue-Collar / Working-Class Voters
+- College-Educated Professionals
+- Wealthy / High-Income Voters
+- Low-Income Voters
+- Tech & Innovation Workers
 
 **Age Demographics**
-- Young Voters (18–29) (20 point threshold)
-- Senior Citizens (65+) (18 point threshold)
+- Young Voters (18–29)
+- Senior Citizens (65+)
 
 **Special Interest Demographics**
-- Military & Veteran Voters (15 point threshold)
-- LGBTQ+ Voters (15 point threshold)
-- Immigrant Communities (15 point threshold)
-- Environmental & Green Voters (18 point threshold)
-- Gun Rights Advocates (18 point threshold)
+- Military & Veteran Voters
+- LGBTQ+ Voters
+- Immigrant Communities
+- Environmental & Green Voters
+- Gun Rights Advocates
 
 **State Demographic Strengths**
 **Multiplier System:**
-- **Strong (1.75x)**: Demographics very influential in that state
-- **Moderate (0.75x)**: Average influence
-- **Small (0.3x)**: Limited influence
+- **Strong (0.25)**: Demographics very influential in that state
+- **Moderate (0.10)**: Average influence
+- **Small (0.05)**: Limited influence
 
 **Example: Rural Voters**
-- Strong States: Alabama, Montana, Wyoming (1.75x multiplier)
-- Moderate States: Colorado, Pennsylvania (0.75x multiplier)
-- Small States: California, New York (0.3x multiplier)
+- Strong States: Alabama, Montana, Wyoming (0.25 multiplier)
+- Moderate States: Colorado, Pennsylvania (0.10 multiplier)
+- Small States: California, New York (0.05 multiplier)
 
 **Demographic Conflict System**
 **Major Conflict Pairs:**
@@ -394,34 +343,34 @@ Example Timeline:
 - Evangelical Christians ↔ LGBTQ+ Voters
 - Blue-Collar Workers ↔ College-Educated Professionals
 
-**Backlash Thresholds:**
-- 90% of threshold: Soft backlash (-0.5 points to opposing groups)
-- 125% of threshold: Medium backlash (-1.0 points)
-- 150% of threshold: Hard backlash (-2.0 points)
+**No Threshold System:**
+- Demographics no longer have point thresholds
+- Focus on building strong coalitions
+- Avoid conflicting demographics for best results
 
 **Strategy Tips:**
 1. Pick 3-4 compatible demographics and focus heavily
 2. Use `/demographics view_state_demographics` to research multipliers
 3. Campaign in states where your demographics are strong
-4. Plan coalition strategy to avoid major conflicts"""
+4. Plan coalition strategy to avoid major conflicts
+5. Use `/demographic_appeal` to target specific groups"""
             },
             "momentum": {
                 "title": "🌊 Momentum System",
                 "content": """**Understanding Political Momentum**
-The momentum system simulates dynamic shifts in political influence based on campaign activity, media coverage, and voter sentiment changes.
+The momentum system simulates how parties gain and lose influence in states based on campaign activity, scandals, and voter sentiment.
 
 **Core Momentum Mechanics**
-- **Building Momentum:** All successful campaign actions contribute momentum points
-- **Multiplier Effect:** Momentum creates exponential returns on campaign investment
-- **Decay System:** Momentum naturally decreases over time without maintenance
-- **State-Specific:** Each state has independent momentum tracking
+- Successful campaign actions build momentum
+- Momentum multiplies effectiveness of future actions
+- High momentum makes everything easier
+- Momentum decays over time without activity
 
-**Momentum Vulnerability System**
-- **Vulnerability Threshold:** 50+ momentum points trigger vulnerability status
-- **Warning Indicators:** Vulnerable parties show ⚠️ symbols in status displays
-- **Collapse Mechanics:** Opponents can attempt momentum collapse attacks
-- **Collapse Cooldown:** 6-hour cooldown between collapse attempts per user
-- **Collapse Impact:** Reduces momentum by 30-70% of current total
+**Momentum Vulnerability**
+- Parties with high momentum (50+ points) become vulnerable
+- Opponents can trigger "momentum collapse" 
+- Collapses cause massive momentum loss (30-70%)
+- Vulnerable parties have warning indicators (⚠️)
 
 **State Political Leans**
 Every state has a baseline political lean that affects momentum:
@@ -479,66 +428,51 @@ Every state has a baseline political lean that affects momentum:
             },
             "presidential": {
                 "title": "🏛️ Presidential Campaigns",
-                "content": """**Presidential Campaign System**
-Presidential campaigns represent the pinnacle of political competition, featuring enhanced mechanics and national-scale strategic considerations.
+                "content": """**Presidential Primary System**
+Presidential campaigns are the most complex and prestigious elections, featuring unique mechanics and strategic considerations.
 
-**Presidential Registration Process**
-1. **Presidential Signup:** `/pres_signup` with name, party, and ideology specification
-2. **Running Mate Selection:** Choose VP candidate through `/vp_signup` system
-3. **Ticket Formation:** Presidential candidate accepts VP with `/accept_vp`
-4. **Coalition Building:** Coordinate with party members for unified strategy
+**Primary Calendar and Delegate System**
+**Early Primary States** (High Influence)
+- Iowa, New Hampshire, South Carolina, Nevada traditionally go first
+- Early victories create momentum and media attention
+- Strong performance here can make or break campaigns
 
-**Delegate System and Primary States**
-**Delegate Allocation:** Automatic system tracks delegate accumulation by state
-**State Calling:** Admins can manually call states for dramatic delegate shifts
-**Threshold Requirements:** Candidates must reach delegate thresholds for nomination
-**Momentum Impact:** Primary wins create massive momentum boosts
+**Super Tuesday** (Mass Delegate Day)
+- Multiple large states vote simultaneously  
+- California, Texas, New York often included
+- Requires significant resource allocation
 
-**Primary Campaign Phases**
-1. **Early State Strategy** - Build momentum in traditional early primary states
-2. **Super Tuesday Preparation** - Resource allocation for simultaneous multi-state contests  
-3. **Regional Consolidation** - Focus on geographic or demographic strongholds
-4. **National Unity** - Post-primary party consolidation and general election prep
+**Primary Campaign Strategy**
+1. **Early State Strategy** - Focus heavily on Iowa and New Hampshire
+2. **National Strategy** - Campaign everywhere from the start
+3. **Regional Strategy** - Focus on specific geographic regions
 
-**Enhanced Presidential Actions**
-Presidential candidates have access to premium campaign actions with enhanced effectiveness and national reach:
+**Presidential Action System**
+Presidential candidates have enhanced campaign actions:
 
 **1. Presidential Speeches** (`/pres_speech`)
-- **Effect:** 2.0-4.0 points (enhanced national reach)
-- **Stamina Cost:** 3.0, Cooldown: 6 hours
-- **Special Features:** Multi-state impact, national media coverage, momentum building
-- **Strategic Use:** Major policy announcements, rally base support
+- Effect: Enhanced reach and impact
+- Stamina Cost: Variable, Cooldown: 1 hour
+- Special Features: Multi-state reach, national media coverage
 
 **2. Presidential Canvassing** (`/pres_canvassing`)
-- **Effect:** 2.5-4.5 points (enhanced ground game)
-- **Stamina Cost:** 4.0, Cooldown: 8 hours
-- **Special Features:** Builds momentum and demographic points simultaneously
-- **Strategic Use:** Swing state ground operations, demographic targeting
+- Effect: State-targeted with momentum bonus
+- Stamina Cost: Variable, Cooldown: 1 hour
+- Special Features: Builds momentum and demographic points
 
-**3. Presidential Advertisements** (`/pres_ad`)
-- **Effect:** 3.0-6.0 points (premium effectiveness)
-- **Stamina Cost:** 5.0, Cooldown: 12 hours
-- **Special Features:** National media buy, multi-state reach, high production value
-- **Strategic Use:** Late campaign messaging, swing voter persuasion
+**3. Presidential Ads** (`/pres_ad`)
+- Effect: Very high impact
+- Stamina Cost: Variable, Cooldown: 1 hour
+- Special Features: Multi-state reach, premium effectiveness
 
 **4. Presidential Posters** (`/pres_poster`)
-- **Effect:** 1.5-3.0 points (enhanced visibility)
-- **Stamina Cost:** 2.0, Cooldown: 4 hours
-- **Special Features:** National distribution network, brand building
-- **Strategic Use:** Continuous presence, name recognition maintenance
+- Effect: Enhanced distribution
+- Stamina Cost: Variable, Cooldown: 1 hour
+- Special Features: National distribution, brand building
 
 **5. Presidential Donor Appeals** (`/pres_donor`)
-- **Effect:** Enhanced fundraising, premium infrastructure building
-- **Stamina Cost:** 3.5, Cooldown: 10 hours
-- **Special Features:** National fundraising network, future campaign benefits
-- **Strategic Use:** Building war chest, crisis response preparation
-
-**Presidential vs. General Action Comparison**
-- **Effectiveness:** Presidential actions typically 25-50% more effective
-- **Reach:** Presidential actions often affect multiple states simultaneously
-- **Cost:** Higher stamina costs reflect premium nature of presidential campaigns
-- **Momentum Impact:** Presidential actions build momentum more efficiently
-- **Media Coverage:** Presidential actions receive enhanced media attention simulation
+- Effect: Major fundraising, future campaign benefits
+- Stamina Cost: Variable, Cooldown: 1 hour
 
 **Vice Presidential Selection Strategy**
 **Geographic Balance** - Choose VP from different region
@@ -619,26 +553,115 @@ Administrators can create custom parties for unique roleplay scenarios:
 - `/party admin modify_color` - Change the color of multiple parties at once (Admin only)
 
 **Advanced Party Strategies**
-
-**Multi-Party Scenarios**
-- **Coalition Government Simulation:** Create multiple parties representing different ideologies
-- **Regional Party Systems:** Create parties representing specific geographic regions
-- **Issue-Based Parties:** Single-issue parties for specific causes
-- **Historical Simulation:** Create parties based on historical periods
+**Multi-Party Scenarios:** Coalition government simulation
+**Regional Party Systems:** Parties representing specific regions
+**Issue-Based Parties:** Single-issue parties for specific causes
+**Historical Simulation:** Parties based on historical periods
 
 **Party Brand Management**
-- **Consistency Across Candidates:** Ensure all party candidates use similar messaging
-- **Long-Term Party Building:** Build party infrastructure across multiple election cycles
-- **Adaptation and Evolution:** Parties must adapt to changing demographics"""
+- Ensure all party candidates use similar messaging
+- Coordinate policy positions and priorities
+- Build party infrastructure across multiple election cycles
+- Adapt to changing demographics and new issues"""
+            },
+            "special_elections": {
+                "title": "🚨 Special Elections",
+                "content": """**Special Election System Overview**
+Special elections are called when House seats become vacant outside of regular election cycles. They follow a fast-paced 4-day timeline with unique mechanics.
+
+**Special Election Timeline**
+- **Day 1**: Signup Phase (24 hours)
+- **Days 2-4**: Campaign Phase (72 hours)
+- **End of Day 4**: Results declared
+
+**Special Election Commands**
+
+**User Commands:**
+- `/special signup` - Register for an active special election
+- `/special speech` - Give campaign speech (1 hour cooldown, 2-4 points)
+- `/special poster` - Create campaign posters (1 hour cooldown, 1-3 points)
+- `/special ad` - Run video advertisements (1 hour cooldown, 3-6 points)
+- `/special calendar` - View election timeline and status
+- `/special poll` - Conduct NPC polling with 7% margin of error
+
+**Admin Commands:**
+- `/special admin call_election` - Call special election for vacant House seat
+- `/special admin end_election` - End active special election
+- `/special admin set_winner` - Manually set election winner
+
+**Eligibility and Requirements**
+- **Seats Eligible**: Only House seats (REP- or District seats)
+- **User Participation**: Anyone can participate, not just registered candidates
+- **Target System**: Must specify target candidate for campaign actions
+
+**Special Election Mechanics**
+
+**Signup Phase (24 hours)**
+- Use `/special signup candidate_name:"Your Name" party:"Your Party"`
+- Multiple users can participate regardless of regular election status
+- Get seat information and timeline details
+
+**Campaign Phase (72 hours)**
+- All campaign actions have 1-hour cooldowns
+- Actions require target candidate specification
+- Stamina system: Start with 100, actions cost 15-25 stamina
+
+**Campaign Actions Details**
+
+**1. Special Speech** (`/special speech`)
+- Requirements: 700-3000 characters, reply within 5 minutes
+- Effect: 2-4 points gained
+- Stamina Cost: -20
+- Cooldown: 1 hour
+
+**2. Special Poster** (`/special poster`)
+- Requirements: Image upload (max 10MB)
+- Effect: 1-3 points gained
+- Stamina Cost: -15
+- Cooldown: 1 hour
+
+**3. Special Ad** (`/special ad`)
+- Requirements: Video upload (max 25MB), reply within 5 minutes
+- Effect: 3-6 points gained
+- Stamina Cost: -25
+- Cooldown: 1 hour
+
+**Strategic Considerations**
+
+**Time Management**
+- Short 4-day cycle requires aggressive campaigning
+- Plan action timing around cooldowns
+- Save high-impact actions for peak activity times
+
+**Resource Allocation**
+- Limited stamina requires careful planning
+- High-point actions (ads) vs. cost-efficient actions (posters)
+- Balance frequency vs. impact
+
+**Competition Dynamics**
+- Smaller candidate pools create more focused competition
+- Every action directly impacts relative standing
+- Late campaign surges can overcome early deficits
+
+**Administrative Guidelines**
+- Call special elections only for legitimate vacancies
+- Monitor for fair play and rule compliance
+- Use polling commands to track race dynamics
+
+**Special Election Polling**
+- 7% margin of error (higher than regular elections)
+- Smaller sample sizes (300-800 voters)
+- More volatile results due to shorter campaign period
+- Real-time tracking of candidate momentum"""
             },
             "advanced": {
                 "title": "🎓 Advanced Strategies",
                 "content": """**Coalition Building Mastery**
 
 **The 3-4-2 Rule**
-- 3 Core Demographics: Your absolute base (aim for 110-120% of threshold)
-- 4 Supporting Demographics: Secondary targets (aim for 80-100% of threshold)
-- 2 Opportunity Demographics: Stretch goals if resources allow (50-80% of threshold)
+- 3 Core Demographics: Your absolute base (focus heavily)
+- 4 Supporting Demographics: Secondary targets (moderate focus)
+- 2 Opportunity Demographics: Stretch goals if resources allow
 
 **Example Progressive Coalition**
 - Core: Urban Voters, College-Educated Professionals, Young Voters
@@ -649,16 +672,16 @@ Administrators can create custom parties for unique roleplay scenarios:
 Create a matrix showing where your core demographics are strongest:
 ```
 State         | Urban | College | Young | Environmental
-California    | 1.75x | 1.75x   | 1.75x | 1.75x
-New York      | 1.75x | 1.75x   | 1.75x | 0.75x
-Colorado      | 0.75x | 0.75x   | 0.75x | 0.75x
+California    | 0.25  | 0.25    | 0.25  | 0.25
+New York      | 0.25  | 0.25    | 0.25  | 0.10
+Colorado      | 0.25  | 0.25    | 0.25  | 0.25
 ```
 
 **Strategic Targeting Priority**
-1. States where all core demographics are strong
+1. States where all core demographics are strong (0.25 multiplier)
 2. States where 2-3 core demographics are strong
 3. Swing states where at least 1 core demographic is strong
-4. Opposition strongholds only if you have overwhelming advantages
+4. Opponent strongholds only if you have overwhelming advantages
 
 **Advanced Momentum Warfare**
 
@@ -721,7 +744,12 @@ Track opponent momentum and plan strategic collapses:
 **Closing Argument Development**
 - Synthesize campaign themes into final message
 - Target undecided voters with moderate positions
-- Reinforce base support to ensure turnout"""
+- Reinforce base support to ensure turnout
+
+**Special Election Integration**
+- Use special elections as testing grounds for new strategies
+- Build name recognition for future general elections
+- Coordinate with general election campaigns for maximum impact"""
             },
             "admin_tools": {
                 "title": "🔧 Admin Tools",
@@ -783,14 +811,19 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 - Identify inactive candidates for intervention
 
 **Fairness and Balance Maintenance**
-- **Demographic System Balance:** Monitor threshold achievement rates
+- **Demographic System Balance:** Monitor coalition effectiveness
 - **Momentum System Oversight:** Track accumulation rates and collapse frequency
 - **State Balance Verification:** Ensure no states are consistently ignored
+
+**Special Election Administration**
+- **Call Special Elections:** `/special admin call_election` for vacant House seats
+- **Monitor Special Campaigns:** Track 4-day election cycles
+- **Manage Special Results:** Use `/special admin set_winner` if needed
 
 **Advanced Administrative Features**
 
 **Crisis Management Tools**
-- Reset campaign cooldowns for technical issues: `/admin reset_campaign_cooldowns`
+- Reset campaign cooldowns for technical issues: `/admin system reset_campaign_cooldowns`
 - Manually adjust momentum for game balance: `/momentum admin add_momentum`
 - Resolve disputes between candidates
 - Handle rule violations and enforcement
@@ -802,17 +835,19 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 - Monitor bot performance and response times
 
 **Common Administrative Challenges**
-**Low Engagement Issues:** Reduce time scales, create more competitive races
+**Low Engagement Issues:** Reduce time scales, create more competitive races, call special elections
 **Over-Engagement Issues:** Increase cooldowns, add more complex strategic elements
 **System Balance Problems:** Monitor win rates by party and strategy
 
 **Essential Admin Commands:**
 - `/election admin set_seats` - Configure all election seats
-- `/time set_current_time` - Control election timing and phases
-- `/time set_time_scale` - Set how fast time progresses
+- `/time admin set_current_time` - Control election timing and phases
+- `/time admin set_time_scale` - Set how fast time progresses
 - `/momentum admin add_momentum` - Adjust state momentum levels
 - `/party admin create` - Create custom political parties
-- `/poll admin bulk_set_votes` - Set voting results manually"""
+- `/poll admin bulk_set_votes` - Set voting results manually
+- `/special admin call_election` - Call special elections for vacant House seats
+- `/admin system reset_campaign_cooldowns` - Reset user cooldowns"""
             },
             "troubleshooting": {
                 "title": "🛠️ Troubleshooting",
@@ -821,13 +856,13 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 **Command Execution Problems**
 
 **"Command on cooldown" Errors**
-- **Cause:** User attempting action before cooldown expires
+- **Cause:** User attempting action before 1-hour cooldown expires
 - **Solution:** Wait for cooldown to complete or check remaining time
-- **Prevention:** Use `/cooldown status` to track all cooldowns
+- **Prevention:** Track cooldowns carefully, all campaign actions now have 1-hour cooldowns
 - **Admin Override:** Use `/admin system reset_campaign_cooldowns` if necessary
 
 **Example Resolution Process:**
-1. Check remaining cooldown time: `/cooldown status`
+1. Check remaining cooldown time (usually 1 hour for all actions)
 2. Plan next action timing based on cooldown info
 3. Use different action types if one is on cooldown
 4. Contact admin if cooldown seems incorrect
@@ -838,12 +873,13 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 - **Understanding:** Different actions available in different phases
 
 **Phase-Action Compatibility Guide:**
-- **Signup Phase:** `/signup`, `/pres_signup`, `/vp_signup`
+- **Signup Phase:** `/signup`, `/pres_signup`, `/vp_signup`, `/special signup`
 - **Primary Campaign:** All campaign actions, demographic appeals
 - **Primary Election:** Voting only, limited campaign actions
 - **General Campaign:** Enhanced campaign actions, momentum system
 - **General Election:** Voting only, final appeals
 - **Governance:** Administrative actions, next cycle preparation
+- **Special Elections:** Available anytime for House seats
 
 **Permission and Access Issues**
 **"Insufficient permissions" Errors**
@@ -855,6 +891,7 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 **"Already signed up" Errors**
 - **Solution:** Use `/signup withdraw` first, then re-register
 - **Note:** Can run for multiple different offices simultaneously
+- **Special Elections:** Separate from regular signups
 
 **"Invalid region/state" Errors**
 - **Solution:** Check available regions with `/setup list_regions`
@@ -867,25 +904,26 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 - **Diagnosis:** Check state demographic multipliers
 - **Solution:** Campaign in states where your demographics are strong
 - **Tool:** Use `/demographics view_state_demographics` to research
-- **Strategy:** Focus on 1.75x multiplier states, avoid 0.3x states
+- **Strategy:** Focus on 0.25 multiplier states, avoid 0.05 states
 
 **Example Effectiveness Analysis:**
 Target: Rural Voters
-- Strong States (1.75x): Alabama, Montana, Wyoming
-- Moderate States (0.75x): Colorado, Pennsylvania
-- Weak States (0.3x): California, New York
+- Strong States (0.25): Alabama, Montana, Wyoming
+- Moderate States (0.10): Colorado, Pennsylvania
+- Weak States (0.05): California, New York
 - Action Plan: Campaign for Rural Voters in Alabama/Montana/Wyoming
 
-**Demographic Backlash Problems**
-- **Cause:** Over-appealing to conflicting demographic groups
-- **Symptoms:** Losing points in demographics you've previously built
+**Demographic Coalition Problems**
+- **Cause:** Targeting conflicting demographic groups
+- **Symptoms:** Losing support in demographics you've previously built
 - **Prevention:** Plan coalition strategy to avoid major conflicts
+- **New System:** No thresholds, focus on building strong coalitions
 
-**Backlash Prevention Strategy:**
+**Coalition Prevention Strategy:**
 1. Map out your core demographic coalition
 2. Identify all conflicting demographics for each core group
 3. Plan geographic targeting to minimize overlap
-4. Monitor threshold percentages to avoid trigger points
+4. Focus on states where your demographics have strong multipliers
 
 **Momentum Building Difficulties**
 - **Solution:** Increase campaign frequency in target states
@@ -898,11 +936,18 @@ Target: Rural Voters
 - Week 5-6: Expand to 2-3 additional states
 - Week 7-8: Maintain momentum, avoid vulnerability thresholds
 
+**Special Election Issues**
+- **Short Timeline:** 4-day cycles require aggressive campaigning
+- **Stamina Management:** Start with 100, actions cost 15-25
+- **Target Requirements:** Must specify target candidate
+- **Solution:** Plan actions around 1-hour cooldowns
+
 **System Performance and Technical Issues**
 
 **Bot Response Problems**
 - **Slow Command Response:** Wait for response, avoid spamming commands
 - **Failed Command Execution:** Wait and retry command once, screenshot errors
+- **Interaction Timeouts:** Re-run commands if interactions expire
 
 **Best Practices for Issue Prevention**
 
@@ -910,17 +955,25 @@ Target: Rural Voters
 - Plan campaign strategy before beginning active campaigning
 - Research state demographics and momentum systems thoroughly
 - Develop contingency plans for various scenarios
+- Consider special election opportunities
 
 **Resource Management**
-- Track stamina usage and cooldown timers carefully
+- Track stamina usage and 1-hour cooldown timers carefully
 - Maintain reserves for emergency responses
 - Plan action timing around server activity patterns
+- Coordinate with party members and running mates
 
 **Communication and Coordination**
 - Share research and analysis with party members
 - Coordinate timing of major campaign actions
 - Report issues and problems promptly to admins
-- Maintain good sportsmanship and fair play standards"""
+- Maintain good sportsmanship and fair play standards
+
+**Updated System Notes**
+- All campaign actions now have 1-hour cooldowns
+- Demographics have no thresholds - focus on strong multipliers
+- Special elections available for House seats anytime
+- Momentum system more important than ever for effectiveness"""
             }
         }
 
@@ -950,7 +1003,7 @@ class HelpView(discord.ui.View):
 `/help credits` - Lists the people that made this bot"""
             },
             "setup": {
-                "title": "🏛️ Setup Commands",
+                "title": "🏛️ Setup Commands", 
                 "content": """**User Commands:**
 `/setup show_config` - Show current election configuration
 `/setup list_regions` - List all the US states you've added as regions
@@ -1009,14 +1062,17 @@ class HelpView(discord.ui.View):
                 "title": "⏰ Time Management",
                 "content": """**User Commands:**
 `/time current_time` - Show the current RP date and election phase
+`/time show_phases` - Show all election phases and their timing
 
 **Admin Commands:**
-`/time set_current_time` - Set the current RP date and time (Admin only)
-`/time set_time_scale` - Set how many real minutes equal one RP day (Admin only)
-`/time reset_cycle` - Reset the election cycle to the beginning (Admin only)
-`/time set_voice_channel` - Set which voice channel to update with RP date (Admin only)
-`/time toggle_voice_updates` - Toggle automatic voice channel name updates (Admin only)
-`/time update_voice_channel` - Manually update the configured voice channel with current RP date (Admin only)"""
+`/time admin set_current_time` - Set the current RP date and time (Admin only)
+`/time admin set_time_scale` - Set how many real minutes equal one RP day (Admin only)
+`/time admin reset_cycle` - Reset the election cycle to the beginning (Admin only)
+`/time admin set_voice_channel` - Set which voice channel to update with RP date (Admin only)
+`/time admin toggle_voice_updates` - Toggle automatic voice channel name updates (Admin only)
+`/time admin update_voice_channel` - Manually update the configured voice channel with current RP date (Admin only)
+`/time admin pause_time` - Pause or unpause RP time progression (Admin only)
+`/time admin regenerate_stamina` - Manually regenerate stamina for all candidates (Admin only)"""
             },
             "signups": {
                 "title": "📋 Election Signups",
@@ -1032,7 +1088,14 @@ class HelpView(discord.ui.View):
 `/accept_vp` - Accept a VP candidate for your presidential campaign
 `/decline_vp` - Decline a VP candidate request
 `/view_pres_signups` - View all current presidential signups
-`/my_pres_signup` - View your current presidential signup details"""
+`/my_pres_signup` - View your current presidential signup details
+
+**Presidential Campaign Actions (1 hour cooldowns):**
+`/pres_speech` - Give a presidential campaign speech
+`/pres_donor` - Make a presidential donor appeal
+`/pres_canvassing` - Conduct presidential canvassing in a state
+`/pres_ad` - Run a presidential campaign ad
+`/pres_poster` - Put up presidential campaign posters"""
             },
             "endorsements": {
                 "title": "🤝 Endorsements & Delegates",
@@ -1059,25 +1122,21 @@ class HelpView(discord.ui.View):
             },
             "campaign": {
                 "title": "🎯 Campaign Actions",
-                "content": """**Presidential Campaign Actions:**
-`/pres_speech` - Give a presidential campaign speech
-`/pres_donor` - Make a presidential donor appeal
-`/pres_canvassing` - Conduct presidential canvassing in a state
-`/pres_ad` - Run a presidential campaign ad
-`/pres_poster` - Put up presidential campaign posters
-
-**General Campaign Actions:**
-`/speech` - Give a campaign speech for any candidate
-`/donor` - Make a donor fundraising appeal
-`/canvassing` - Conduct door-to-door canvassing in a region
-`/ad` - Run a campaign advertisement
-`/poster` - Put up campaign posters
+                "content": """**General Campaign Actions (All 1 hour cooldowns):**
+`/speech` - Give a campaign speech in a specific state with ideology alignment (700-3000 chars, 1.5 stamina)
+`/donor` - Make a donor fundraising appeal (400-3000 chars, 1.5 stamina, +5 corruption)
+`/canvassing` - Conduct door-to-door canvassing in a region (100-300 chars, 1 stamina)
+`/ad` - Run a campaign video advertisement (video upload, 1.5 stamina)
+`/poster` - Put up campaign posters (image upload, 1 stamina)
 
 **Demographics & Voter Outreach:**
 `/demographic_appeal` - Target specific demographic groups with campaign appeals
-`/voter_registration` - Conduct voter registration drives
-`/town_hall` - Host town hall meetings
-`/grassroots` - Organize grassroots campaign events"""
+`/demographic_status` - View your current demographic progress (presidential only)
+
+**All actions now have:**
+- **1 hour cooldowns** (unified across all campaign actions)
+- **Stamina costs** (varies by action type)
+- **Target system** (specify which candidate benefits)"""
             },
             "momentum": {
                 "title": "🌊 Momentum & Demographics",
@@ -1085,215 +1144,193 @@ class HelpView(discord.ui.View):
 `/momentum status` - View momentum status for a specific state
 `/momentum overview` - View momentum overview for all states
 `/momentum trigger_collapse` - Attempt to trigger momentum collapse for a vulnerable party
-`/time show_phases` - Show all election phases and their timing
-`/view_primary_winners` - Show current presidential primary winners
+
+**Demographics Commands:**
+`/demographic_appeal` - Appeal to specific demographic groups
+`/demographic_status` - View your demographic progress (presidential candidates)
+`/demographics view_state_demographics` - View demographic strengths by state
 
 **Admin Commands:**
 `/momentum admin add_momentum` - Add momentum to a party in a state (Admin only)
 `/momentum admin set_lean` - Set or change a state's political lean (Admin only)
 `/momentum admin settings` - View or modify momentum system settings (Admin only)
-`/admin_view_pres_state_data` - View PRESIDENTIAL_STATE_DATA as a formatted table (Admin only)
-`/admin_update_winner` - Manually update a primary winner (Admin only)
-`/admin_reset_winners` - Reset all primary winners (Admin only)
-`/admin_view_state_percentages` - View state-by-state voting percentages for general election (Admin only)"""
+
+**Key System Updates:**
+- **No Thresholds**: Demographics no longer have point thresholds
+- **Multiplier Focus**: States have Small (0.05), Moderate (0.10), Strong (0.25) multipliers
+- **Conflict System**: Targeting opposing demographics creates backlash
+- **Momentum Vulnerability**: 50+ momentum makes parties vulnerable to collapse"""
+            },
+            "special": {
+                "title": "🚨 Special Elections",
+                "content": """**Special Election Commands:**
+
+**User Commands:**
+`/special signup` - Sign up for an active special election
+`/special speech` - Give a campaign speech (1 hour cooldown, 2-4 points, 700-3000 chars)
+`/special poster` - Put up campaign posters (1 hour cooldown, 1-3 points, image upload)
+`/special ad` - Run campaign video ads (1 hour cooldown, 3-6 points, video upload)
+`/special calendar` - View current special election timeline and status
+`/special poll` - Conduct NPC poll with 7% margin of error
+
+**Admin Commands:**
+`/special admin call_election` - Call a special election for a vacant House seat (Admin only)
+`/special admin end_election` - End an active special election (Admin only)
+`/special admin set_winner` - Manually set special election winner (Admin only)
+
+**Special Election System:**
+- **Eligibility**: Only House seats (REP- or District seats)
+- **Timeline**: 4 days total (1 day signup, 3 days campaign)
+- **Participation**: Anyone can participate, regardless of regular election status
+- **Stamina**: Start with 100, actions cost 15-25 stamina
+- **Cooldowns**: All actions have 1-hour cooldowns
+- **Target System**: Must specify target candidate for all actions"""
             },
             "admin": {
                 "title": "🔧 Admin Commands",
-                "content": """**/admin campaign ...**
-`/admin campaign speech`
-`/admin campaign donor`
-`/admin campaign canvassing`
-`/admin campaign ad`
-`/admin campaign poster`
+                "content": """**System Administration:**
+`/admin system reset_campaign_cooldowns` - Reset campaign action cooldowns for a user (Admin only)
 
-**/admin system ...**
-`/admin system reset_campaign_cooldowns` - Reset general campaign action cooldowns for a user (Admin only)
+**Campaign Administration:**
+`/admin campaign speech` - Administrative speech action (Admin only)
+`/admin campaign donor` - Administrative donor action (Admin only)
+`/admin campaign canvassing` - Administrative canvassing action (Admin only)
+`/admin campaign ad` - Administrative advertisement action (Admin only)
+`/admin campaign poster` - Administrative poster action (Admin only)
 
-**/party ...**
+**Party Management:**
 `/party admin create` - Create a new political party (Admin only)
 `/party admin remove` - Remove a political party (Admin only)
 `/party admin edit` - Edit an existing political party (Admin only)
-`/party admin reset` - Reset all parties to default (Admin only - DESTRUCTIVE)
+`/party admin reset` - Reset all parties to default (Admin only)
 `/party admin bulk_create` - Create multiple parties at once (Admin only)
-`/party admin remove_all_custom` - Remove all custom parties (keep defaults) (Admin only)
+`/party admin remove_all_custom` - Remove all custom parties (Admin only)
 `/party admin export` - Export party configuration as text (Admin only)
-`/party admin modify_color` - Change the color of multiple parties at once (Admin only)
+`/party admin modify_color` - Change the color of multiple parties (Admin only)
 
-**/poll ...**
-`/poll admin bulk_set_votes` - Set vote counts for multiple candidates (Admin only)
-`/poll admin set_winner_votes` - Set election winner and vote counts for general elections (Admin only)
-
-**/election ...**
+**Election Management:**
 `/election admin set_seats` - Set up election seats for the guild (Admin only)
 `/election admin reset_seats` - Reset all election seats (Admin only)
 `/election admin view_seats` - View all configured election seats (Admin only)
 `/election admin bulk_add_seats` - Add multiple seats from formatted text (Admin only)
 `/election admin fill_vacant_seat` - Fill a vacant seat with a user (Admin only)
-`/election seat admin_update` - Update a specific election seat (Admin only)
-`/election seat admin_reset_term` - Reset term for a specific seat (Admin only)
 
-**/time ...**
-`/time set_current_time` - Set the current RP date and time (Admin only)
-`/time set_time_scale` - Set how many real minutes equal one RP day (Admin only)
-`/time reset_cycle` - Reset the election cycle to the beginning (Admin only)
-`/time set_voice_channel` - Set which voice channel to update with RP date (Admin only)
-`/time toggle_voice_updates` - Toggle automatic voice channel name updates (Admin only)
-`/time update_voice_channel` - Manually update the configured voice channel with current RP date (Admin only)
+**Time Management:**
+`/time admin set_current_time` - Set the current RP date and time (Admin only)
+`/time admin set_time_scale` - Set how many real minutes equal one RP day (Admin only)
+`/time admin reset_cycle` - Reset the election cycle to the beginning (Admin only)
+`/time admin pause_time` - Pause or unpause RP time progression (Admin only)
+`/time admin regenerate_stamina` - Manually regenerate stamina for all candidates (Admin only)
 
-**/endorsements ...**
-`/admin_set_endorsement_role` - Set Discord role for endorsement position (Admin only)
-`/admin_call_state` - Manually call a state for delegate allocation (Admin only)
-
-**/voting ...**
-`/vote admin_bulk_set_votes` - Set vote counts for multiple candidates (Admin only)
-`/vote admin_set_winner_votes` - Set election winner and vote counts for general elections (Admin only)
-`/admin_set_winner_votes` - Set votes for a primary winner (Admin only)
-`/admin_declare_general_winners` - Declare general election winners based on final scores (Admin only)
-
-**/momentum ...**
+**Momentum & Demographics:**
 `/momentum admin add_momentum` - Add momentum to a party in a state (Admin only)
 `/momentum admin set_lean` - Set or change a state's political lean (Admin only)
 `/momentum admin settings` - View or modify momentum system settings (Admin only)
-`/admin_view_pres_state_data` - View PRESIDENTIAL_STATE_DATA as a formatted table (Admin only)
-`/admin_update_winner` - Manually update a primary winner (Admin only)
-`/admin_reset_winners` - Reset all primary winners (Admin only)
-`/admin_view_state_percentages` - View state-by-state voting percentages for general election (Admin only)"""
-            },
-            "handbook": {
-                "title": "📚 Election Bot Handbook",
-                "content": """`/help handbook` - Access the comprehensive election bot handbook with strategies and guides
 
-The handbook includes detailed guides on:
-• Getting started with elections
-• Campaign strategies and tactics
-• Demographics and voter targeting
-• Momentum system mechanics
-• Presidential campaign management
-• Party management and customization
-• Advanced strategic techniques
-• Administrative tools and commands
-• Troubleshooting common issues
+**Special Elections:**
+`/special admin call_election` - Call a special election for a vacant House seat (Admin only)
+`/special admin end_election` - End an active special election (Admin only)
+`/special admin set_winner` - Manually set special election winner (Admin only)
 
-Use the handbook dropdown to navigate between different strategy guides and tutorials."""
+**Polling & Voting:**
+`/poll admin bulk_set_votes` - Set vote counts for multiple candidates (Admin only)
+`/poll admin set_winner_votes` - Set election winner and vote counts (Admin only)"""
             }
         }
 
-        cat_data = categories.get(category, categories["basic"])
+        category_data = categories.get(category, categories["basic"])
         embed = discord.Embed(
-            title=cat_data["title"],
-            description=cat_data["content"],
-            color=discord.Colour.blurple()
+            title=category_data["title"],
+            description=category_data["content"],
+            color=discord.Colour.blue()
         )
-        embed.set_footer(text="Use the dropdown below to navigate between categories")
+        embed.set_footer(text="Use the dropdown below to navigate between command categories")
         return embed
 
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
 
-class Basics(commands.Cog):  # Capitalized as per style
+class Basics(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        print("Basics cog loaded successfully.")
+        print("Basics cog loaded successfully")
 
-    # Create help command group
-    help_group = app_commands.Group(name="help", description="Help and information commands")
-
-    @help_group.command(name="commands", description="Lists all the commands in the bot")
-    async def help_command(self, interaction: discord.Interaction):
-        # Defer the response to prevent timeout
-        await interaction.response.defer()
-
-        view = HelpView()
-        embed = view.get_embed("basic")
-        await interaction.followup.send(embed=embed, view=view)
-
-    @help_group.command(name="credits", description="Lists the people that made this bot")
-    async def credits_command(self, interaction: discord.Interaction):
-
-        embed = discord.Embed(
-            title='To the people who made me possible:',
-            description="""
-            Mallard - original creator
-            Sixteen - 16bysixteen - maintainer
-            Yuri - deftvessel2.0 - maintainer
-            """,
-            color=discord.Colour.blurple()
-        )
-
-        await interaction.response.send_message(embed=embed)
-
-    @help_group.command(name="handbook", description="Access the comprehensive election bot handbook")
-    async def handbook_command(self, interaction: discord.Interaction):
-        # Defer the response to prevent timeout
-        await interaction.response.defer()
-
-        view = HandbookView()
-        embed = view.get_handbook_embed("getting_started")
-        await interaction.followup.send(embed=embed, view=view)
-
-    # Centralized admin command group
-    admin_central = app_commands.Group(name="admin", description="Admin-only commands", default_permissions=discord.Permissions(administrator=True))
-
-    # Subgroups for organization
-    admin_campaign_group = app_commands.Group(name="campaign", description="Campaign admin commands", parent=admin_central)
-    admin_system_group = app_commands.Group(name="system", description="System admin commands", parent=admin_central)
-
-    # Move the cooldown command to the system subgroup
-    @admin_system_group.command(
-        name="reset_campaign_cooldowns",
-        description="Reset general campaign action cooldowns for a user (Admin only)"
+    @app_commands.command(
+        name="help",
+        description="Show help information with interactive navigation"
     )
-    @app_commands.describe(
-        user="The user to reset cooldowns for (defaults to yourself)",
-        collection_name="The cooldown collection to reset"
-    )
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.checks.has_permissions(administrator=True)
-    async def admin_reset_campaign_cooldowns(
-        self,
-        interaction: discord.Interaction,
-        user: discord.Member = None,
-        collection_name: str = "action_cooldowns"
-    ):
-        target_user = user if user else interaction.user
-
-        # Common cooldown collection names that might exist
-        possible_collections = [
-            "action_cooldowns",
-            "campaign_cooldowns",
-            "general_action_cooldowns",
-            "election_cooldowns"
-        ]
-
-        # Ensure the collection exists before attempting to delete
-        if collection_name not in self.bot.db.list_collection_names():
-            await interaction.response.send_message(
-                f"Error: Cooldown collection '{collection_name}' does not exist.",
-                ephemeral=True
+    @app_commands.describe(section="Optional: Jump directly to a specific help section")
+    async def help_command(self, interaction: discord.Interaction, section: str = None):
+        if section == "commands":
+            view = HelpView()
+            embed = view.get_embed("basic")
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        elif section == "handbook":
+            view = HandbookView()
+            embed = view.get_handbook_embed("getting_started")
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        elif section == "credits":
+            embed = discord.Embed(
+                title="🏆 Bot Credits",
+                description="This Discord election simulation bot was created and developed by dedicated contributors.",
+                color=discord.Colour.gold()
             )
-            return
+            embed.add_field(
+                name="Development Team",
+                value="• **Lead Developer**: [Your Name]\n• **Contributors**: [Additional contributors]\n• **Special Thanks**: Discord.py community",
+                inline=False
+            )
+            embed.add_field(
+                name="Bot Features",
+                value="• Full election simulation system\n• Presidential and general elections\n• Special elections for House seats\n• Momentum and demographic systems\n• Campaign actions with 1-hour cooldowns\n• Time management and progression\n• Comprehensive admin tools",
+                inline=False
+            )
+            embed.set_footer(text="Thank you for using our election simulation bot!")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            # Default help message with options
+            embed = discord.Embed(
+                title="🤖 Election Bot Help System",
+                description="Welcome to the comprehensive election simulation bot! Choose how you'd like to get help:",
+                color=discord.Colour.blue()
+            )
+            
+            embed.add_field(
+                name="📋 Command Reference",
+                value="Use `/help commands` to browse all available commands organized by category. Includes special elections, updated demographics, and 1-hour cooldown system.",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📚 Strategy Handbook", 
+                value="Use `/help handbook` for detailed guides on campaign strategies, demographics (no thresholds), momentum system, and special elections.",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🏆 Credits",
+                value="Use `/help credits` to see who made this bot possible.",
+                inline=False
+            )
 
-        cooldowns_col = self.bot.db[collection_name]
+            embed.add_field(
+                name="🆕 Recent Updates",
+                value="• **Special Elections**: 4-day House seat elections\n• **Demographics**: No thresholds, focus on state multipliers\n• **Campaign Actions**: All actions now have 1-hour cooldowns\n• **Unified Stamina**: General (100) and Presidential (200) candidates\n• **Enhanced Momentum**: More strategic importance",
+                inline=False
+            )
+            
+            embed.set_footer(text="Use the commands above to access specific help sections")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        # Reset all cooldowns for the user in the specified collection
-        result = cooldowns_col.delete_many({
-            "guild_id": interaction.guild.id,
-            "user_id": target_user.id
-        })
-
-        await interaction.response.send_message(
-            f"✅ Reset general campaign cooldowns for {target_user.mention} in collection '{collection_name}'. "
-            f"Removed {result.deleted_count} cooldown record(s).",
-            ephemeral=True
-        )
-
-    @admin_reset_campaign_cooldowns.autocomplete("collection_name")
-    async def collection_autocomplete(self, interaction: discord.Interaction, current: str):
-        # Dynamically get collection names from the database
-        collections = self.bot.db.list_collection_names()
-        return [app_commands.Choice(name=col, value=col)
-                for col in collections if current.lower() in col.lower()][:25]
+    @help_command.autocomplete("section")
+    async def help_autocomplete(self, interaction: discord.Interaction, current: str):
+        choices = [
+            app_commands.Choice(name="Commands Reference", value="commands"),
+            app_commands.Choice(name="Strategy Handbook", value="handbook"), 
+            app_commands.Choice(name="Credits", value="credits")
+        ]
+        return [choice for choice in choices if current.lower() in choice.name.lower()]
 
 async def setup(bot):
     await bot.add_cog(Basics(bot))
