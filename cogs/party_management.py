@@ -13,7 +13,7 @@ class PartyManagement(commands.Cog):
     party_group = app_commands.Group(name="party", description="Party management commands")
 
     # Combine admin and member commands into single subgroup
-    party_manage_group = app_commands.Group(name="manage", description="Party management commands", parent=party_group, default_permissions=discord.Permissions(administrator=True))
+    party_manage_group = app_commands.Group(name="manage", description="Party management commands", parent=party_group)
     party_info_group = app_commands.Group(name="info", description="Party information commands", parent=party_group)
 
     def _get_parties_config(self, guild_id: int):

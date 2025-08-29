@@ -15,7 +15,7 @@ class Momentum(commands.Cog):
 
     # Create command groups
     momentum_group = app_commands.Group(name="momentum", description="State momentum commands")
-    momentum_admin_group = app_commands.Group(name="admin", description="Momentum admin commands", parent=momentum_group, default_permissions=discord.Permissions(administrator=True))
+    momentum_admin_group = app_commands.Group(name="admin", description="Momentum admin commands", parent=momentum_group)
 
     def cog_unload(self):
         self.momentum_decay_loop.cancel()

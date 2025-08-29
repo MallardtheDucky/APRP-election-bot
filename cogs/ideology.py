@@ -484,7 +484,6 @@ class IdeologyManagement(commands.Cog):
         category="The ideology category to update",
         new_value="The new ideology value to set"
     )
-    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_add_ideology_option(
         self,
