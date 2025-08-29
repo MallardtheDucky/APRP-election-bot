@@ -208,8 +208,27 @@ class GeneralCampaignActions(commands.Cog):
                 await reply_message.reply(f"❌ Speech must be 700-3000 characters. You wrote {char_count} characters.")
                 return
 
+            # Determine who pays stamina cost
+            stamina_cost = 1.5
+            stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+            # Check if stamina user has enough stamina
+            stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
+            if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
+                # Get stamina user's candidate data
+                signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+
+            stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+            if stamina_amount < stamina_cost:
+                stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
+                await reply_message.reply(f"❌ {stamina_user_name} doesn't have enough stamina for this speech! They need at least {stamina_cost} stamina (current: {stamina_amount}).")
+                return
+
             # Set cooldown after successful validation
             self._set_cooldown(interaction.guild.id, interaction.user.id, "speech")
+
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             # Check for ideology match
             ideology_match = False
@@ -396,8 +415,27 @@ class GeneralCampaignActions(commands.Cog):
                 await reply_message.reply(f"❌ Donor appeal must be no more than 3000 characters. You wrote {char_count} characters.")
                 return
 
+            # Determine who pays stamina cost
+            stamina_cost = 1.5
+            stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+            # Check if stamina user has enough stamina
+            stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
+            if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
+                # Get stamina user's candidate data
+                signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+
+            stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+            if stamina_amount < stamina_cost:
+                stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
+                await reply_message.reply(f"❌ {stamina_user_name} doesn't have enough stamina for this donor appeal! They need at least {stamina_cost} stamina (current: {stamina_amount}).")
+                return
+
             # Set cooldown after successful validation
             self._set_cooldown(interaction.guild.id, interaction.user.id, "donor")
+
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             # Calculate boost - 1% per 1000 characters  
             boost = (char_count / 1000) * 1.0
@@ -405,10 +443,6 @@ class GeneralCampaignActions(commands.Cog):
 
             # Add momentum during General Campaign
             self._add_momentum_from_general_action(interaction.guild.id, interaction.user.id, state_upper, boost, candidate, target)
-
-            # Check for state ideology match (if applicable)
-            state_data = STATE_DATA.get(state_upper, {})
-            state_ideology = state_data.get("ideology", "Unknown")
 
             # Create response embed
             embed = discord.Embed(
@@ -428,6 +462,10 @@ class GeneralCampaignActions(commands.Cog):
                 value=display_appeal,
                 inline=False
             )
+
+            # Get state ideology data
+            state_data = STATE_DATA.get(state_upper, {})
+            state_ideology = state_data.get("ideology", "Unknown")
 
             embed.add_field(
                 name="📊 Campaign Impact",
@@ -527,9 +565,12 @@ class GeneralCampaignActions(commands.Cog):
                 )
                 return
 
+        # Defer the response early to prevent timeout
+        await interaction.response.defer()
+
         # Check if attachment is an image
         if not image or not image.content_type or not image.content_type.startswith('image/'):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Please upload an image file (PNG, JPG, GIF, etc.).",
                 ephemeral=True
             )
@@ -537,14 +578,36 @@ class GeneralCampaignActions(commands.Cog):
 
         # Check file size
         if image.size > 10 * 1024 * 1024:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Image file too large! Maximum size is 10MB.",
+                ephemeral=True
+            )
+            return
+
+        # Determine who pays stamina cost
+        stamina_cost = 1
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Check if stamina user has enough stamina
+        stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
+        if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
+            # Get stamina user's candidate data
+            signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
+            await interaction.followup.send(
+                f"❌ {stamina_user_name} doesn't have enough stamina to create a poster! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
                 ephemeral=True
             )
             return
 
         # Set cooldown after successful validation
         self._set_cooldown(interaction.guild.id, interaction.user.id, "poster")
+
+        # Deduct stamina from the determined user
+        self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
         # Random polling boost between 0.25% and 0.5%
         polling_boost = random.uniform(0.25, 0.5)
@@ -593,7 +656,7 @@ class GeneralCampaignActions(commands.Cog):
         embed.set_image(url=image.url)
         embed.set_footer(text="Next poster available in 1 hour")
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @poster.autocomplete("target")
     async def target_autocomplete_poster(self, interaction: discord.Interaction, current: str):
@@ -699,8 +762,27 @@ class GeneralCampaignActions(commands.Cog):
                 await reply_message.reply("❌ Video file too large! Maximum size is 25MB.")
                 return
 
+            # Determine who pays stamina cost
+            stamina_cost = 1.5
+            stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+            # Check if stamina user has enough stamina
+            stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
+            if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
+                # Get stamina user's candidate data
+                signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+
+            stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+            if stamina_amount < stamina_cost:
+                stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
+                await reply_message.reply(f"❌ {stamina_user_name} doesn't have enough stamina to create an ad! They need at least {stamina_cost} stamina (current: {stamina_amount}).")
+                return
+
             # Set cooldown after successful validation
             self._set_cooldown(interaction.guild.id, interaction.user.id, "ad")
+
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             # Random polling boost between 0.5% and 1%
             polling_boost = random.uniform(0.5, 1.0)
@@ -843,8 +925,30 @@ class GeneralCampaignActions(commands.Cog):
             )
             return
 
+        # Determine who pays stamina cost
+        stamina_cost = 1
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Check if stamina user has enough stamina
+        stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
+        if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
+            # Get stamina user's candidate data
+            signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
+            await interaction.response.send_message(
+                f"❌ {stamina_user_name} doesn't have enough stamina for canvassing! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
+                ephemeral=True
+            )
+            return
+
         # Set cooldown after successful validation
         self._set_cooldown(interaction.guild.id, interaction.user.id, "canvassing")
+
+        # Deduct stamina from the determined user
+        self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
         # Fixed polling boost of 0.1%
         polling_boost = 0.1
@@ -1272,6 +1376,30 @@ class GeneralCampaignActions(commands.Cog):
         except Exception as e:
             print(f"Error in _add_momentum_from_general_action: {e}")
 
+    def _determine_stamina_user(self, guild_id: int, user_id: int, target_candidate_data: dict, stamina_cost: float):
+        """Determines whether the user or the target candidate pays the stamina cost."""
+        # Get the user's candidate data
+        _, user_candidate_data = self._get_user_candidate(guild_id, user_id)
+
+        # If the user is a candidate and has enough stamina, they pay.
+        if user_candidate_data and user_candidate_data.get("stamina", 0) >= stamina_cost:
+            return user_id
+
+        # Otherwise, the target candidate pays if they exist and have enough stamina.
+        if target_candidate_data and target_candidate_data.get("stamina", 0) >= stamina_cost:
+            return target_candidate_data.get("user_id")
+
+        # If neither can pay, return the target's user ID as a fallback (though the action will likely fail).
+        return target_candidate_data.get("user_id") if target_candidate_data else user_id
+
+    def _deduct_stamina_from_user(self, guild_id: int, user_id: int, cost: float):
+        """Deducts stamina from a user's candidate profile."""
+        signups_col = self.bot.db["all_signups"]
+        signups_col.update_one(
+            {"guild_id": guild_id, "candidates.user_id": user_id},
+            {"$inc": {"candidates.$[elem].stamina": -cost}},
+            array_filters=[{"elem.user_id": user_id}]
+        )
 
 
 async def setup(bot):

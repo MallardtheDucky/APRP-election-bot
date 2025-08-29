@@ -17,7 +17,7 @@ class HelpDropdown(discord.ui.Select):
                 value="basic"
             ),
             discord.SelectOption(
-                label="🏛️ Setup Commands", 
+                label="🏛️ Setup Commands",
                 description="Guild setup and configuration",
                 value="setup"
             ),
@@ -28,7 +28,7 @@ class HelpDropdown(discord.ui.Select):
             ),
             discord.SelectOption(
                 label="📊 Polling Commands",
-                description="Polling and survey commands", 
+                description="Polling and survey commands",
                 value="polling"
             ),
             discord.SelectOption(
@@ -225,56 +225,119 @@ Example Timeline:
             },
             "campaign_strategies": {
                 "title": "🎯 Campaign Strategies",
-                "content": """**Understanding Campaign Actions**
+                "content": """**Core Campaign Actions**
 
 **1. Speeches** (`/speech`)
-- Purpose: Build general support and name recognition
-- Effectiveness: Moderate, broad appeal
-- Stamina Cost: Low-Medium, Cooldown: 4-6 hours
-- Best Used: Early campaign, building base support
-- Tips: Write engaging content, longer speeches = more points
+- **Purpose:** Build general support and name recognition across states
+- **Effectiveness:** 1.0-2.5 points base (modified by momentum and demographics)
+- **Stamina Cost:** 2.0 points, Cooldown: 4 hours
+- **Best Used:** Early campaign foundation building, maintaining presence
+- **Strategic Tips:** Consistent speeches build momentum over time
 
 **2. Canvassing** (`/canvassing`)
-- Purpose: Target specific regions with ground game
-- Effectiveness: High in targeted regions
-- Stamina Cost: Medium, Cooldown: 6-8 hours  
-- Best Used: Swing states, competitive districts
+- **Purpose:** Intensive ground game in specific targeted states
+- **Effectiveness:** 1.5-3.0 points (high regional focus)
+- **Stamina Cost:** 3.0 points, Cooldown: 6 hours
+- **Best Used:** Swing states, competitive districts, demographic targeting
+- **Strategic Tips:** Most effective when combined with demographic appeals
 
 **3. Advertisements** (`/ad`)
-- Purpose: Wide reach across multiple regions
-- Effectiveness: High but expensive
-- Stamina Cost: High, Cooldown: 10-12 hours
-- Best Used: Late campaign, major media markets, requires video upload
+- **Purpose:** High-impact media campaigns with wide reach
+- **Effectiveness:** 2.0-4.0 points (very high with momentum)
+- **Stamina Cost:** 4.0 points, Cooldown: 10 hours
+- **Best Used:** Late campaign pushes, major media markets
+- **Requirements:** Must include video/image upload for authenticity
 
 **4. Posters** (`/poster`)
-- Purpose: Cheap way to build name recognition
-- Effectiveness: Low but cost-efficient
-- Stamina Cost: Low, Cooldown: 2-4 hours
-- Best Used: Continuous presence, requires image upload
+- **Purpose:** Cost-effective continuous presence and branding
+- **Effectiveness:** 0.5-1.5 points (consistent but moderate)
+- **Stamina Cost:** 1.5 points, Cooldown: 3 hours
+- **Best Used:** Maintaining visibility, budget-conscious campaigns
+- **Requirements:** Must include image upload for visual impact
 
 **5. Donor Appeals** (`/donor`)
-- Purpose: Fundraising for future campaigns
-- Effectiveness: Varies by region and timing
-- Stamina Cost: Medium, Cooldown: 8-10 hours
-- Best Used: Building war chest, crisis response
+- **Purpose:** Fundraising and building campaign infrastructure
+- **Effectiveness:** Variable (builds resources for future actions)
+- **Stamina Cost:** 2.5 points, Cooldown: 8 hours
+- **Best Used:** Early campaign funding, crisis response preparation
 
-**Advanced Action Strategies**
+**6. Demographic Appeals** (`/demographic_appeal`)
+- **Purpose:** Target specific voter demographics with tailored messaging
+- **Effectiveness:** 1.0-3.0 points (varies by demographic strength in state)
+- **Stamina Cost:** 2.5 points, Cooldown: 5 hours
+- **Best Used:** Building coalition strength, targeting core demographics
 
-**Timing Your Actions**
-1. **Early Campaign** (First 1/3) - Focus on posters and speeches, build name recognition, conservative stamina use
-2. **Mid Campaign** (Middle 1/3) - Increase canvassing frequency, target demographics, moderate stamina expenditure  
-3. **Late Campaign** (Final 1/3) - Heavy use of ads, focus on swing states, maximum demographic targeting
+**7. Town Halls** (`/town_hall`)
+- **Purpose:** Direct voter engagement and issue-focused campaigning
+- **Effectiveness:** 1.5-2.5 points (strong local impact)
+- **Stamina Cost:** 3.0 points, Cooldown: 8 hours
+- **Best Used:** Addressing local concerns, building grassroots support
 
-**Regional Targeting Strategy**
-**Tier 1: Must-Win States** - Party strongholds, focus 40% of resources
-**Tier 2: Competitive States** - True swing states, focus 50% of resources  
-**Tier 3: Stretch Goals** - Opposition strongholds with potential, focus 10% of resources
+**8. Voter Registration** (`/voter_registration`)
+- **Purpose:** Expand voter base and build long-term support
+- **Effectiveness:** 1.0-2.0 points (cumulative benefits)
+- **Stamina Cost:** 2.0 points, Cooldown: 6 hours
+- **Best Used:** Early campaign, demographic expansion
 
-**Resource Management**
-- **Total Stamina**: Usually 200 points maximum
-- **Critical Threshold**: Below 50 stamina = reduced effectiveness
-- **Emergency Reserve**: Always keep 20-30 stamina for responses
-- Track cooldowns, plan ahead, coordinate with running mates"""
+**9. Grassroots Events** (`/grassroots`)
+- **Purpose:** Community organizing and volunteer mobilization
+- **Effectiveness:** 1.2-2.2 points (builds campaign infrastructure)
+- **Stamina Cost:** 2.5 points, Cooldown: 7 hours
+- **Best Used:** Building sustained campaign presence, volunteer networks
+
+**Advanced Campaign Strategy**
+
+**Campaign Phase Optimization**
+1. **Signup Phase** (Phase 1) - Prepare strategy, research demographics and state leans
+2. **Primary Campaign** (Phase 2-3) - Build momentum, establish demographic coalitions
+3. **Primary Election** (Phase 4) - Limited actions, final appeals to party base
+4. **General Campaign** (Phase 5-6) - Full campaign deployment, swing state focus
+5. **General Election** (Phase 7) - Final push, get-out-the-vote efforts
+
+**Action Timing Strategy**
+**Early Campaign (Weeks 1-2):**
+- Focus: Speeches (2.0 stamina) and Posters (1.5 stamina) for base building
+- Goal: Establish name recognition, build initial momentum
+- Reserve: Maintain 60-80 stamina for sustained activity
+
+**Mid Campaign (Weeks 3-4):**
+- Focus: Canvassing (3.0 stamina) and Demographic Appeals (2.5 stamina)
+- Goal: Target swing states, build demographic coalitions
+- Reserve: Maintain 40-60 stamina for flexibility
+
+**Late Campaign (Weeks 5-6):**
+- Focus: Advertisements (4.0 stamina) and Town Halls (3.0 stamina)
+- Goal: Maximum impact, swing voter persuasion
+- Reserve: Use remaining stamina aggressively
+
+**Regional Resource Allocation**
+**Tier 1: Core States (35% of resources)**
+- Party strongholds where you MUST win
+- Defensive campaigning to prevent upsets
+- Focus on maintaining momentum above 25 points
+
+**Tier 2: Swing States (50% of resources)**
+- True competitive battlegrounds
+- Highest ROI for campaign actions
+- Target momentum of 40-60 points
+
+**Tier 3: Expansion States (15% of resources)**
+- Opposition-leaning states with potential
+- High-risk, high-reward targets
+- Only pursue if ahead in Tier 1 and 2
+
+**Stamina Management System**
+- **Maximum Stamina:** 200 points (refreshes over time)
+- **Optimal Range:** Keep stamina between 50-150 for flexibility
+- **Crisis Reserve:** Always maintain 30-40 stamina for emergency responses
+- **Cooldown Planning:** Track all action cooldowns, plan 8-12 hours ahead
+- **Recovery Rate:** Stamina regenerates at ~1 point per hour
+
+**Action Effectiveness Multipliers**
+- **Momentum Bonus:** Each 25 momentum points = +50% effectiveness
+- **Demographic Strength:** 1.75x in strong states, 0.3x in weak states
+- **State Lean:** Additional multipliers based on natural party strength
+- **Coalition Bonus:** Synergy between compatible demographic appeals"""
             },
             "demographics": {
                 "title": "👥 Demographics & Targeting",
@@ -345,19 +408,20 @@ Example Timeline:
             "momentum": {
                 "title": "🌊 Momentum System",
                 "content": """**Understanding Political Momentum**
-The momentum system simulates how parties gain and lose influence in states based on campaign activity, scandals, and voter sentiment.
+The momentum system simulates dynamic shifts in political influence based on campaign activity, media coverage, and voter sentiment changes.
 
 **Core Momentum Mechanics**
-- Successful campaign actions build momentum
-- Momentum multiplies effectiveness of future actions
-- High momentum makes everything easier
-- Momentum decays over time without activity
+- **Building Momentum:** All successful campaign actions contribute momentum points
+- **Multiplier Effect:** Momentum creates exponential returns on campaign investment
+- **Decay System:** Momentum naturally decreases over time without maintenance
+- **State-Specific:** Each state has independent momentum tracking
 
-**Momentum Vulnerability**
-- Parties with high momentum (50+ points) become vulnerable
-- Opponents can trigger "momentum collapse" 
-- Collapses cause massive momentum loss (30-70%)
-- Vulnerable parties have warning indicators (⚠️)
+**Momentum Vulnerability System**
+- **Vulnerability Threshold:** 50+ momentum points trigger vulnerability status
+- **Warning Indicators:** Vulnerable parties show ⚠️ symbols in status displays
+- **Collapse Mechanics:** Opponents can attempt momentum collapse attacks
+- **Collapse Cooldown:** 6-hour cooldown between collapse attempts per user
+- **Collapse Impact:** Reduces momentum by 30-70% of current total
 
 **State Political Leans**
 Every state has a baseline political lean that affects momentum:
@@ -415,51 +479,66 @@ Every state has a baseline political lean that affects momentum:
             },
             "presidential": {
                 "title": "🏛️ Presidential Campaigns",
-                "content": """**Presidential Primary System**
-Presidential campaigns are the most complex and prestigious elections, featuring unique mechanics and strategic considerations.
+                "content": """**Presidential Campaign System**
+Presidential campaigns represent the pinnacle of political competition, featuring enhanced mechanics and national-scale strategic considerations.
 
-**Primary Calendar and Delegate System**
-**Early Primary States** (High Influence)
-- Iowa, New Hampshire, South Carolina, Nevada traditionally go first
-- Early victories create momentum and media attention
-- Strong performance here can make or break campaigns
+**Presidential Registration Process**
+1. **Presidential Signup:** `/pres_signup` with name, party, and ideology specification
+2. **Running Mate Selection:** Choose VP candidate through `/vp_signup` system
+3. **Ticket Formation:** Presidential candidate accepts VP with `/accept_vp`
+4. **Coalition Building:** Coordinate with party members for unified strategy
 
-**Super Tuesday** (Mass Delegate Day)
-- Multiple large states vote simultaneously  
-- California, Texas, New York often included
-- Requires significant resource allocation
+**Delegate System and Primary States**
+**Delegate Allocation:** Automatic system tracks delegate accumulation by state
+**State Calling:** Admins can manually call states for dramatic delegate shifts
+**Threshold Requirements:** Candidates must reach delegate thresholds for nomination
+**Momentum Impact:** Primary wins create massive momentum boosts
 
-**Primary Campaign Strategy**
-1. **Early State Strategy** - Focus heavily on Iowa and New Hampshire
-2. **National Strategy** - Campaign everywhere from the start
-3. **Regional Strategy** - Focus on specific geographic regions
+**Primary Campaign Phases**
+1. **Early State Strategy** - Build momentum in traditional early primary states
+2. **Super Tuesday Preparation** - Resource allocation for simultaneous multi-state contests  
+3. **Regional Consolidation** - Focus on geographic or demographic strongholds
+4. **National Unity** - Post-primary party consolidation and general election prep
 
-**Presidential Action System**
-Presidential candidates have enhanced campaign actions:
+**Enhanced Presidential Actions**
+Presidential candidates have access to premium campaign actions with enhanced effectiveness and national reach:
 
 **1. Presidential Speeches** (`/pres_speech`)
-- Effect: 1.5-3.0 points (enhanced)
-- Stamina Cost: 3.0, Cooldown: 6 hours
-- Special Features: Multi-state reach, national media coverage
+- **Effect:** 2.0-4.0 points (enhanced national reach)
+- **Stamina Cost:** 3.0, Cooldown: 6 hours
+- **Special Features:** Multi-state impact, national media coverage, momentum building
+- **Strategic Use:** Major policy announcements, rally base support
 
 **2. Presidential Canvassing** (`/pres_canvassing`)
-- Effect: State-targeted with momentum bonus
-- Stamina Cost: 4.0, Cooldown: 8 hours
-- Special Features: Builds momentum and demographic points
+- **Effect:** 2.5-4.5 points (enhanced ground game)
+- **Stamina Cost:** 4.0, Cooldown: 8 hours
+- **Special Features:** Builds momentum and demographic points simultaneously
+- **Strategic Use:** Swing state ground operations, demographic targeting
 
-**3. Presidential Ads** (`/pres_ad`)
-- Effect: 2.0-4.0 points (very high)
-- Stamina Cost: 5.0, Cooldown: 12 hours
-- Special Features: Multi-state reach, premium effectiveness
+**3. Presidential Advertisements** (`/pres_ad`)
+- **Effect:** 3.0-6.0 points (premium effectiveness)
+- **Stamina Cost:** 5.0, Cooldown: 12 hours
+- **Special Features:** National media buy, multi-state reach, high production value
+- **Strategic Use:** Late campaign messaging, swing voter persuasion
 
 **4. Presidential Posters** (`/pres_poster`)
-- Effect: 1.0-2.0 points (enhanced)
-- Stamina Cost: 2.0, Cooldown: 4 hours
-- Special Features: National distribution, brand building
+- **Effect:** 1.5-3.0 points (enhanced visibility)
+- **Stamina Cost:** 2.0, Cooldown: 4 hours
+- **Special Features:** National distribution network, brand building
+- **Strategic Use:** Continuous presence, name recognition maintenance
 
 **5. Presidential Donor Appeals** (`/pres_donor`)
-- Effect: Major fundraising, future campaign benefits
-- Stamina Cost: 3.5, Cooldown: 10 hours
+- **Effect:** Enhanced fundraising, premium infrastructure building
+- **Stamina Cost:** 3.5, Cooldown: 10 hours
+- **Special Features:** National fundraising network, future campaign benefits
+- **Strategic Use:** Building war chest, crisis response preparation
+
+**Presidential vs. General Action Comparison**
+- **Effectiveness:** Presidential actions typically 25-50% more effective
+- **Reach:** Presidential actions often affect multiple states simultaneously
+- **Cost:** Higher stamina costs reflect premium nature of presidential campaigns
+- **Momentum Impact:** Presidential actions build momentum more efficiently
+- **Media Coverage:** Presidential actions receive enhanced media attention simulation
 
 **Vice Presidential Selection Strategy**
 **Geographic Balance** - Choose VP from different region
@@ -540,16 +619,17 @@ Administrators can create custom parties for unique roleplay scenarios:
 - `/party admin modify_color` - Change the color of multiple parties at once (Admin only)
 
 **Advanced Party Strategies**
-**Multi-Party Scenarios:** Coalition government simulation
-**Regional Party Systems:** Parties representing specific regions
-**Issue-Based Parties:** Single-issue parties for specific causes
-**Historical Simulation:** Parties based on historical periods
+
+**Multi-Party Scenarios**
+- **Coalition Government Simulation:** Create multiple parties representing different ideologies
+- **Regional Party Systems:** Create parties representing specific geographic regions
+- **Issue-Based Parties:** Single-issue parties for specific causes
+- **Historical Simulation:** Create parties based on historical periods
 
 **Party Brand Management**
-- Ensure all party candidates use similar messaging
-- Coordinate policy positions and priorities
-- Build party infrastructure across multiple election cycles
-- Adapt to changing demographics and new issues"""
+- **Consistency Across Candidates:** Ensure all party candidates use similar messaging
+- **Long-Term Party Building:** Build party infrastructure across multiple election cycles
+- **Adaptation and Evolution:** Parties must adapt to changing demographics"""
             },
             "advanced": {
                 "title": "🎓 Advanced Strategies",
@@ -578,7 +658,7 @@ Colorado      | 0.75x | 0.75x   | 0.75x | 0.75x
 1. States where all core demographics are strong
 2. States where 2-3 core demographics are strong
 3. Swing states where at least 1 core demographic is strong
-4. Opponent strongholds only if you have overwhelming advantages
+4. Opposition strongholds only if you have overwhelming advantages
 
 **Advanced Momentum Warfare**
 
@@ -870,7 +950,7 @@ class HelpView(discord.ui.View):
 `/help credits` - Lists the people that made this bot"""
             },
             "setup": {
-                "title": "🏛️ Setup Commands", 
+                "title": "🏛️ Setup Commands",
                 "content": """**User Commands:**
 `/setup show_config` - Show current election configuration
 `/setup list_regions` - List all the US states you've added as regions

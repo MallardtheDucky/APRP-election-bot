@@ -85,22 +85,22 @@ class Polling(commands.Cog):
             # First check presidential signups directly for presidential candidates
             pres_signups_col = self.bot.db["presidential_signups"]
             pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
-            
+
             if pres_signups_config:
                 # Try multiple signup years to be safe
                 possible_years = [current_year, current_year - 1, current_year - 2]
-                
+
                 for signup_year in possible_years:
                     for candidate in pres_signups_config.get("candidates", []):
                         if (candidate["name"].lower() == candidate_name.lower() and 
                             candidate["year"] == signup_year and
                             candidate["office"] == "President"):
                             return pres_signups_col, candidate
-            
+
             # Also check presidential winners collection
             pres_winners_col = self.bot.db["presidential_winners"]
             pres_winners_config = pres_winners_col.find_one({"guild_id": guild_id})
-            
+
             if pres_winners_config:
                 winners_data = pres_winners_config.get("winners", {})
                 if isinstance(winners_data, dict):
@@ -111,13 +111,13 @@ class Polling(commands.Cog):
                             if pres_signups_config:
                                 election_year = pres_winners_config.get("election_year", current_year)
                                 signup_year = election_year - 1 if election_year % 2 == 0 else election_year
-                                
+
                                 for candidate in pres_signups_config.get("candidates", []):
                                     if (candidate["name"].lower() == candidate_name.lower() and 
                                         candidate["year"] == signup_year and
                                         candidate["office"] == "President"):
                                         return pres_signups_col, candidate
-            
+
             # If not presidential, look in regular winners collection
             winners_col = self.bot.db["winners"]
             winners_config = winners_col.find_one({"guild_id": guild_id})
@@ -138,7 +138,7 @@ class Polling(commands.Cog):
                 for candidate in signups_config["candidates"]:
                     if candidate["name"].lower() == candidate_name.lower() and candidate["year"] == current_year:
                         return signups_col, candidate
-            
+
             # Also check presidential signups
             pres_signups_col = self.bot.db["presidential_signups"]
             pres_signups_config = pres_signups_col.find_one({"guild_id": guild_id})
@@ -888,8 +888,8 @@ class Polling(commands.Cog):
                     poll_results.append({
                         "candidate": candidate,
                         "name": candidate_name,
-                        "actual": actual_percentage,
                         "poll": poll_result,
+                        "actual": actual_percentage,
                         "party": party,
                         "is_highlighted": candidate == highlighted_candidate
                     })
@@ -908,8 +908,8 @@ class Polling(commands.Cog):
                         poll_results.append({
                             "candidate": candidate,
                             "name": candidate_name,
-                            "actual": actual_percentage,
                             "poll": poll_result,
+                            "actual": actual_percentage,
                             "party": party,
                             "is_highlighted": candidate == highlighted_candidate
                         })
@@ -1120,11 +1120,11 @@ class Polling(commands.Cog):
         poll_results.sort(key=lambda x: x["poll"], reverse=True)
 
         # Generate media polling details
-        media_orgs = [
+        polling_orgs = [
             "Channel 7 News", "Daily Herald", "Political Weekly", "State News Network",
             "Independent Media Group", "Public Broadcasting", "News Radio 101.5", "City Tribune"
         ]
-        polling_org = random.choice(media_orgs)
+        polling_org = random.choice(polling_orgs)
         sample_size = random.randint(400, 800)
         days_ago = random.randint(2, 7)
 
@@ -1195,7 +1195,7 @@ class Polling(commands.Cog):
 
         embed.add_field(
             name="📺 Media Release",
-            value="This poll was conducted by independent media and is available to the public.",
+            value="This poll was conducted by independent media and is available to the general public.",
             inline=False
         )
 
@@ -1216,6 +1216,7 @@ class Polling(commands.Cog):
         try:
             from .presidential_winners import PRESIDENTIAL_STATE_DATA
         except ImportError:
+            # Fallback if import fails
             PRESIDENTIAL_STATE_DATA = {}
 
         state_upper = state.upper()
@@ -1238,31 +1239,40 @@ class Polling(commands.Cog):
         current_phase = time_config.get("current_phase", "")
         current_year = time_config["current_rp_date"].year
 
-        # Check if user is a valid candidate (same logic as private_seat_poll)
+        # Check if user is a valid presidential candidate
         user_candidate = None
 
-        # Check in signups
-        signups_col, signups_config = self._get_signups_config(interaction.guild.id)
-        if signups_config:
-            for candidate in signups_config["candidates"]:
-                if candidate["user_id"] == interaction.user.id and candidate["year"] == current_year:
+        # Check in presidential signups
+        pres_col = self.bot.db["presidential_signups"]
+        pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+        if pres_config:
+            for candidate in pres_config.get("candidates", []):
+                if (candidate["user_id"] == interaction.user.id and
+                    candidate["year"] == current_year and
+                    candidate["office"] == "President"):
                     user_candidate = candidate
                     break
 
-        # Check in presidential signups
-        if not user_candidate:
-            pres_col = self.bot.db["presidential_signups"]
-            pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
-            if pres_config:
-                for candidate in pres_config.get("candidates", []):
-                    if (candidate["user_id"] == interaction.user.id and
-                        candidate["year"] == current_year):
-                        user_candidate = candidate
+        # Initialize winners_col here to avoid UnboundLocalError
+        winners_col = self.bot.db["winners"]
+        winners_config = None
+
+        # Check in winners if general campaign
+        if not user_candidate and current_phase == "General Campaign":
+            winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
+            if winners_config:
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                for winner in winners_config["winners"]:
+                    if (winner["user_id"] == interaction.user.id and
+                        winner.get("primary_winner", False) and
+                        winner["year"] == primary_year and
+                        winner.get("office") == "President"):
+                        user_candidate = winner
                         break
 
         if not user_candidate:
             await interaction.response.send_message(
-                "❌ Only active candidates can use private polling.",
+                "❌ Only active presidential candidates can use private presidential polling.",
                 ephemeral=True
             )
             return
@@ -1277,72 +1287,84 @@ class Polling(commands.Cog):
             return
 
         # Deduct stamina
-        if user_candidate in signups_config.get("candidates", []):
-            for i, candidate in enumerate(signups_config["candidates"]):
-                if candidate["user_id"] == interaction.user.id and candidate["year"] == current_year:
-                    signups_config["candidates"][i]["stamina"] = max(0, current_stamina - 1)
-                    signups_col.update_one(
-                        {"guild_id": interaction.guild.id},
-                        {"$set": {"candidates": signups_config["candidates"]}}
-                    )
-                    break
-        elif "pres_config" in locals():
+        if current_phase == "General Campaign" and winners_config:
+            winners_col.update_one(
+                {"guild_id": interaction.guild.id, "winners.user_id": interaction.user.id},
+                {"$inc": {"winners.$.stamina": -1}}
+            )
+        else:
             pres_col.update_one(
                 {"guild_id": interaction.guild.id, "candidates.user_id": interaction.user.id},
                 {"$inc": {"candidates.$.stamina": -1}}
             )
 
-        # Get presidential candidates (same logic as media_pres_poll)
-        pres_candidates = []
+        # Get all presidential candidates
+        presidential_candidates = []
         highlighted_candidate = None
 
         if current_phase == "General Campaign":
-            # First check presidential signups directly
-            pres_col = self.bot.db["presidential_signups"]
-            pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
-            
-            if pres_config:
-                # Determine signup year
-                signup_year = current_year - 1 if current_year % 2 == 0 else current_year
-                
-                # Get all presidential candidates from signup year
-                all_pres_candidates = [
-                    c for c in pres_config.get("candidates", [])
-                    if (c.get("year") == signup_year and
-                        c.get("office") == "President")
-                ]
-                
-                # Check if we have presidential winners to filter by
-                pres_winners_col = self.bot.db["presidential_winners"]
-                pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
-                
-                if pres_winners_config and pres_winners_config.get("winners"):
-                    winners_data = pres_winners_config.get("winners", {})
-                    if isinstance(winners_data, dict):
-                        # Filter candidates to only primary winners
-                        for candidate in all_pres_candidates:
-                            candidate_name_check = candidate.get("name")
-                            for party, winner_name in winners_data.items():
-                                if isinstance(winner_name, str) and winner_name.lower() == candidate_name_check.lower():
-                                    general_candidate = candidate.copy()
-                                    general_candidate["primary_winner"] = True
-                                    general_candidate["total_points"] = general_candidate.get("points", 0.0)
-                                    pres_candidates.append(general_candidate)
+            # Get presidential winners from presidential_winners collection
+            pres_winners_col = self.bot.db["presidential_winners"]
+            pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
+
+            if pres_winners_config and pres_winners_config.get("winners"):
+                party_winners = pres_winners_config.get("winners", [])
+                stored_election_year = pres_winners_config.get("election_year")
+
+                # Determine the signup year based on the stored election year
+                if stored_election_year:
+                    signup_year = stored_election_year - 1
                 else:
-                    # No winners declared yet, show all registered candidates
-                    pres_candidates = all_pres_candidates
-        else:
-            # Look in presidential signups for primary campaign
-            pres_col = self.bot.db["presidential_signups"]
-            pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
-            if pres_config:
-                pres_candidates = [
-                    c for c in pres_config.get("candidates", [])
-                    if (c.get("year") == current_year and
-                        c.get("office") == "President")
+                    # Fallback to old logic
+                    signup_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+                # Get full candidate data from presidential signups
+                if pres_config:
+                    for party, winner_name in party_winners.items():
+                        for candidate in pres_config.get("candidates", []):
+                            if (candidate["name"] == winner_name and 
+                                candidate["year"] == signup_year and 
+                                candidate["office"] == "President"):
+                                # Mark this candidate as a primary winner
+                                candidate["is_primary_winner"] = True
+                                candidate["primary_winner_party"] = party
+                                candidate["election_year"] = stored_election_year or current_year
+                                presidential_candidates.append(candidate)
+                                break
+
+            # If no winners from presidential_winners, check all_winners system as fallback
+            if not presidential_candidates and winners_config:
+                # Find presidential primary winners in all_winners system
+                primary_year = current_year - 1 if current_year % 2 == 0 else current_year
+                presidential_winners = [
+                    w for w in winners_config.get("winners", [])
+                    if (w.get("office") == "President" and 
+                        w.get("year") == current_year and 
+                        w.get("primary_winner", False))
                 ]
 
-        if not pres_candidates:
+                # Get full candidate data from presidential signups
+                if pres_config and presidential_winners:
+                    for winner in presidential_winners:
+                        winner_name = winner.get("candidate")
+                        for candidate in pres_config.get("candidates", []):
+                            if (candidate["name"] == winner_name and 
+                                candidate["year"] == primary_year and 
+                                candidate["office"] == "President"):
+                                # Add winner data to candidate for display
+                                candidate["winner_data"] = winner
+                                presidential_candidates.append(candidate)
+                                break
+
+        else:
+            # Primary campaign - get all presidential candidates
+            if pres_config:
+                presidential_candidates = [
+                    c for c in pres_config.get("candidates", [])
+                    if (c["year"] == current_year and c["office"] == "President")
+                ]
+
+        if not presidential_candidates:
             await interaction.response.send_message(
                 f"❌ No presidential candidates found for the current {current_phase.lower()}.",
                 ephemeral=True
@@ -1351,7 +1373,7 @@ class Polling(commands.Cog):
 
         # Find highlighted candidate if specified by name
         if candidate_name:
-            for candidate in pres_candidates:
+            for candidate in presidential_candidates:
                 candidate_display_name = candidate.get('name')
                 if candidate_display_name and candidate_display_name.lower() == candidate_name.lower():
                     highlighted_candidate = candidate
@@ -1361,41 +1383,44 @@ class Polling(commands.Cog):
         poll_results = []
 
         if current_phase == "General Campaign":
-            # Use the presidential calculation method if available
-            pres_cog = self.bot.get_cog('PresCampaignActions')
-            if pres_cog:
-                general_percentages = pres_cog._calculate_general_election_percentages(interaction.guild.id, "President")
+            # Use state-specific baseline data for more accurate polling
+            state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {
+                "republican": 33.0, "democrat": 33.0, "other": 34.0
+            })
 
-                for candidate in pres_candidates:
-                    candidate_name_for_calc = candidate.get('name')
-                    actual_percentage = general_percentages.get(candidate_name_for_calc, 50.0)
-                    poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+            for candidate in presidential_candidates:
+                candidate_name = candidate.get('name')
+                candidate_party = candidate.get('party', '').lower()
 
-                    poll_results.append({
-                        "candidate": candidate,
-                        "name": candidate_name_for_calc,
-                        "actual": actual_percentage,
-                        "poll": poll_result,
-                        "is_highlighted": candidate == highlighted_candidate
-                    })
-            else:
-                # Fallback calculation
-                base_percentage = 100.0 / len(pres_candidates) if pres_candidates else 50.0
-                for candidate in pres_candidates:
-                    candidate_name_for_calc = candidate.get('name')
-                    poll_result = self._calculate_poll_result(base_percentage, margin_of_error=3.0)
+                # Determine party alignment for baseline calculations
+                if "republican" in candidate_party:
+                    baseline_percentage = state_data.get("republican", 33.0)
+                elif "democrat" in candidate_party:
+                    baseline_percentage = state_data.get("democrat", 33.0)
+                else:
+                    baseline_percentage = state_data.get("other", 34.0)
 
-                    poll_results.append({
-                        "candidate": candidate,
-                        "name": candidate_name_for_calc,
-                        "actual": base_percentage,
-                        "poll": poll_result,
-                        "is_highlighted": candidate == highlighted_candidate
-                    })
+                # Add campaign points if available
+                state_points = candidate.get("state_points", {})
+                campaign_boost = state_points.get(state_upper, 0.0)
+
+                # Calculate actual percentage (baseline + campaign effects)
+                actual_percentage = baseline_percentage + campaign_boost
+                actual_percentage = max(15.0, min(85.0, actual_percentage))
+
+                poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+
+                poll_results.append({
+                    "candidate": candidate,
+                    "name": candidate_name,
+                    "poll": poll_result,
+                    "actual": actual_percentage,
+                    "is_highlighted": candidate == highlighted_candidate
+                })
         else:
-            # Primary campaign - group by party
+            # Primary campaign logic (same as media_pres_poll)
             parties = {}
-            for candidate in pres_candidates:
+            for candidate in presidential_candidates:
                 party = candidate.get("party", "Independent")
                 if party not in parties:
                     parties[party] = []
@@ -1404,21 +1429,23 @@ class Polling(commands.Cog):
             for party, party_candidates in parties.items():
                 if len(party_candidates) == 1:
                     candidate = party_candidates[0]
-                    candidate_name_for_calc = candidate.get('name')
+                    candidate_name = candidate.get('name')
                     actual_percentage = 85.0
                     poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+
                     poll_results.append({
                         "candidate": candidate,
-                        "name": candidate_name_for_calc,
-                        "actual": actual_percentage,
+                        "name": candidate_name,
                         "poll": poll_result,
+                        "actual": actual_percentage,
                         "party": party,
                         "is_highlighted": candidate == highlighted_candidate
                     })
                 else:
                     total_points = sum(c.get('points', 0) for c in party_candidates)
                     for candidate in party_candidates:
-                        candidate_name_for_calc = candidate.get('name')
+                        candidate_name = candidate.get('name')
+
                         if total_points == 0:
                             actual_percentage = 100.0 / len(party_candidates)
                         else:
@@ -1427,18 +1454,25 @@ class Polling(commands.Cog):
                             actual_percentage = max(15.0, actual_percentage)
 
                         poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+
                         poll_results.append({
                             "candidate": candidate,
-                            "name": candidate_name_for_calc,
-                            "actual": actual_percentage,
+                            "name": candidate_name,
                             "poll": poll_result,
+                            "actual": actual_percentage,
                             "party": party,
                             "is_highlighted": candidate == highlighted_candidate
                         })
 
         poll_results.sort(key=lambda x: x["poll"], reverse=True)
 
-        # Generate polling details
+        # Get state baseline data
+        state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {})
+        baseline_rep = state_data.get("republican", 33.0)
+        baseline_dem = state_data.get("democrat", 33.0)
+        baseline_other = state_data.get("other", 34.0)
+
+        # Generate private polling details
         polling_orgs = [
             "Internal Campaign Research", "Private Polling Firm", "Campaign Analytics",
             "Strategic Polling Group", "Confidential Research LLC"
@@ -1449,7 +1483,7 @@ class Polling(commands.Cog):
 
         embed = discord.Embed(
             title=f"🔒 Private Presidential Poll: {state_upper}",
-            description=f"**Presidential Race** in **{state_upper}** • {current_phase} ({current_year})",
+            description=f"**Presidential Race in {state_upper}** • {current_phase} ({current_year})",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
@@ -1460,10 +1494,11 @@ class Polling(commands.Cog):
             return "█" * filled + "░" * empty
 
         if current_phase == "General Campaign":
+            # General election - show all candidates together with actual percentages
             results_text = ""
             for i, result in enumerate(poll_results, 1):
                 highlight = "👑 " if result["is_highlighted"] else ""
-                party_abbrev = result['candidate']['party'][0] if result['candidate'].get('party') else "I"
+                party_abbrev = result['candidate'].get('party', 'I')[0] if result['candidate'].get('party') else "I"
                 progress_bar = create_progress_bar(result['poll'])
 
                 results_text += f"**{i}. {highlight}{result['name']}**\n"
@@ -1471,14 +1506,15 @@ class Polling(commands.Cog):
                 results_text += f"{progress_bar} **{result['poll']:.1f}%** (Actual: ~{result['actual']:.1f}%)\n\n"
 
             embed.add_field(
-                name="🗳️ General Election Results",
+                name="🇺🇸 Presidential General Election",
                 value=results_text,
                 inline=False
             )
         else:
+            # Primary campaign - group by party
             parties_displayed = {}
             for result in poll_results:
-                party = result.get("party", result['candidate'].get('party', 'Independent'))
+                party = result.get("party", "Independent")
                 if party not in parties_displayed:
                     parties_displayed[party] = []
                 parties_displayed[party].append(result)
@@ -1501,6 +1537,15 @@ class Polling(commands.Cog):
                     inline=True
                 )
 
+        # Add state context
+        embed.add_field(
+            name=f"📍 {state_upper} Context",
+            value=f"**Baseline Republican:** {baseline_rep:.1f}%\n"
+                  f"**Baseline Democrat:** {baseline_dem:.1f}%\n"
+                  f"**Baseline Other:** {baseline_other:.1f}%",
+            inline=True
+        )
+
         embed.add_field(
             name="📋 Poll Details",
             value=f"**Polling Organization:** {polling_org}\n"
@@ -1513,7 +1558,7 @@ class Polling(commands.Cog):
 
         embed.add_field(
             name="🔒 Privacy Notice",
-            value="This is a private poll commissioned by your campaign. Results include both polled numbers and estimated actual support levels.",
+            value="This is a private poll commissioned by your campaign. Results include both polled numbers and estimated actual support levels with state-specific adjustments.",
             inline=False
         )
 
@@ -1563,52 +1608,80 @@ class Polling(commands.Cog):
         highlighted_candidate = None
 
         if current_phase == "General Campaign":
-            # First check presidential signups directly
-            pres_col = self.bot.db["presidential_signups"]
-            pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
-            
-            if pres_config:
-                # Determine signup year
-                signup_year = current_year - 1 if current_year % 2 == 0 else current_year
-                
-                # Get all presidential candidates from signup year
-                all_pres_candidates = [
-                    c for c in pres_config.get("candidates", [])
-                    if (c.get("year") == signup_year and
-                        c.get("office") == "President")
-                ]
-                
-                # Check if we have presidential winners to filter by
-                pres_winners_col = self.bot.db["presidential_winners"]
-                pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
-                
-                if pres_winners_config and pres_winners_config.get("winners"):
-                    winners_data = pres_winners_config.get("winners", {})
-                    if isinstance(winners_data, dict):
-                        # Filter candidates to only primary winners
-                        for candidate in all_pres_candidates:
-                            candidate_name = candidate.get("name")
-                            for party, winner_name in winners_data.items():
-                                if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
-                                    general_candidate = candidate.copy()
-                                    general_candidate["primary_winner"] = True
-                                    general_candidate["total_points"] = general_candidate.get("points", 0.0)
-                                    pres_candidates.append(general_candidate)
-                else:
-                    # No winners declared yet, show all registered candidates
-                    pres_candidates = all_pres_candidates
+            # Check if presidential_winners collection has an election_year that matches target_year
+            pres_winners_col = self.bot.db["presidential_winners"]
+            pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
 
-            # Fallback: Check all_winners collection
+            if pres_winners_config and pres_winners_config.get("winners"):
+                party_winners = pres_winners_config.get("winners", [])
+                stored_election_year = pres_winners_config.get("election_year")
+
+                # Determine the signup year based on the stored election year
+                if stored_election_year:
+                    signup_year = stored_election_year - 1
+                else:
+                    # Fallback to old logic
+                    signup_year = current_year - 1 if current_year % 2 == 0 else current_year
+
+                pres_col = self.bot.db["presidential_signups"]
+                pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+
+                if pres_config:
+                    for party, winner_name in party_winners.items():
+                        for candidate in pres_config.get("candidates", []):
+                            if (candidate["name"] == winner_name and 
+                                candidate["year"] == signup_year and 
+                                candidate["office"] == "President"):
+                                # Mark this candidate as a primary winner
+                                candidate["is_primary_winner"] = True
+                                candidate["primary_winner_party"] = party
+                                candidate["election_year"] = stored_election_year or current_year
+                                pres_candidates.append(candidate)
+                                break
+
+            # If no winners from presidential_winners, check all_winners system as fallback
             if not pres_candidates:
                 winners_col = self.bot.db["winners"]
                 winners_config = winners_col.find_one({"guild_id": interaction.guild.id})
-                if winners_config:
+
+                if winners_config and winners_config.get("winners"):
+                    # Find presidential primary winners in all_winners system
                     primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-                    pres_candidates = [
+                    presidential_winners = [
                         w for w in winners_config.get("winners", [])
-                        if (w.get("office") == "President" and
-                            w.get("primary_winner", False) and
-                            w.get("year") == primary_year)
+                        if (w.get("office") == "President" and 
+                            w.get("year") == current_year and 
+                            w.get("primary_winner", False))
+                    ]
+
+                    # Get full candidate data from presidential signups
+                    pres_col = self.bot.db["presidential_signups"]
+                    pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+
+                    if pres_config and presidential_winners:
+                        for winner in presidential_winners:
+                            winner_name = winner.get("candidate")
+                            for candidate in pres_config.get("candidates", []):
+                                if (candidate["name"] == winner_name and 
+                                    candidate["year"] == primary_year and 
+                                    candidate["office"] == "President"):
+                                    # Add winner data to candidate for display
+                                    candidate["winner_data"] = winner
+                                    pres_candidates.append(candidate)
+                                    break
+
+            # If still no candidates found, show all registered candidates with note
+            if not pres_candidates:
+                # For fallback, use the stored election year if available, otherwise use current_year
+                fallback_signup_year = signup_year if 'signup_year' in locals() else (current_year - 1 if current_year % 2 == 0 else current_year)
+
+                pres_col = self.bot.db["presidential_signups"]
+                pres_config = pres_col.find_one({"guild_id": interaction.guild.id})
+
+                if pres_config:
+                    pres_candidates = [
+                        c for c in pres_config.get("candidates", [])
+                        if c.get("year") == fallback_signup_year and c.get("office") == "President"
                     ]
         else:
             # Look in presidential signups for primary campaign
@@ -1640,35 +1713,39 @@ class Polling(commands.Cog):
         poll_results = []
 
         if current_phase == "General Campaign":
-            # Use the presidential calculation method
-            pres_cog = self.bot.get_cog('PresCampaignActions')
-            if pres_cog:
-                general_percentages = pres_cog._calculate_general_election_percentages(interaction.guild.id, "President")
+            # Use state-specific baseline data for general election polling
+            state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {
+                "republican": 33.0, "democrat": 33.0, "other": 34.0
+            })
 
-                for candidate in pres_candidates:
-                    candidate_name = candidate.get('name')
-                    actual_percentage = general_percentages.get(candidate_name, 50.0)
-                    poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=10.0)
+            for candidate in pres_candidates:
+                candidate_name = candidate.get('name')
+                candidate_party = candidate.get('party', '').lower()
 
-                    poll_results.append({
-                        "candidate": candidate,
-                        "name": candidate_name,
-                        "poll": poll_result,
-                        "is_highlighted": candidate == highlighted_candidate
-                    })
-            else:
-                # Fallback calculation
-                for candidate in pres_candidates:
-                    candidate_name = candidate.get('name')
-                    actual_percentage = 50.0  # Default split
-                    poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=10.0)
+                # Determine party alignment for baseline calculations
+                if "republican" in candidate_party:
+                    baseline_percentage = state_data.get("republican", 33.0)
+                elif "democrat" in candidate_party:
+                    baseline_percentage = state_data.get("democrat", 33.0)
+                else:
+                    baseline_percentage = state_data.get("other", 34.0)
 
-                    poll_results.append({
-                        "candidate": candidate,
-                        "name": candidate_name,
-                        "poll": poll_result,
-                        "is_highlighted": candidate == highlighted_candidate
-                    })
+                # Add campaign points if available
+                state_points = candidate.get("state_points", {})
+                campaign_boost = state_points.get(state_upper, 0.0)
+
+                # Calculate actual percentage (baseline + campaign effects)
+                actual_percentage = baseline_percentage + campaign_boost
+                actual_percentage = max(15.0, min(85.0, actual_percentage))
+
+                poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=10.0)
+
+                poll_results.append({
+                    "candidate": candidate,
+                    "name": candidate_name,
+                    "poll": poll_result,
+                    "is_highlighted": candidate == highlighted_candidate
+                })
         else:
             # Primary campaign - group by party
             parties = {}
@@ -1716,47 +1793,22 @@ class Polling(commands.Cog):
 
         poll_results.sort(key=lambda x: x["poll"], reverse=True)
 
-        # Get state baseline data
+        poll_results.sort(key=lambda x: x["poll"], reverse=True)
+
+        # Get state baseline data for display
         state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {})
         baseline_rep = state_data.get("republican", 33.0)
         baseline_dem = state_data.get("democrat", 33.0)
         baseline_other = state_data.get("other", 34.0)
 
         # Generate media polling details
-        media_orgs = [
+        polling_orgs = [
             "Channel 7 News", "Daily Herald", "Political Weekly", "State News Network",
             "Independent Media Group", "Public Broadcasting", "News Radio 101.5", "City Tribune"
         ]
-        polling_org = random.choice(media_orgs)
+        polling_org = random.choice(polling_orgs)
         sample_size = random.randint(400, 800)
         days_ago = random.randint(2, 7)
-
-        # Adjust poll results based on state characteristics
-        adjusted_poll_results = []
-        for result in poll_results:
-            candidate_party = result['candidate'].get('party', '').lower()
-
-            # Apply state-specific adjustments
-            if "republican" in candidate_party:
-                state_adjustment = (baseline_rep - 33.0) * 0.2  # 20% of state lean
-            elif "democrat" in candidate_party:
-                state_adjustment = (baseline_dem - 33.0) * 0.2
-            else:
-                state_adjustment = (baseline_other - 34.0) * 0.2
-
-            # Apply adjustment and recalculate with 10% margin of error
-            adjusted_base = result['poll'] + state_adjustment
-            adjusted_base = max(5.0, min(95.0, adjusted_base))
-
-            final_poll = self._calculate_poll_result(adjusted_base, margin_of_error=10.0)
-
-            adjusted_result = result.copy()
-            adjusted_result['poll'] = final_poll
-            adjusted_poll_results.append(adjusted_result)
-
-        # Sort adjusted results
-        adjusted_poll_results.sort(key=lambda x: x["poll"], reverse=True)
-        poll_results = adjusted_poll_results
 
         embed = discord.Embed(
             title=f"📺 Media Presidential Poll: {state_upper}",
@@ -1946,33 +1998,54 @@ class Polling(commands.Cog):
             pres_winners_config = pres_winners_col.find_one({"guild_id": interaction.guild.id})
 
             if pres_winners_config and pres_winners_config.get("winners"):
-                winners_data = pres_winners_config.get("winners", {})
+                party_winners = pres_winners_config.get("winners", [])
+                stored_election_year = pres_winners_config.get("election_year")
+
+                # Determine the signup year based on the stored election year
+                if stored_election_year:
+                    signup_year = stored_election_year - 1
+                else:
+                    # Fallback to old logic
+                    signup_year = current_year - 1 if current_year % 2 == 0 else current_year
 
                 # Get full candidate data from presidential signups
                 if pres_config:
-                    election_year = pres_winners_config.get("election_year", current_year)
-                    signup_year = election_year - 1 if election_year % 2 == 0 else election_year
-
-                    for party, winner_name in winners_data.items():
+                    for party, winner_name in party_winners.items():
                         for candidate in pres_config.get("candidates", []):
-                            if (candidate["name"] == winner_name and
-                                candidate["year"] == signup_year and
+                            if (candidate["name"] == winner_name and 
+                                candidate["year"] == signup_year and 
                                 candidate["office"] == "President"):
-                                # Mark as general election candidate
-                                general_candidate = candidate.copy()
-                                general_candidate["is_primary_winner"] = True
-                                general_candidate["primary_winner_party"] = party
-                                presidential_candidates.append(general_candidate)
+                                # Mark this candidate as a primary winner
+                                candidate["is_primary_winner"] = True
+                                candidate["primary_winner_party"] = party
+                                candidate["election_year"] = stored_election_year or current_year
+                                presidential_candidates.append(candidate)
                                 break
 
-            # If no candidates found in presidential_winners, check all_winners as fallback
+            # If no winners from presidential_winners, check all_winners system as fallback
             if not presidential_candidates and winners_config:
+                # Find presidential primary winners in all_winners system
                 primary_year = current_year - 1 if current_year % 2 == 0 else current_year
-                for winner in winners_config["winners"]:
-                    if (winner.get("office") == "President" and
-                        winner.get("year") == primary_year and
-                        winner.get("primary_winner", False)):
-                        presidential_candidates.append(winner)
+                presidential_winners = [
+                    w for w in winners_config.get("winners", [])
+                    if (w.get("office") == "President" and 
+                        w.get("year") == current_year and 
+                        w.get("primary_winner", False))
+                ]
+
+                # Get full candidate data from presidential signups
+                if pres_config and presidential_winners:
+                    for winner in presidential_winners:
+                        winner_name = winner.get("candidate")
+                        for candidate in pres_config.get("candidates", []):
+                            if (candidate["name"] == winner_name and 
+                                candidate["year"] == primary_year and 
+                                candidate["office"] == "President"):
+                                # Add winner data to candidate for display
+                                candidate["winner_data"] = winner
+                                presidential_candidates.append(candidate)
+                                break
+
         else:
             # Primary campaign - get all presidential candidates
             if pres_config:
@@ -1996,41 +2069,44 @@ class Polling(commands.Cog):
                     highlighted_candidate = candidate
                     break
 
-        # Calculate polling percentages with 3% margin of error (same logic as media but more accurate)
+        # Calculate polling percentages with 3% margin of error
         poll_results = []
 
         if current_phase == "General Campaign":
-            # Use the presidential calculation method if available
-            pres_cog = self.bot.get_cog('PresCampaignActions')
-            if pres_cog:
-                general_percentages = pres_cog._calculate_general_election_percentages(interaction.guild.id, "President")
+            # Use state-specific baseline data for more accurate polling
+            state_data = PRESIDENTIAL_STATE_DATA.get(state_upper, {
+                "republican": 33.0, "democrat": 33.0, "other": 34.0
+            })
 
-                for candidate in presidential_candidates:
-                    candidate_name = candidate.get('name')
-                    actual_percentage = general_percentages.get(candidate_name, 50.0)
-                    poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+            for candidate in presidential_candidates:
+                candidate_name = candidate.get('name')
+                candidate_party = candidate.get('party', '').lower()
 
-                    poll_results.append({
-                        "candidate": candidate,
-                        "name": candidate_name,
-                        "poll": poll_result,
-                        "actual": actual_percentage,
-                        "is_highlighted": candidate == highlighted_candidate
-                    })
-            else:
-                # Fallback calculation
-                for candidate in presidential_candidates:
-                    candidate_name = candidate.get('name')
-                    actual_percentage = 50.0  # Default split
-                    poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+                # Determine party alignment for baseline calculations
+                if "republican" in candidate_party:
+                    baseline_percentage = state_data.get("republican", 33.0)
+                elif "democrat" in candidate_party:
+                    baseline_percentage = state_data.get("democrat", 33.0)
+                else:
+                    baseline_percentage = state_data.get("other", 34.0)
 
-                    poll_results.append({
-                        "candidate": candidate,
-                        "name": candidate_name,
-                        "poll": poll_result,
-                        "actual": actual_percentage,
-                        "is_highlighted": candidate == highlighted_candidate
-                    })
+                # Add campaign points if available
+                state_points = candidate.get("state_points", {})
+                campaign_boost = state_points.get(state_upper, 0.0)
+
+                # Calculate actual percentage (baseline + campaign effects)
+                actual_percentage = baseline_percentage + campaign_boost
+                actual_percentage = max(15.0, min(85.0, actual_percentage))
+
+                poll_result = self._calculate_poll_result(actual_percentage, margin_of_error=3.0)
+
+                poll_results.append({
+                    "candidate": candidate,
+                    "name": candidate_name,
+                    "poll": poll_result,
+                    "actual": actual_percentage,
+                    "is_highlighted": candidate == highlighted_candidate
+                })
         else:
             # Primary campaign logic (same as media_pres_poll)
             parties = {}
@@ -2117,7 +2193,7 @@ class Polling(commands.Cog):
 
                 results_text += f"**{i}. {highlight}{result['name']}**\n"
                 results_text += f"**{party_abbrev} - {result['candidate'].get('party', 'Independent')}**\n"
-                results_text += f"{progress_bar} **{result['poll']:.1f}%** (Actual: ~{result['actual']:.1f}%)\n\n"
+                results_text += f"{progress_bar} **{result['poll']:.1f}%**\n\n"
 
             embed.add_field(
                 name="🇺🇸 Presidential General Election",
@@ -2143,7 +2219,7 @@ class Polling(commands.Cog):
 
                     party_text += f"**{i}. {highlight}{result['name']}**\n"
                     party_text += f"**{party_abbrev} - {party}**\n"
-                    party_text += f"{progress_bar} **{result['poll']:.1f}%** (Actual: ~{result['actual']:.1f}%)\n\n"
+                    party_text += f"{progress_bar} **{result['poll']:.1f}%** \n\n"
 
                 embed.add_field(
                     name=f"🎗️ {party} Primary",

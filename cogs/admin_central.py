@@ -1,7 +1,8 @@
 from discord.ext import commands
 import discord
 from discord import app_commands
-from datetime import datetime
+from datetime import datetime, timedelta
+import inspect
 
 class AdminCentral(commands.Cog):
     """Centralized admin commands with role-based access control"""
@@ -102,6 +103,12 @@ class AdminCentral(commands.Cog):
         parent=admin_group,
         default_permissions=discord.Permissions(administrator=True)
     )
+    admin_logs_group = app_commands.Group(
+        name="logs",
+        description="Admin command logging",
+        parent=admin_group,
+        default_permissions=discord.Permissions(administrator=True)
+    )
 
     # Helper method to check admin permissions
     async def _check_admin_permissions(self, interaction: discord.Interaction) -> bool:
@@ -110,6 +117,22 @@ class AdminCentral(commands.Cog):
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             return False
         return True
+
+    async def _log_admin_command(self, interaction: discord.Interaction, command_name: str, parameters: dict = None):
+        """Log admin command usage"""
+        admin_logs_col = self.bot.db["admin_command_logs"]
+
+        log_entry = {
+            "guild_id": interaction.guild.id,
+            "user_id": interaction.user.id,
+            "username": interaction.user.display_name,
+            "command": command_name,
+            "parameters": parameters or {},
+            "timestamp": datetime.utcnow(),
+            "channel_id": interaction.channel.id if interaction.channel else None
+        }
+
+        admin_logs_col.insert_one(log_entry)
 
     # SYSTEM COMMANDS
     @admin_system_group.command(
@@ -135,6 +158,18 @@ class AdminCentral(commands.Cog):
             "guild_id": interaction.guild.id,
             "user_id": target_user.id
         })
+
+        # Log the command
+        await self._log_admin_command(
+            interaction,
+            "reset_campaign_cooldowns",
+            {
+                "target_user_id": target_user.id,
+                "target_username": target_user.display_name,
+                "collection_name": collection_name,
+                "records_removed": result.deleted_count
+            }
+        )
 
         await interaction.response.send_message(
             f"✅ Reset campaign cooldowns for {target_user.mention} in collection '{collection_name}'. "
@@ -175,6 +210,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "set_seats", {"state": state, "office": office, "seats": seats})
+
         await interaction.response.send_message(
             f"✅ Added {seats} {office} seats for {state}",
             ephemeral=True
@@ -206,6 +243,8 @@ class AdminCentral(commands.Cog):
             {"$set": {"seats": []}},
             upsert=True
         )
+
+        await self._log_admin_command(interaction, "reset_seats", {"confirm": confirm})
 
         await interaction.response.send_message("✅ All election seats have been reset.", ephemeral=True)
 
@@ -239,6 +278,8 @@ class AdminCentral(commands.Cog):
             }}},
             upsert=True
         )
+
+        await self._log_admin_command(interaction, "fill_vacant_seat", {"user_id": user.id, "state": state, "office": office})
 
         await interaction.response.send_message(
             f"✅ {user.mention} has been appointed to {office} seat in {state}",
@@ -282,6 +323,8 @@ class AdminCentral(commands.Cog):
                         added_count += 1
                     except ValueError:
                         continue
+
+        await self._log_admin_command(interaction, "bulk_add_seats", {"lines_processed": len(lines), "seats_added": added_count})
 
         await interaction.response.send_message(
             f"✅ Added {added_count} seat configurations",
@@ -327,6 +370,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "create_party", {"name": name, "abbreviation": abbreviation, "color": color})
+
         await interaction.response.send_message(
             f"✅ Created party **{name}** ({abbreviation}) with color {color}",
             ephemeral=True
@@ -352,8 +397,10 @@ class AdminCentral(commands.Cog):
         )
 
         if result.modified_count > 0:
+            await self._log_admin_command(interaction, "remove_party", {"name": name, "status": "removed"})
             await interaction.response.send_message(f"✅ Removed party **{name}**", ephemeral=True)
         else:
+            await self._log_admin_command(interaction, "remove_party", {"name": name, "status": "not_found"})
             await interaction.response.send_message(f"❌ Party **{name}** not found", ephemeral=True)
 
     @admin_party_group.command(
@@ -400,6 +447,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "reset_parties", {"confirm": confirm})
+
         await interaction.response.send_message("✅ All parties have been reset to default.", ephemeral=True)
 
     # TIME COMMANDS
@@ -434,6 +483,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "set_current_time", {"year": year, "month": month, "day": day})
+
         await interaction.response.send_message(
             f"✅ Set RP date to {new_date.strftime('%B %d, %Y')}",
             ephemeral=True
@@ -461,6 +512,8 @@ class AdminCentral(commands.Cog):
             {"$set": {"time_scale_minutes": minutes}},
             upsert=True
         )
+
+        await self._log_admin_command(interaction, "set_time_scale", {"minutes": minutes})
 
         await interaction.response.send_message(
             f"✅ Set time scale to {minutes} real minutes = 1 RP day",
@@ -493,6 +546,8 @@ class AdminCentral(commands.Cog):
             {"$inc": {"momentum": amount}},
             upsert=True
         )
+
+        await self._log_admin_command(interaction, "add_momentum", {"state": state, "party": party, "amount": amount})
 
         await interaction.response.send_message(
             f"✅ Added {amount} momentum for {party} in {state}",
@@ -532,6 +587,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "set_lean", {"state": state, "lean": lean, "strength": strength})
+
         await interaction.response.send_message(
             f"✅ Set {state} lean to {lean} (strength {strength})",
             ephemeral=True
@@ -570,6 +627,8 @@ class AdminCentral(commands.Cog):
                     updated_count += 1
                 except ValueError:
                     continue
+
+        await self._log_admin_command(interaction, "bulk_set_votes", {"lines_processed": len(lines), "candidates_updated": updated_count})
 
         await interaction.response.send_message(
             f"✅ Updated votes for {updated_count} candidates",
@@ -615,6 +674,8 @@ class AdminCentral(commands.Cog):
                 upsert=True
             )
             response_msg += f"\n✅ Set {runner_up} as runner-up with {runner_up_votes:,} votes"
+
+        await self._log_admin_command(interaction, "set_winner_votes", {"winner": winner, "winner_votes": winner_votes, "runner_up": runner_up, "runner_up_votes": runner_up_votes})
 
         await interaction.response.send_message(response_msg, ephemeral=True)
 
@@ -664,6 +725,7 @@ class AdminCentral(commands.Cog):
                 inline=False
             )
 
+            await self._log_admin_command(interaction, "view_pres_state_data", {"state_name": state_name})
             await interaction.response.send_message(embed=embed, ephemeral=True)
         else:
             embed = discord.Embed(
@@ -690,6 +752,7 @@ class AdminCentral(commands.Cog):
                 table_content = table_header + "\n".join(chunk) + "\n```"
                 embed.add_field(name=field_name, value=table_content, inline=False)
 
+            await self._log_admin_command(interaction, "view_pres_state_data", {"state_name": None})
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin_presidential_group.command(
@@ -728,6 +791,8 @@ class AdminCentral(commands.Cog):
             {"guild_id": interaction.guild.id},
             {"$set": {"winners": config["winners"]}}
         )
+
+        await self._log_admin_command(interaction, "update_winner", {"party": party, "winner_name": winner_name})
 
         await interaction.response.send_message(
             f"✅ **{winner_name}** has been set as the {party} primary winner.",
@@ -775,6 +840,8 @@ class AdminCentral(commands.Cog):
 
         await pres_winners_cog._process_presidential_primary_winners(interaction.guild.id, target_signup_year)
 
+        await self._log_admin_command(interaction, "process_pres_primaries", {"signup_year": target_signup_year, "confirm": confirm})
+
         await interaction.response.send_message(
             f"✅ Successfully processed presidential primary winners from {target_signup_year} signups!",
             ephemeral=True
@@ -804,6 +871,8 @@ class AdminCentral(commands.Cog):
         )
 
         status_text = "enabled" if new_status else "disabled"
+        await self._log_admin_command(interaction, "toggle_delegate_system", {"new_status": status_text})
+
         await interaction.response.send_message(
             f"✅ Delegate system has been **{status_text}**.",
             ephemeral=True
@@ -832,6 +901,8 @@ class AdminCentral(commands.Cog):
         )
 
         status_text = "paused" if new_status else "resumed"
+        await self._log_admin_command(interaction, "pause_delegate_system", {"new_status": status_text})
+
         await interaction.response.send_message(
             f"✅ Delegate system has been **{status_text}**.",
             ephemeral=True
@@ -874,6 +945,8 @@ class AdminCentral(commands.Cog):
             "admin_call": True
         })
 
+        await self._log_admin_command(interaction, "call_state", {"state": state, "winner": winner, "delegates": delegate_count})
+
         await interaction.response.send_message(
             f"✅ Called {state} for {winner} - {delegate_count} delegates allocated",
             ephemeral=True
@@ -902,6 +975,8 @@ class AdminCentral(commands.Cog):
             {"$set": {f"roles.{position}": role.id}},
             upsert=True
         )
+
+        await self._log_admin_command(interaction, "set_endorsement_role", {"position": position, "role_id": role.id})
 
         await interaction.response.send_message(
             f"✅ Set {role.mention} as the role for {position} endorsements",
@@ -935,6 +1010,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "force_endorsement", {"position": position, "candidate": candidate})
+
         await interaction.response.send_message(
             f"✅ Forced endorsement: {position} now endorses {candidate}",
             ephemeral=True
@@ -962,6 +1039,8 @@ class AdminCentral(commands.Cog):
             return
 
         # Implementation would depend on your election logic
+        await self._log_admin_command(interaction, "declare_general_winners", {"confirm": confirm})
+
         await interaction.response.send_message(
             "✅ General election winners have been declared!",
             ephemeral=True
@@ -998,6 +1077,8 @@ class AdminCentral(commands.Cog):
         )
 
         location_text = f" in {state}" if state else ""
+        await self._log_admin_command(interaction, "set_winner_votes", {"candidate": candidate, "votes": votes, "state": state})
+
         await interaction.response.send_message(
             f"✅ Set {votes:,} votes for {candidate}{location_text}",
             ephemeral=True
@@ -1037,6 +1118,8 @@ class AdminCentral(commands.Cog):
             "admin_action": True
         })
 
+        await self._log_admin_command(interaction, "rally", {"candidate": candidate, "state": state, "effectiveness": effectiveness})
+
         await interaction.response.send_message(
             f"✅ Admin rally for {candidate} in {state} (effectiveness: {effectiveness})",
             ephemeral=True
@@ -1070,6 +1153,8 @@ class AdminCentral(commands.Cog):
             "timestamp": datetime.utcnow(),
             "admin_action": True
         })
+
+        await self._log_admin_command(interaction, "ad", {"candidate": candidate, "state": state, "ad_type": ad_type})
 
         await interaction.response.send_message(
             f"✅ Admin advertisement for {candidate} in {state} ({ad_type})",
@@ -1106,6 +1191,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "set_coalition", {"candidate": candidate, "demographic": demographic, "strength": strength})
+
         await interaction.response.send_message(
             f"✅ Set {demographic} coalition strength to {strength} for {candidate}",
             ephemeral=True
@@ -1140,6 +1227,8 @@ class AdminCentral(commands.Cog):
             "guild_id": interaction.guild.id,
             "candidate": candidate
         })
+
+        await self._log_admin_command(interaction, "reset_demographics", {"candidate": candidate, "confirm": confirm, "records_deleted": result.deleted_count})
 
         await interaction.response.send_message(
             f"✅ Reset demographic data for {candidate}. Removed {result.deleted_count} records.",
@@ -1181,6 +1270,8 @@ class AdminCentral(commands.Cog):
             upsert=True
         )
 
+        await self._log_admin_command(interaction, "set_ideology", {"user_id": user.id, "ideology": ideology, "strength": strength})
+
         await interaction.response.send_message(
             f"✅ Set {user.mention}'s ideology to {ideology} (strength: {strength})",
             ephemeral=True
@@ -1205,11 +1296,13 @@ class AdminCentral(commands.Cog):
         })
 
         if result.deleted_count > 0:
+            await self._log_admin_command(interaction, "reset_ideology", {"user_id": user.id, "status": "reset"})
             await interaction.response.send_message(
                 f"✅ Reset ideology for {user.mention}",
                 ephemeral=True
             )
         else:
+            await self._log_admin_command(interaction, "reset_ideology", {"user_id": user.id, "status": "not_found"})
             await interaction.response.send_message(
                 f"❌ No ideology data found for {user.mention}",
                 ephemeral=True
@@ -1256,6 +1349,8 @@ class AdminCentral(commands.Cog):
         location_text = f" in {state}" if state else ""
         party_text = f" ({party})" if party else ""
 
+        await self._log_admin_command(interaction, "force_signup", {"user_id": user.id, "office": office, "state": state, "party": party})
+
         await interaction.response.send_message(
             f"✅ Force signed up {user.mention} for {office}{location_text}{party_text}",
             ephemeral=True
@@ -1294,11 +1389,13 @@ class AdminCentral(commands.Cog):
 
         if result.deleted_count > 0:
             location_text = f" in {state}" if state else ""
+            await self._log_admin_command(interaction, "remove_signup", {"user_id": user.id, "office": office, "state": state, "status": "removed"})
             await interaction.response.send_message(
                 f"✅ Removed {user.mention}'s signup for {office}{location_text}",
                 ephemeral=True
             )
         else:
+            await self._log_admin_command(interaction, "remove_signup", {"user_id": user.id, "office": office, "state": state, "status": "not_found"})
             await interaction.response.send_message(
                 f"❌ No signup found for {user.mention} in {office}",
                 ephemeral=True
@@ -1395,6 +1492,7 @@ class AdminCentral(commands.Cog):
                 inline=False
             )
 
+        await self._log_admin_command(interaction, "vacate_seat", {"seat_id": seat_id, "reason": reason, "is_house_seat": is_house_seat})
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin_election_group.command(
@@ -1488,6 +1586,7 @@ class AdminCentral(commands.Cog):
             inline=True
         )
 
+        await self._log_admin_command(interaction, "fill_seat", {"seat_id": seat_id, "user_id": user.id, "term_start_year": term_start_year})
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin_election_group.command(
@@ -1603,7 +1702,340 @@ class AdminCentral(commands.Cog):
             inline=False
         )
 
+        await self._log_admin_command(interaction, "list_vacant_seats")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ADMIN LOGS COMMANDS
+    @admin_logs_group.command(
+        name="view_recent",
+        description="View recent admin command usage"
+    )
+    @app_commands.describe(
+        limit="Number of recent commands to show (default: 10, max: 50)",
+        user="Filter by specific user (optional)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_view_recent_logs(
+        self,
+        interaction: discord.Interaction,
+        limit: int = 10,
+        user: discord.Member = None
+    ):
+        if limit > 50:
+            limit = 50
+        if limit < 1:
+            limit = 1
+
+        admin_logs_col = self.bot.db["admin_command_logs"]
+
+        filter_dict = {"guild_id": interaction.guild.id}
+        if user:
+            filter_dict["user_id"] = user.id
+
+        logs = list(admin_logs_col.find(filter_dict).sort("timestamp", -1).limit(limit))
+
+        if not logs:
+            await interaction.response.send_message("📝 No admin command logs found.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="📋 Recent Admin Command Logs",
+            description=f"Showing {len(logs)} most recent admin commands",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        if user:
+            embed.description += f" by {user.display_name}"
+
+        for i, log in enumerate(logs[:10]):  # Show first 10 in embed fields
+            timestamp = log["timestamp"].strftime("%m/%d %H:%M")
+            user_mention = f"<@{log['user_id']}>" if log['user_id'] else "Unknown User"
+
+            # Format parameters
+            params_text = ""
+            if log.get("parameters"):
+                params_list = []
+                for key, value in log["parameters"].items():
+                    if isinstance(value, str) and len(value) > 30:
+                        value = value[:27] + "..."
+                    params_list.append(f"{key}: {value}")
+                if params_list:
+                    params_text = f"\n**Params:** {', '.join(params_list[:3])}"
+                    if len(log["parameters"]) > 3:
+                        params_text += "..."
+
+            embed.add_field(
+                name=f"{i+1}. {log['command']} - {timestamp}",
+                value=f"**User:** {user_mention}{params_text}",
+                inline=False
+            )
+
+        # If more than 10 logs, show summary
+        if len(logs) > 10:
+            extra_logs = logs[10:]
+            summary_text = f"\n\n**Additional {len(extra_logs)} commands:**\n"
+            for log in extra_logs:
+                timestamp = log["timestamp"].strftime("%m/%d %H:%M")
+                summary_text += f"• {log['command']} by <@{log['user_id']}> at {timestamp}\n"
+
+            if len(summary_text) > 1000:
+                summary_text = summary_text[:950] + "...\n(Use filters to see more details)"
+
+            embed.add_field(
+                name="Additional Commands",
+                value=summary_text,
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_logs_group.command(
+        name="search",
+        description="Search admin command logs by command name or user"
+    )
+    @app_commands.describe(
+        command_name="Filter by command name (optional)",
+        user="Filter by user (optional)",
+        days_back="How many days back to search (default: 7, max: 30)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_search_logs(
+        self,
+        interaction: discord.Interaction,
+        command_name: str = None,
+        user: discord.Member = None,
+        days_back: int = 7
+    ):
+        if days_back > 30:
+            days_back = 30
+        if days_back < 1:
+            days_back = 1
+
+        admin_logs_col = self.bot.db["admin_command_logs"]
+
+        filter_dict = {"guild_id": interaction.guild.id}
+
+        # Date filter
+        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        filter_dict["timestamp"] = {"$gte": cutoff_date}
+
+        if user:
+            filter_dict["user_id"] = user.id
+        if command_name:
+            filter_dict["command"] = {"$regex": command_name, "$options": "i"}
+
+        logs = list(admin_logs_col.find(filter_dict).sort("timestamp", -1).limit(25))
+
+        if not logs:
+            await interaction.response.send_message("📝 No matching admin command logs found.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🔍 Admin Command Search Results",
+            description=f"Found {len(logs)} matching commands in the last {days_back} days",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+
+        if command_name:
+            embed.description += f"\nCommand: *{command_name}*"
+        if user:
+            embed.description += f"\nUser: {user.display_name}"
+
+        for i, log in enumerate(logs[:15]):  # Show first 15
+            timestamp = log["timestamp"].strftime("%m/%d/%Y %H:%M")
+            user_mention = f"<@{log['user_id']}>" if log['user_id'] else "Unknown User"
+
+            # Show key parameters
+            key_params = ""
+            if log.get("parameters"):
+                important_keys = ["target_user_id", "target_username", "state", "party", "candidate", "votes", "records_removed"]
+                shown_params = []
+                for key in important_keys:
+                    if key in log["parameters"]:
+                        value = log["parameters"][key]
+                        if isinstance(value, str) and len(value) > 20:
+                            value = value[:17] + "..."
+                        shown_params.append(f"{key}: {value}")
+                        if len(shown_params) >= 2:
+                            break
+
+                if shown_params:
+                    key_params = f"\n*{', '.join(shown_params)}*"
+
+            embed.add_field(
+                name=f"{log['command']} - {timestamp}",
+                value=f"{user_mention}{key_params}",
+                inline=True
+            )
+
+        if len(logs) > 15:
+            embed.add_field(
+                name="Note",
+                value=f"Showing first 15 of {len(logs)} results. Use more specific filters to narrow down.",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_logs_group.command(
+        name="stats",
+        description="View admin command usage statistics"
+    )
+    @app_commands.describe(
+        days_back="How many days back to analyze (default: 7, max: 30)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_logs_stats(
+        self,
+        interaction: discord.Interaction,
+        days_back: int = 7
+    ):
+        if days_back > 30:
+            days_back = 30
+        if days_back < 1:
+            days_back = 1
+
+        admin_logs_col = self.bot.db["admin_command_logs"]
+
+        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+
+        # Get all logs in the timeframe
+        logs = list(admin_logs_col.find({
+            "guild_id": interaction.guild.id,
+            "timestamp": {"$gte": cutoff_date}
+        }))
+
+        if not logs:
+            await interaction.response.send_message(
+                f"📊 No admin commands found in the last {days_back} days.",
+                ephemeral=True
+            )
+            return
+
+        # Analyze the data
+        command_counts = {}
+        user_counts = {}
+        daily_counts = {}
+
+        for log in logs:
+            # Command frequency
+            cmd = log["command"]
+            command_counts[cmd] = command_counts.get(cmd, 0) + 1
+
+            # User activity
+            user_id = log["user_id"]
+            user_counts[user_id] = user_counts.get(user_id, 0) + 1
+
+            # Daily activity
+            day = log["timestamp"].strftime("%m/%d")
+            daily_counts[day] = daily_counts.get(day, 0) + 1
+
+        embed = discord.Embed(
+            title="📊 Admin Command Statistics",
+            description=f"Analysis for the last {days_back} days\n**Total Commands:** {len(logs)}",
+            color=discord.Color.purple(),
+            timestamp=datetime.utcnow()
+        )
+
+        # Most used commands
+        top_commands = sorted(command_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        if top_commands:
+            cmd_text = "\n".join([f"**{cmd}:** {count}" for cmd, count in top_commands])
+            embed.add_field(
+                name="🏆 Most Used Commands",
+                value=cmd_text,
+                inline=True
+            )
+
+        # Most active users
+        top_users = sorted(user_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+        if top_users:
+            user_text = "\n".join([f"<@{user_id}>: {count}" for user_id, count in top_users])
+            embed.add_field(
+                name="👥 Most Active Admins",
+                value=user_text,
+                inline=True
+            )
+
+        # Daily activity (last 7 days)
+        recent_days = sorted(daily_counts.items(), key=lambda x: x[0], reverse=True)[:7]
+        if recent_days:
+            daily_text = "\n".join([f"**{day}:** {count}" for day, count in recent_days])
+            embed.add_field(
+                name="📅 Daily Activity",
+                value=daily_text,
+                inline=True
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_logs_group.command(
+        name="clear_old",
+        description="Clear admin logs older than specified days"
+    )
+    @app_commands.describe(
+        days_old="Delete logs older than this many days (minimum: 30)",
+        confirm="Set to True to confirm deletion"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_clear_old_logs(
+        self,
+        interaction: discord.Interaction,
+        days_old: int = 90,
+        confirm: bool = False
+    ):
+        if days_old < 30:
+            await interaction.response.send_message(
+                "❌ Minimum retention period is 30 days for audit purposes.",
+                ephemeral=True
+            )
+            return
+
+        admin_logs_col = self.bot.db["admin_command_logs"]
+        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+
+        # Count logs that would be deleted
+        count_to_delete = admin_logs_col.count_documents({
+            "guild_id": interaction.guild.id,
+            "timestamp": {"$lt": cutoff_date}
+        })
+
+        if not confirm:
+            await interaction.response.send_message(
+                f"⚠️ **Warning:** This will delete {count_to_delete} admin logs older than {days_old} days.\n"
+                f"**Cutoff Date:** {cutoff_date.strftime('%B %d, %Y')}\n"
+                "To confirm, run with `confirm:True`",
+                ephemeral=True
+            )
+            return
+
+        # Delete old logs
+        result = admin_logs_col.delete_many({
+            "guild_id": interaction.guild.id,
+            "timestamp": {"$lt": cutoff_date}
+        })
+
+        # Log this action
+        await self._log_admin_command(
+            interaction,
+            "clear_old_logs",
+            {
+                "days_old": days_old,
+                "records_deleted": result.deleted_count,
+                "cutoff_date": cutoff_date.isoformat()
+            }
+        )
+
+        await interaction.response.send_message(
+            f"✅ Deleted {result.deleted_count} admin logs older than {days_old} days.",
+            ephemeral=True
+        )
 
 async def setup(bot):
     await bot.add_cog(AdminCentral(bot))

@@ -139,7 +139,7 @@ class Momentum(commands.Cog):
         return current_momentum >= volatility_threshold
 
     def _add_momentum_event(self, momentum_col, guild_id: int, state: str, party: str, 
-                           change: float, reason: str, user_id: int = None):
+                           change: float, reason: str, user_id: Optional[int] = None):
         """Log a momentum change event"""
         try:
             result = momentum_col.update_one(
@@ -189,7 +189,7 @@ class Momentum(commands.Cog):
             # Log the auto-collapse event
             self._add_momentum_event(
                 momentum_col, guild_id, state, party, 
-                -momentum_loss, "Automatic collapse (anti-spam)", None
+                -momentum_loss, "Automatic collapse (anti-spam)", user_id=None
             )
 
             return new_momentum, True
@@ -241,7 +241,7 @@ class Momentum(commands.Cog):
         # Cap the effect to prevent extreme swings
         return max(-10.0, min(10.0, polling_effect))
 
-    def _get_region_from_seat_id(self, seat_id: str) -> str:
+    def _get_region_from_seat_id(self, seat_id: str) -> Optional[str]:
         """Extract region from seat ID"""
         if not seat_id or "-" not in seat_id:
             return None

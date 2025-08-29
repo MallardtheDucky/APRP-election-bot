@@ -45,7 +45,7 @@ class SpecialElections(commands.Cog):
         """Check if seat is a House seat (eligible for special elections)"""
         return seat_id.startswith("REP-") or "District" in seat_id
 
-    def _get_active_special_election(self, guild_id: int, seat_id: str = None):
+    def _get_active_special_election(self, guild_id: int, seat_id: Optional[str] = None):
         """Get active special election for a seat or any active election"""
         col, config = self._get_special_config(guild_id)
 
@@ -279,7 +279,7 @@ class SpecialElections(commands.Cog):
         # Verify target candidate exists in this special election
         target_candidate = None
         for candidate in active_election.get("candidates", []):
-            if candidate["name"].lower() == target.lower():
+            if candidate.get("name") and target and candidate["name"].lower() == target.lower():
                 target_candidate = candidate
                 break
 
@@ -481,7 +481,7 @@ class SpecialElections(commands.Cog):
         # Verify target candidate exists in this special election
         target_candidate = None
         for candidate in active_election.get("candidates", []):
-            if candidate["name"].lower() == target.lower():
+            if candidate.get("name") and target and candidate["name"].lower() == target.lower():
                 target_candidate = candidate
                 break
 
@@ -656,7 +656,7 @@ class SpecialElections(commands.Cog):
         # Verify target candidate exists in this special election
         target_candidate = None
         for candidate in active_election.get("candidates", []):
-            if candidate["name"].lower() == target.lower():
+            if candidate.get("name") and target and candidate["name"].lower() == target.lower():
                 target_candidate = candidate
                 break
 
@@ -1303,7 +1303,7 @@ class SpecialElections(commands.Cog):
     async def admin_view_points(
         self,
         interaction: discord.Interaction,
-        seat_id: str = None
+        seat_id: Optional[str] = None
     ):
         col, config = self._get_special_config(interaction.guild.id)
 

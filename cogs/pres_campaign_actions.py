@@ -76,14 +76,15 @@ class PresCampaignActions(commands.Cog):
                                 candidate.get("office") in ["President", "Vice President"]):
                                 # Check if this candidate won their primary
                                 candidate_name = candidate.get("name")
-                                for party, winner_name in winners_data.items():
-                                    if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
-                                        # Create a general campaign candidate object
-                                        general_candidate = candidate.copy()
-                                        general_candidate["primary_winner"] = True
-                                        general_candidate["total_points"] = general_candidate.get("points", 0.0)
-                                        general_candidate["state_points"] = general_candidate.get("state_points", {})
-                                        return signups_col, general_candidate
+                                if candidate_name:
+                                    for party, winner_name in winners_data.items():
+                                        if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
+                                            # Create a general campaign candidate object
+                                            general_candidate = candidate.copy()
+                                            general_candidate["primary_winner"] = True
+                                            general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                            general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                            return signups_col, general_candidate
 
             return winners_col, None
         else:
@@ -242,7 +243,8 @@ class PresCampaignActions(commands.Cog):
 
     def _update_presidential_candidate_stats(self, collection, guild_id: int, user_id: int,
                                            state_name: str, polling_boost: float = 0,
-                                           stamina_cost: int = 0, corruption_increase: int = 0, candidate_data: dict = None):
+                                           stamina_cost: int = 0, corruption_increase: int = 0, candidate_data: Optional[dict] = None,
+                                           action_user_id: Optional[int] = None):
         """Update presidential candidate's polling, stamina, and corruption"""
         time_col, time_config = self._get_time_config(guild_id)
         current_phase = time_config.get("current_phase", "") if time_config else ""
@@ -271,6 +273,38 @@ class PresCampaignActions(commands.Cog):
 
                 print(f"DEBUG: Applied momentum multiplier {momentum_multiplier:.2f}x to polling boost: {polling_boost:.2f} -> {actual_polling_boost:.2f}")
 
+        # Determine who pays the stamina cost
+        stamina_deduction_user_id = user_id  # Default to target candidate
+
+        if action_user_id and action_user_id != user_id:
+            # Check if action user is a candidate with enough stamina
+            action_user_candidate = None
+
+            if current_phase == "General Campaign":
+                # Check in presidential winners
+                winners_config = collection.find_one({"guild_id": guild_id})
+                if winners_config and "winners" in winners_config:
+                    winners_data = winners_config.get("winners", [])
+                    if isinstance(winners_data, list):
+                        for winner in winners_data:
+                            if isinstance(winner, dict) and winner.get("user_id") == action_user_id:
+                                action_user_candidate = winner
+                                break
+            else:
+                # Check in presidential signups
+                signups_config = collection.find_one({"guild_id": guild_id})
+                if signups_config and "candidates" in signups_config:
+                    for candidate in signups_config.get("candidates", []):
+                        if isinstance(candidate, dict) and candidate.get("user_id") == action_user_id:
+                            action_user_candidate = candidate
+                            break
+
+            # If action user is a candidate with enough stamina, deduct from them
+            if (action_user_candidate and
+                isinstance(action_user_candidate, dict) and
+                action_user_candidate.get("stamina", 0) >= stamina_cost):
+                stamina_deduction_user_id = action_user_id
+
         if current_phase == "General Campaign":
             # For general campaign, update in presidential winners collection
             collection.update_one(
@@ -278,11 +312,16 @@ class PresCampaignActions(commands.Cog):
                 {
                     "$inc": {
                         f"winners.$.state_points.{state_name.upper()}": actual_polling_boost,
-                        "winners.$.stamina": -stamina_cost,
                         "winners.$.corruption": corruption_increase,
                         "winners.$.total_points": actual_polling_boost
                     }
                 }
+            )
+
+            # Deduct stamina from the determined user
+            collection.update_one(
+                {"guild_id": guild_id, "winners.user_id": stamina_deduction_user_id},
+                {"$inc": {"winners.$.stamina": -stamina_cost}}
             )
 
             # Add momentum effects during General Campaign (use the boosted points)
@@ -295,10 +334,15 @@ class PresCampaignActions(commands.Cog):
                 {
                     "$inc": {
                         "candidates.$.points": polling_boost,
-                        "candidates.$.stamina": -stamina_cost,
                         "candidates.$.corruption": corruption_increase
                     }
                 }
+            )
+
+            # Deduct stamina from the determined user
+            collection.update_one(
+                {"guild_id": guild_id, "candidates.user_id": stamina_deduction_user_id},
+                {"$inc": {"candidates.$.stamina": -stamina_cost}}
             )
 
     def _clean_presidential_state_data(self):
@@ -391,18 +435,18 @@ class PresCampaignActions(commands.Cog):
         # Determine which party gets the boost
         if political_party == "Republican Party":
             # Boost Republicans, reduce Democrats slightly
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] = round(min(75, PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] + impact_factor), 1)
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] - (impact_factor * 0.7)), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] = round(min(75.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] + impact_factor), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(max(15.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] - (impact_factor * 0.7)), 1)
         elif political_party == "Democratic Party":
             # Boost Democrats, reduce Republicans slightly
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(min(75, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] + impact_factor), 1)
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] - (impact_factor * 0.7)), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(min(75.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] + impact_factor), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] = round(max(15.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] - (impact_factor * 0.7)), 1)
         else:
             # Boost Others, reduce both major parties slightly
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["other"] = round(min(25, PRESIDENTIAL_STATE_DATA[state_name_upper]["other"] + impact_factor), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["other"] = round(min(25.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["other"] + impact_factor), 1)
             reduction = impact_factor * 0.35
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] - reduction), 1)
-            PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(max(15, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] - reduction), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] = round(max(15.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] - reduction), 1)
+            PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] = round(max(15.0, PRESIDENTIAL_STATE_DATA[state_name_upper]["democrat"] - reduction), 1)
 
         # Ensure totals stay reasonable (around 100%)
         total = (PRESIDENTIAL_STATE_DATA[state_name_upper]["republican"] +
@@ -453,6 +497,7 @@ class PresCampaignActions(commands.Cog):
         })
 
         if not cooldown_record:
+            from datetime import timedelta
             return timedelta(0)
 
         from datetime import datetime, timedelta
@@ -489,7 +534,7 @@ class PresCampaignActions(commands.Cog):
         # This can be expanded later to include buff/debuff system
         return base_points
 
-    def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float, candidate_data: dict = None):
+    def _add_momentum_from_campaign_action(self, guild_id: int, user_id: int, state_name: str, points_gained: float, candidate_data: Optional[dict] = None):
         """Adds momentum to a state based on campaign actions."""
         try:
             # Check if we're in General Campaign phase
@@ -719,14 +764,15 @@ class PresCampaignActions(commands.Cog):
                             candidate.get("office") == office):
                             # Check if this candidate won their primary
                             candidate_name = candidate.get("name")
-                            for party, winner_name in winners_data.items():
-                                if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
-                                    # Create a general campaign candidate object
-                                    general_candidate = candidate.copy()
-                                    general_candidate["primary_winner"] = True
-                                    general_candidate["total_points"] = general_candidate.get("points", 0.0)
-                                    general_candidate["state_points"] = general_candidate.get("state_points", {})
-                                    candidates.append(general_candidate)
+                            if candidate_name:
+                                for party, winner_name in winners_data.items():
+                                    if isinstance(winner_name, str) and winner_name.lower() == candidate_name.lower():
+                                        # Create a general campaign candidate object
+                                        general_candidate = candidate.copy()
+                                        general_candidate["primary_winner"] = True
+                                        general_candidate["total_points"] = general_candidate.get("points", 0.0)
+                                        general_candidate["state_points"] = general_candidate.get("state_points", {})
+                                        candidates.append(general_candidate)
 
         if not candidates:
             return {}
@@ -889,6 +935,8 @@ class PresCampaignActions(commands.Cog):
             target = candidate["name"]
 
         # Get target candidate
+        if not target:
+            target = candidate["name"]
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
         if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
@@ -919,7 +967,8 @@ class PresCampaignActions(commands.Cog):
 
         # Update target candidate stats
         self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
-                                                 state_upper, polling_boost=polling_boost, stamina_cost=1)
+                                                 state_upper, polling_boost=polling_boost, stamina_cost=1,
+                                                 candidate_data=target_candidate, action_user_id=interaction.user.id)
 
         # Transfer points to all_winners system for proper tracking
         self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_upper, polling_boost)
@@ -1105,7 +1154,8 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate.get("user_id"),
-                                                     state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5)
+                                                     state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5,
+                                                     candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # Transfer points to all_winners system for proper tracking
             self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_upper, polling_boost)
@@ -1191,6 +1241,8 @@ class PresCampaignActions(commands.Cog):
             target = candidate["name"]
 
         # Get target candidate
+        if not target:
+            target = candidate["name"]
         target_signups_col, target_candidate = self._get_presidential_candidate_by_name(interaction.guild.id, target)
         if not target_candidate or not isinstance(target_candidate, dict):
             await interaction.response.send_message(
@@ -1261,7 +1313,8 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
-                                                     state_upper, polling_boost=polling_boost, stamina_cost=1.5)
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=1.5,
+                                                     candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # Transfer points to all_winners system for proper tracking
             self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_upper, polling_boost)
@@ -1466,7 +1519,8 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_user_id,
-                                                     state_upper, polling_boost=polling_boost, stamina_cost=1)
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=1,
+                                                     candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # For general campaign only, transfer points to all_winners system
             current_phase = time_config.get("current_phase", "")
@@ -1703,7 +1757,8 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
-                                                     state_upper, polling_boost=polling_boost, stamina_cost=2.25)
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=2.25,
+                                                     candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # Transfer points to all_winners system for proper tracking
             self._transfer_pres_points_to_winners(interaction.guild.id, target_candidate, state_upper, polling_boost)
@@ -2501,6 +2556,7 @@ class PresCampaignActions(commands.Cog):
         else:
             # For primary campaign, calculate based on points relative to competition
             signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
+            actual_percentage = 50.0  # Default fallback
             if signups_config:
                 current_year = time_config["current_rp_date"].year
                 primary_competitors = [
@@ -2522,6 +2578,8 @@ class PresCampaignActions(commands.Cog):
                         actual_percentage = (candidate_points / total_points) * 100.0
                         # Ensure minimum viable percentage
                         actual_percentage = max(15.0, actual_percentage)
+            else:
+                actual_percentage = 50.0  # Default if no signups config
 
         # Apply margin of error
         poll_result = self._calculate_poll_result(actual_percentage)
@@ -2588,6 +2646,7 @@ class PresCampaignActions(commands.Cog):
         # Add context based on phase
         if current_phase == "Primary Campaign":
             # Show primary competition context
+            signups_col, signups_config = self._get_presidential_config(interaction.guild.id)
             if signups_config:
                 primary_competitors = [
                     c for c in signups_config.get("candidates", [])
