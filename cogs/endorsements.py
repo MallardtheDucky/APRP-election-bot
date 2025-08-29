@@ -334,6 +334,7 @@ class Endorsements(commands.Cog):
         position="Political position for endorsements",
         role="Discord role to assign to this position"
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_set_endorsement_role(
         self,
@@ -393,6 +394,7 @@ class Endorsements(commands.Cog):
         name="view_endorsement_roles",
         description="View current endorsement role mappings (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def view_endorsement_roles(self, interaction: discord.Interaction):
         config_col, config = self._get_endorsement_config(interaction.guild.id)

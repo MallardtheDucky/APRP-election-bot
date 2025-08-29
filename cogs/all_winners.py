@@ -91,7 +91,7 @@ class PageSelector(discord.ui.Select):
         # Get primary winners (candidates in general election)
         candidates = [
             w for w in winners_config.get("winners", [])
-            if w.get("primary_winner", False) and w["year"] == target_year
+            if w["year"] == target_year and w.get("primary_winner", False)
         ]
 
         # Apply filters
@@ -222,16 +222,191 @@ class PageSelector(discord.ui.Select):
 
         # Create new view with updated page
         new_view = CampaignPointsView(
-            interaction, 
-            self.view.sort_by, 
-            self.view.filter_state, 
-            self.view.filter_party, 
-            self.view.year, 
-            total_pages, 
+            interaction,
+            self.view.sort_by,
+            self.view.filter_state,
+            self.view.filter_party,
+            self.view.year,
+            total_pages,
             selected_page
         )
 
         await interaction.edit_original_response(embed=embed, view=new_view)
+
+class GeneralCampaignRegionDropdown(discord.ui.Select):
+    def __init__(self, regions, candidates_by_region, year, seat_percentages_cache):
+        self.candidates_by_region = candidates_by_region
+        self.year = year
+        self.seat_percentages_cache = seat_percentages_cache
+
+        options = [
+            discord.SelectOption(
+                label="🌍 All Regions",
+                description="View candidates from all regions",
+                value="all",
+                emoji="🌍"
+            )
+        ]
+
+        # Add region options with candidate counts
+        for region in sorted(regions.keys()):
+            candidate_count = len(regions[region])
+            options.append(
+                discord.SelectOption(
+                    label=f"📍 {region}",
+                    description=f"{candidate_count} candidate{'s' if candidate_count != 1 else ''}",
+                    value=region
+                )
+            )
+
+        super().__init__(placeholder="Select a region to view candidates...", options=options[:25])
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            selected_region = self.values[0]
+
+            if selected_region == "all":
+                # Show overview of all regions
+                embed = discord.Embed(
+                    title=f"🎯 {self.year} General Campaign - All Regions",
+                    description="Primary winners advancing to general election",
+                    color=discord.Color.purple(),
+                    timestamp=datetime.utcnow()
+                )
+
+                # Add summary for each region
+                for region, candidates in sorted(self.candidates_by_region.items()):
+                    candidate_list = ""
+                    for candidate in sorted(candidates, key=lambda x: x.get("points", 0), reverse=True)[:5]:
+                        candidate_name = candidate.get('candidate', 'Unknown')
+                        candidate_party = candidate.get('party', 'Unknown')
+                        candidate_seat = candidate.get('seat_id', 'Unknown')
+                        candidate_list += f"• **{candidate_name}** ({candidate_party}) - {candidate_seat}\n"
+
+                    if len(candidates) > 5:
+                        candidate_list += f"• ... and {len(candidates) - 5} more"
+
+                    embed.add_field(
+                        name=f"📍 {region} ({len(candidates)} candidates)",
+                        value=candidate_list or "No candidates",
+                        inline=True
+                    )
+            else:
+                # Show detailed view for selected region
+                candidates = self.candidates_by_region.get(selected_region, [])
+
+                embed = discord.Embed(
+                    title=f"🎯 {self.year} General Campaign - {selected_region}",
+                    description=f"Primary winners from {selected_region} advancing to general election",
+                    color=discord.Color.purple(),
+                    timestamp=datetime.utcnow()
+                )
+
+                if not candidates:
+                    embed.add_field(
+                        name="📋 No Candidates",
+                        value=f"No candidates found for {selected_region}",
+                        inline=False
+                    )
+                else:
+                    # Group candidates by seat for proper percentage calculation
+                    seats_in_region = {}
+                    for candidate in candidates:
+                        seat_id = candidate.get("seat_id", "Unknown")
+                        if seat_id not in seats_in_region:
+                            seats_in_region[seat_id] = []
+                        seats_in_region[seat_id].append(candidate)
+
+                    candidate_list = ""
+                    for seat_id, seat_candidates in sorted(seats_in_region.items()):
+                        seat_percentages = self.seat_percentages_cache.get(seat_id, {})
+
+                        for candidate in sorted(seat_candidates, key=lambda x: x.get("points", 0), reverse=True):
+                            # Safely get candidate data
+                            candidate_name = candidate.get("candidate", "Unknown")
+                            candidate_party = candidate.get("party", "Unknown")
+                            candidate_office = candidate.get("office", "Unknown")
+                            candidate_points = candidate.get("points", 0)
+                            candidate_stamina = candidate.get("stamina", 100)
+                            candidate_corruption = candidate.get("corruption", 0)
+                            
+                            # Get user mention
+                            user_id = candidate.get("user_id")
+                            user_mention = f"<@{user_id}>" if user_id else "No user"
+
+                            # Get percentage for this candidate
+                            candidate_percentage = seat_percentages.get(candidate_name, 50.0)
+
+                            candidate_list += (
+                                f"**{candidate_name}** ({candidate_party})\n"
+                                f"└ {seat_id} - {candidate_office}\n"
+                                f"└ Points: {candidate_points:.2f} | Stamina: {candidate_stamina}\n"
+                                f"└ Percentage: {candidate_percentage:.1f}% | Corruption: {candidate_corruption}\n"
+                                f"└ {user_mention}\n\n"
+                            )
+
+                    # Handle long content by splitting into multiple fields
+                    if len(candidate_list) > 1024:
+                        parts = candidate_list.split('\n\n')
+                        current_part = ""
+                        part_num = 1
+
+                        for part in parts:
+                            if part.strip():  # Skip empty parts
+                                if len(current_part + part + '\n\n') > 1024:
+                                    if current_part.strip():
+                                        embed.add_field(
+                                            name=f"📊 Candidates (Part {part_num})",
+                                            value=current_part.strip(),
+                                            inline=False
+                                        )
+                                    current_part = part + '\n\n'
+                                    part_num += 1
+                                else:
+                                    current_part += part + '\n\n'
+
+                        if current_part.strip():
+                            embed.add_field(
+                                name=f"📊 Candidates (Part {part_num})" if part_num > 1 else "📊 Candidates",
+                                value=current_part.strip(),
+                                inline=False
+                            )
+                    else:
+                        embed.add_field(
+                            name="📊 Candidates",
+                            value=candidate_list.strip() if candidate_list.strip() else "No candidates found",
+                            inline=False
+                        )
+
+                    # Add region statistics
+                    if candidates:
+                        total_points = sum(c.get('points', 0) for c in candidates)
+                        avg_stamina = sum(c.get('stamina', 100) for c in candidates) / len(candidates)
+                        avg_corruption = sum(c.get('corruption', 0) for c in candidates) / len(candidates)
+
+                        embed.add_field(
+                            name="📈 Region Statistics",
+                            value=f"**Total Candidates:** {len(candidates)}\n"
+                                  f"**Total Campaign Points:** {total_points:.2f}\n"
+                                  f"**Average Stamina:** {avg_stamina:.1f}\n"
+                                  f"**Average Corruption:** {avg_corruption:.1f}",
+                            inline=False
+                        )
+
+            embed.set_footer(text=f"Use the dropdown to view other regions • Year: {self.year}")
+            await interaction.response.edit_message(embed=embed, view=self.view)
+
+        except Exception as e:
+            print(f"Error in GeneralCampaignRegionDropdown callback: {e}")
+            await interaction.response.send_message(
+                f"❌ An error occurred while switching regions: {str(e)}", 
+                ephemeral=True
+            )
+
+class GeneralCampaignRegionView(discord.ui.View):
+    def __init__(self, regions, candidates_by_region, year, seat_percentages_cache):
+        super().__init__(timeout=300)
+        self.add_item(GeneralCampaignRegionDropdown(regions, candidates_by_region, year, seat_percentages_cache))
 
 class AllWinners(commands.Cog):
     def __init__(self, bot):
@@ -1912,104 +2087,58 @@ class AllWinners(commands.Cog):
                 regions[region] = []
             regions[region].append(candidate)
 
+        # Create main overview embed
         embed = discord.Embed(
             title=f"🎯 {target_year} General Campaign Candidates",
-            description=f"Primary winners advancing to general election • Current phase: **{current_phase}**",
+            description=f"Primary winners advancing to general election • Current phase: **{current_phase}**\n\nUse the dropdown below to view detailed information for each region.",
             color=discord.Color.purple(),
             timestamp=datetime.utcnow()
         )
 
-        for region, region_candidates in sorted(regions.items()):
-            # Sort by points (campaign progress)
-            region_candidates.sort(key=lambda x: x.get("points", 0), reverse=True)
+        # Add summary information for all regions
+        summary_text = ""
+        total_candidates = 0
+        for region, candidates in sorted(regions.items()):
+            candidate_count = len(candidates)
+            total_candidates += candidate_count
+            summary_text += f"**{region}:** {candidate_count} candidate{'s' if candidate_count != 1 else ''}\n"
 
-            # Group candidates by seat for proper percentage calculation
-            seats_in_region = {}
-            for candidate in region_candidates:
-                seat_id = candidate["seat_id"]
-                if seat_id not in seats_in_region:
-                    seats_in_region[seat_id] = []
-                seats_in_region[seat_id].append(candidate)
+        embed.add_field(
+            name="📊 Regional Summary",
+            value=summary_text,
+            inline=True
+        )
 
-            candidate_list = ""
-            for seat_id, seat_candidates in seats_in_region.items():
-                # Use pre-calculated percentages
-                seat_percentages = seat_percentages_cache.get(seat_id, {})
-
-                for candidate in seat_candidates:
-                    baseline = candidate.get("baseline_percentage", 50.0)
-                    campaign_points = candidate.get('points', 0)
-
-                    # Use the normalized percentage from pre-calculated cache
-                    candidate_name = candidate.get('candidate', 'N/A')
-                    normalized_percentage = seat_percentages.get(candidate_name, baseline + campaign_points)
-
-                    user = interaction.guild.get_member(candidate["user_id"])
-                    user_mention = user.mention if user else candidate["candidate"]
-
-                    candidate_list += (
-                        f"{candidate.get('candidate', 'N/A')} ({candidate.get('party', 'N/A')})\n"
-                        f"└ {candidate.get('seat_id', 'N/A')} - {candidate.get('office', 'N/A')}\n"
-                        f"└ Points: {candidate.get('points', 0):.2f} | Stamina: {candidate.get('stamina', 100)}\n"
-                        f"└ Percentage: {normalized_percentage:.1f}% | Corruption: {candidate.get('corruption', 0)}\n"
-                        f"└ {user_mention}\n\n"
-                    )
-
-
-            # Handle long field values
-            if len(candidate_list) > 1024:
-                parts = candidate_list.split('\n\n')
-                current_part = ""
-                part_num = 1
-
-                for part in parts:
-                    if len(current_part + part + '\n\n') > 1024:
-                        embed.add_field(
-                            name=f"📍 {region} (Part {part_num})",
-                            value=current_part,
-                            inline=False
-                        )
-                        current_part = part + '\n\n'
-                        part_num += 1
-                    else:
-                        current_part += part + '\n\n'
-
-                if current_part:
-                    embed.add_field(
-                        name=f"📍 {region} (Part {part_num})" if part_num > 1 else f"📍 {region}",
-                        value=current_part,
-                        inline=False
-                    )
-            else:
-                embed.add_field(
-                    name=f"📍 {region}",
-                    value=candidate_list,
-                    inline=False
-                )
-
-        # Summary statistics
-        total_candidates = len(general_candidates)
-        total_regions = len(regions)
+        # Overall statistics
         avg_stamina = sum(c.get('stamina', 100) for c in general_candidates) / total_candidates if total_candidates else 0
         avg_corruption = sum(c.get('corruption', 0) for c in general_candidates) / total_candidates if total_candidates else 0
         total_campaign_points = sum(c.get('points', 0) for c in general_candidates)
 
         embed.add_field(
-            name="📊 Campaign Summary",
+            name="📈 Overall Statistics",
             value=f"**Total Candidates:** {total_candidates}\n"
-                  f"**Regions Represented:** {total_regions}\n"
-                  f"**Average Stamina:** {avg_stamina:.1f}\n"
-                  f"**Average Corruption:** {avg_corruption:.1f}\n"
-                  f"**Total Campaign Points:** {total_campaign_points:.2f}",
+                  f"**Regions:** {len(regions)}\n"
+                  f"**Avg Stamina:** {avg_stamina:.1f}\n"
+                  f"**Avg Corruption:** {avg_corruption:.1f}\n"
+                  f"**Total Points:** {total_campaign_points:.2f}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="🗳️ Instructions",
+            value="Select a region from the dropdown menu below to view detailed candidate information for that region.",
             inline=False
         )
+
+        # Create the dropdown view
+        view = GeneralCampaignRegionView(regions, regions, target_year, seat_percentages_cache)
 
         if target_year % 2 == 0 and not year:  # Even year, showing current year's winners
             embed.set_footer(text=f"Showing {target_year} primary winners advancing to general election")
         else:
             embed.set_footer(text=f"General campaign candidates for {target_year}")
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(
         name="admin_cleanup_duplicate_winners",

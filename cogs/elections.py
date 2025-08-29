@@ -186,6 +186,7 @@ class Elections(commands.Cog):
         name="admin_bulk_set_votes",
         description="Set vote counts for multiple candidates (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_bulk_set_votes(
         self,
@@ -254,6 +255,7 @@ class Elections(commands.Cog):
         name="admin_set_winner_votes",
         description="Set election winner and vote counts for general elections (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_set_winner_votes(
         self,
@@ -616,7 +618,7 @@ class Elections(commands.Cog):
                 # Group seats by type for announcement
                 seat_groups = {}
                 for seat in up_for_election:
-                    office_type = seat["office"] if seat["office"] in ["Senate", "Governor"] else "House" if "District" in seat["office"] else "National"
+                    office_type = seat["office"] if seat["office"] in ["Senate", "Governor", "President", "Vice President"] else "House"
                     if office_type not in seat_groups:
                         seat_groups[office_type] = []
                     seat_groups[office_type].append(f"{seat['seat_id']} ({seat['state']})")
@@ -871,6 +873,7 @@ class Elections(commands.Cog):
         name="fill_vacant_seat",
         description="Fill a vacant seat with a user (Admin only)"
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_fill_vacant_seat(
         self,
@@ -1021,6 +1024,8 @@ class Elections(commands.Cog):
         name="assign",
         description="Assign a user to an election seat"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def assign_seat(
         self, interaction: discord.Interaction,
         seat_id: str,
@@ -1124,7 +1129,7 @@ class Elections(commands.Cog):
 
         # Create main overview embed
         embed = discord.Embed(
-            title=f"🗳️ Seats Up for Election ({current_year})",
+            title="🗳️ Seats Up for Election ({current_year})",
             description="Use the dropdown below to view detailed information for each office type.",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow()
@@ -1160,6 +1165,8 @@ class Elections(commands.Cog):
         name="toggle_election",
         description="Toggle whether a seat is up for election"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def toggle_seat_election(
         self, interaction: discord.Interaction,
         seat_id: str
@@ -1198,6 +1205,8 @@ class Elections(commands.Cog):
         name="vacant",
         description="Mark a seat as vacant (remove current holder)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def vacant_seat(
         self, interaction: discord.Interaction,
         seat_id: str
@@ -1240,6 +1249,8 @@ class Elections(commands.Cog):
         name="bulk_assign_election",
         description="Mark all seats of a specific type or state as up for election"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def bulk_assign_election(
         self, interaction: discord.Interaction,
         office_type: str = None,
@@ -1293,6 +1304,8 @@ class Elections(commands.Cog):
         name="modify_term",
         description="Modify the term length for a specific seat type"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def modify_seat_term(
         self, interaction: discord.Interaction,
         office_type: str,
@@ -1424,6 +1437,8 @@ class Elections(commands.Cog):
         name="add",
         description="Add a new state/region with configurable seats"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def add_state(
         self,
         interaction: discord.Interaction,
@@ -1524,6 +1539,8 @@ class Elections(commands.Cog):
         name="add_districts",
         description="Add additional house districts to an existing state"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def add_districts(
         self, interaction: discord.Interaction,
         state_name: str,
@@ -1599,6 +1616,8 @@ class Elections(commands.Cog):
         name="add_senate_seats",
         description="Add additional senate seats to an existing state"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def add_senate_seats(
         self, interaction: discord.Interaction,
         state_name: str,
