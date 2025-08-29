@@ -1,4 +1,3 @@
-
 from discord.ext import commands
 import discord
 from discord import app_commands
@@ -174,7 +173,7 @@ class HandbookView(discord.ui.View):
 • `/signup` - Register as a candidate (during signup phase)
 • `/speech` - Give a basic campaign speech (1 hour cooldown)
 • `/momentum status` - Check state momentum
-• `/demographic_status` - View demographic progress (presidential candidates)"""
+• `/demographic_status` - Check demographic progress (presidential candidates)"""
             },
             "election_management": {
                 "title": "🗳️ Election Management",
@@ -231,129 +230,99 @@ Example Timeline:
 3. **Hybrid Approach** - Automated with manual adjustments for close races"""
             },
             "campaign_strategies": {
-                "title": "🎯 Campaign Strategies",
-                "content": """**Understanding Campaign Actions (All 1 Hour Cooldowns)**
+                "title": "🎯 Campaign Strategies (Updated 1-Hour Cooldowns)",
+                "content": """**MAJOR UPDATE: Universal 1-Hour Cooldowns**
+
+All campaign actions now have unified 1-hour cooldowns, creating more strategic timing decisions.
+
+**Core Campaign Actions:**
 
 **1. Speeches** (`/speech`)
-- Purpose: Build general support and name recognition
+- Purpose: Build support with ideology alignment bonuses
 - Requirements: 700-3000 characters, reply within 5 minutes
-- Effectiveness: Moderate, broad appeal
+- Effect: 1.5-3.0 points + ideology bonuses
 - Stamina Cost: 1.5, Cooldown: 1 hour
-- Best Used: Early campaign, building base support
-- Tips: Write engaging content, longer speeches = more points
+- Best Used: Swing states, base building
 
 **2. Canvassing** (`/canvassing`)
-- Purpose: Target specific regions with ground game
+- Purpose: High-impact regional targeting
 - Requirements: 100-300 character message
-- Effectiveness: High in targeted regions
-- Stamina Cost: 1, Cooldown: 1 hour  
-- Best Used: Swing states, competitive districts
+- Effect: High in targeted regions, momentum multipliers apply
+- Stamina Cost: 1, Cooldown: 1 hour
+- Best Used: Competitive districts, ground game
 
 **3. Advertisements** (`/ad`)
-- Purpose: Wide reach across multiple regions
-- Requirements: Video file upload, reply within 5 minutes
-- Effectiveness: High but expensive
+- Purpose: Wide reach, premium effectiveness
+- Requirements: Video upload (25MB), reply within 5 minutes
+- Effect: 0.5-1% polling boost
 - Stamina Cost: 1.5, Cooldown: 1 hour
-- Best Used: Late campaign, major media markets
+- Best Used: Major media markets, final push
 
 **4. Posters** (`/poster`)
-- Purpose: Cheap way to build name recognition
-- Requirements: Image file upload
-- Effectiveness: Low but cost-efficient
+- Purpose: Cost-efficient presence building
+- Requirements: Image upload (10MB)
+- Effect: 0.25-0.5% polling boost
 - Stamina Cost: 1, Cooldown: 1 hour
-- Best Used: Continuous presence
+- Best Used: Consistent presence, name recognition
 
 **5. Donor Appeals** (`/donor`)
-- Purpose: Fundraising for future campaigns
+- Purpose: High-risk, high-reward fundraising
 - Requirements: 400-3000 characters, reply within 5 minutes
-- Effectiveness: Varies by region and timing
+- Effect: Up to 3% boost, +5 corruption (scandal risk)
 - Stamina Cost: 1.5, Cooldown: 1 hour
-- Warning: Adds +5 corruption, risk of scandals
+- Warning: High corruption leads to scandals
 
-**Advanced Action Strategies**
+**Critical Timing Strategies:**
+- **Peak Activity Scheduling**: Use actions during server peak hours
+- **Action Cycling**: Rotate between different action types
+- **Crisis Response**: Always keep one action available for emergencies
+- **Coordination**: Stagger actions with allies to maintain party presence
 
-**Timing Your Actions**
-1. **Early Campaign** (First 1/3) - Focus on posters and speeches, build name recognition, conservative stamina use
-2. **Mid Campaign** (Middle 1/3) - Increase canvassing frequency, target demographics, moderate stamina expenditure  
-3. **Late Campaign** (Final 1/3) - Heavy use of ads, focus on swing states, maximum demographic targeting
-
-**Regional Targeting Strategy**
-**Tier 1: Must-Win States** - Party strongholds, focus 40% of resources
-**Tier 2: Competitive States** - True swing states, focus 50% of resources  
-**Tier 3: Stretch Goals** - Opposition strongholds with potential, focus 10% of resources
-
-**Resource Management**
-- **Total Stamina**: Usually 100 for general, 200 for presidential
-- **Critical Threshold**: Below 50 stamina = reduced effectiveness
-- **Emergency Reserve**: Always keep 20-30 stamina for responses
-- Track cooldowns, plan ahead, coordinate with running mates"""
+**Resource Management:**
+- General: 100 stamina total, 50/day regeneration
+- Presidential: 200 stamina total, 100/day regeneration
+- Emergency Reserve: Keep 10-15 stamina for crisis response"""
             },
             "demographics": {
-                "title": "👥 Demographics & Targeting",
-                "content": """**Complete Demographic List (20+ Groups) - NO THRESHOLDS**
+                "title": "👥 Demographics & Targeting (Updated No-Threshold System)",
+                "content": """**MAJOR UPDATE: No More Thresholds!**
 
-**Geographic Demographics**
-- Urban Voters
-- Suburban Voters  
-- Rural Voters
+**Complete Demographic List (20+ Groups)**
+• Geographic: Urban Voters, Suburban Voters, Rural Voters
+• Religious: Evangelical Christians
+• Racial/Ethnic: African American, Latino/Hispanic, Asian American, Native American Voters
+• Economic: Blue-Collar Workers, College-Educated Professionals, Wealthy Voters, Low-Income Voters, Tech Workers
+• Age: Young Voters (18–29), Senior Citizens (65+)
+• Special Interest: Military/Veterans, LGBTQ+ Voters, Immigrants, Environmental Voters, Gun Rights Advocates
 
-**Religious Demographics**
-- Evangelical Christians
+**New Multiplier System (No Thresholds)**
+- **Strong (0.25x)**: Demographics very influential in that state
+- **Moderate (0.10x)**: Average influence  
+- **Small (0.05x)**: Limited influence
 
-**Racial/Ethnic Demographics**
-- African American Voters
-- Latino/Hispanic Voters
-- Asian American Voters
-- Native American Voters
+**Strategic Example:**
+100 points for Rural Voters:
+• Alabama (Strong): 25 effective points
+• Pennsylvania (Moderate): 10 effective points  
+• California (Small): 5 effective points
 
-**Economic Demographics**
-- Blue-Collar / Working-Class Voters
-- College-Educated Professionals
-- Wealthy / High-Income Voters
-- Low-Income Voters
-- Tech & Innovation Workers
-
-**Age Demographics**
-- Young Voters (18–29)
-- Senior Citizens (65+)
-
-**Special Interest Demographics**
-- Military & Veteran Voters
-- LGBTQ+ Voters
-- Immigrant Communities
-- Environmental & Green Voters
-- Gun Rights Advocates
-
-**State Demographic Strengths**
-**Multiplier System:**
-- **Strong (0.25)**: Demographics very influential in that state
-- **Moderate (0.10)**: Average influence
-- **Small (0.05)**: Limited influence
-
-**Example: Rural Voters**
-- Strong States: Alabama, Montana, Wyoming (0.25 multiplier)
-- Moderate States: Colorado, Pennsylvania (0.10 multiplier)
-- Small States: California, New York (0.05 multiplier)
-
-**Demographic Conflict System**
 **Major Conflict Pairs:**
-- Urban Voters ↔ Rural Voters
-- Young Voters ↔ Senior Citizens  
-- Gun Rights Advocates ↔ Environmental Voters
+- Urban ↔ Rural Voters
+- Young ↔ Senior Citizens
+- Environmental ↔ Gun Rights Advocates  
 - Evangelical Christians ↔ LGBTQ+ Voters
-- Blue-Collar Workers ↔ College-Educated Professionals
+- Blue-Collar ↔ College-Educated Professionals
 
-**No Threshold System:**
-- Demographics no longer have point thresholds
-- Focus on building strong coalitions
-- Avoid conflicting demographics for best results
+**New Strategy Focus:**
+1. **Efficiency Over Volume**: Target demographics in strong-multiplier states only
+2. **Geographic Specialization**: Build overwhelming strength in favorable areas
+3. **Conflict Avoidance**: Use different states for conflicting demographics
+4. **Continuous Investment**: Every point matters, no stopping points
 
-**Strategy Tips:**
-1. Pick 3-4 compatible demographics and focus heavily
-2. Use `/demographics view_state_demographics` to research multipliers
-3. Campaign in states where your demographics are strong
-4. Plan coalition strategy to avoid major conflicts
-5. Use `/demographic_appeal` to target specific groups"""
+**Key Commands:**
+• `/demographics view_state_demographics` - Research state multipliers
+• `/demographic_appeal` - Target specific groups (presidential)
+• `/demographic_status` - Track your progress"""
             },
             "momentum": {
                 "title": "🌊 Momentum System",
@@ -842,7 +811,7 @@ Small States (WY, VT, DE): 3 Senate seats, 1-2 House districts, 1 Governor
 **Essential Admin Commands:**
 - `/election admin set_seats` - Configure all election seats
 - `/time admin set_current_time` - Control election timing and phases
-- `/time admin set_time_scale` - Set how fast time progresses
+- `/time admin set_time_scale` - Set how many real minutes equal one RP day
 - `/momentum admin add_momentum` - Adjust state momentum levels
 - `/party admin create` - Create custom political parties
 - `/poll admin bulk_set_votes` - Set voting results manually
@@ -939,7 +908,7 @@ Target: Rural Voters
 **Special Election Issues**
 - **Short Timeline:** 4-day cycles require aggressive campaigning
 - **Stamina Management:** Start with 100, actions cost 15-25
-- **Target Requirements:** Must specify target candidate
+- **Target Requirements:** Must specify target candidate for all actions
 - **Solution:** Plan actions around 1-hour cooldowns
 
 **System Performance and Technical Issues**
@@ -971,7 +940,7 @@ Target: Rural Voters
 
 **Updated System Notes**
 - All campaign actions now have 1-hour cooldowns
-- Demographics have no thresholds - focus on strong multipliers
+- Demographics have no thresholds - focus on state multipliers
 - Special elections available for House seats anytime
 - Momentum system more important than ever for effectiveness"""
             }
@@ -999,8 +968,8 @@ class HelpView(discord.ui.View):
         categories = {
             "basic": {
                 "title": "🎮 Basic Commands",
-                "content": """`/help commands` - Show this help menu with pagination
-`/help credits` - Lists the people that made this bot"""
+                "content": """`/help` - Show this help menu with options for commands, handbook, or credits
+`/commands` - Display all available bot commands (alias for /help commands)"""
             },
             "setup": {
                 "title": "🏛️ Setup Commands", 
@@ -1013,7 +982,8 @@ class HelpView(discord.ui.View):
 `/setup remove_region` - Remove a US state from this guild's regions (Admin only)
 `/setup set_start` - Set the start date & time for your election (format: YYYY-MM-DD HH:MM) (Admin only)
 `/setup set_announcement_channel` - Set the channel for election announcements (Admin only)
-`/setup remove_announcement_channel` - Remove the announcement channel setting (Admin only)"""
+`/setup remove_announcement_channel` - Remove the announcement channel setting (Admin only)
+`/setup bulk_add_regions` - Add multiple regions at once from a formatted list (Admin only)"""
             },
             "party": {
                 "title": "🎉 Party Management Commands",
@@ -1079,7 +1049,9 @@ class HelpView(discord.ui.View):
                 "content": """`/signup` - Sign up as a candidate for election (only during signup phase)
 `/view_signups` - View all current candidate signups
 `/withdraw_signup` - Withdraw your candidacy from the current election
-`/my_signup` - View your current signup details"""
+`/my_signup` - View your current signup details
+`/signups_by_seat` - View signups organized by election seat
+`/signups_by_party` - View signups organized by political party"""
             },
             "presidential": {
                 "title": "🏛️ Presidential Elections",
@@ -1106,19 +1078,27 @@ class HelpView(discord.ui.View):
 `/view_delegates` - View current delegate count for presidential candidates
 
 **Admin Commands:**
-`/admin_set_endorsement_role` - Set Discord role for endorsement position (Admin only)
-`/admin_call_state` - Manually call a state for delegate allocation (Admin only)"""
+`/endorsement_admin set_role` - Set Discord role for endorsement position (Admin only)
+`/endorsement_admin remove_role` - Remove endorsement role setting (Admin only)
+`/endorsement_admin clear_endorsements` - Clear all endorsements for current cycle (Admin only)
+`/delegate_admin call_state` - Manually call a state for delegate allocation (Admin only)
+`/delegate_admin set_delegates` - Manually set delegate counts for candidates (Admin only)"""
             },
             "voting": {
                 "title": "🗳️ Voting & Results",
                 "content": """**User Commands:**
 `/view_primary_winners` - View all primary election winners for the current year
+`/view_general_winners` - View all general election winners
+`/winner_info primary` - View detailed winner information for primary elections
+`/winner_info general` - View detailed winner information for general elections
 
 **Admin Commands:**
 `/poll admin bulk_set_votes` - Set vote counts for multiple candidates (Admin only)
 `/poll admin set_winner_votes` - Set election winner and vote counts for general elections (Admin only)
-`/admin_set_winner_votes` - Set votes for a primary winner (Admin only)
-`/admin_declare_general_winners` - Declare general election winners based on final scores (Admin only)"""
+`/winners admin set_primary_winner` - Set primary election winner with vote counts (Admin only)
+`/winners admin set_general_winner` - Set general election winner with vote counts (Admin only)
+`/winners admin declare_general_winners` - Declare all general election winners based on final scores (Admin only)
+`/winners admin clear_winners` - Clear all winners for a specific election type (Admin only)"""
             },
             "campaign": {
                 "title": "🎯 Campaign Actions",
@@ -1166,37 +1146,43 @@ class HelpView(discord.ui.View):
                 "content": """**Special Election Commands:**
 
 **User Commands:**
-`/special signup` - Sign up for an active special election
-`/special speech` - Give a campaign speech (1 hour cooldown, 2-4 points, 700-3000 chars)
-`/special poster` - Put up campaign posters (1 hour cooldown, 1-3 points, image upload)
-`/special ad` - Run campaign video ads (1 hour cooldown, 3-6 points, video upload)
+`/special signup` - Sign up for an active special election (candidate name, party)
+`/special speech` - Give a campaign speech (1 hour cooldown, 2-4 points, 700-3000 chars, -20 stamina)
+`/special poster` - Put up campaign posters (1 hour cooldown, 1-3 points, image upload, -15 stamina)
+`/special ad` - Run campaign video ads (1 hour cooldown, 3-6 points, video upload, -25 stamina)
 `/special calendar` - View current special election timeline and status
-`/special poll` - Conduct NPC poll with 7% margin of error
+`/special poll` - Conduct NPC poll with 7% margin of error (300-800 sample size)
 
 **Admin Commands:**
 `/special admin call_election` - Call a special election for a vacant House seat (Admin only)
-`/special admin end_election` - End an active special election (Admin only)
-`/special admin set_winner` - Manually set special election winner (Admin only)
+`/special admin end_election` - End an active special election and declare winner (Admin only)
+`/special admin view_points` - View real campaign points for all candidates (Admin only)
+`/special admin cancel_election` - Cancel an active special election (Admin only)
 
-**Special Election System:**
+**Special Election System Features:**
 - **Eligibility**: Only House seats (REP- or District seats)
 - **Timeline**: 4 days total (1 day signup, 3 days campaign)
 - **Participation**: Anyone can participate, regardless of regular election status
-- **Stamina**: Start with 100, actions cost 15-25 stamina
-- **Cooldowns**: All actions have 1-hour cooldowns
-- **Target System**: Must specify target candidate for all actions"""
+- **Stamina**: Start with 100, regeneration varies, actions cost 15-25 stamina
+- **Cooldowns**: All actions have unified 1-hour cooldowns
+- **Target System**: Must specify target candidate for all campaign actions
+- **Winner Determination**: Highest total points wins the seat
+- **Automatic Progression**: Elections progress through phases automatically
+- **Real-time Tracking**: Admin tools for monitoring campaign progress"""
             },
             "admin": {
                 "title": "🔧 Admin Commands",
                 "content": """**System Administration:**
-`/admin system reset_campaign_cooldowns` - Reset campaign action cooldowns for a user (Admin only)
+`/admin_central reset_campaign_cooldowns` - Reset campaign action cooldowns for a user (Admin only)
+`/admin_central regenerate_stamina` - Manually regenerate stamina for all candidates (Admin only)
+`/admin_central system_status` - View overall system status and health (Admin only)
 
 **Campaign Administration:**
-`/admin campaign speech` - Administrative speech action (Admin only)
-`/admin campaign donor` - Administrative donor action (Admin only)
-`/admin campaign canvassing` - Administrative canvassing action (Admin only)
-`/admin campaign ad` - Administrative advertisement action (Admin only)
-`/admin campaign poster` - Administrative poster action (Admin only)
+`/admin_campaign speech` - Administrative speech action (Admin only)
+`/admin_campaign donor` - Administrative donor action (Admin only)
+`/admin_campaign canvassing` - Administrative canvassing action (Admin only)
+`/admin_campaign ad` - Administrative advertisement action (Admin only)
+`/admin_campaign poster` - Administrative poster action (Admin only)
 
 **Party Management:**
 `/party admin create` - Create a new political party (Admin only)
@@ -1214,13 +1200,17 @@ class HelpView(discord.ui.View):
 `/election admin view_seats` - View all configured election seats (Admin only)
 `/election admin bulk_add_seats` - Add multiple seats from formatted text (Admin only)
 `/election admin fill_vacant_seat` - Fill a vacant seat with a user (Admin only)
+`/election seat admin_update` - Update a specific election seat (Admin only)
+`/election seat admin_reset_term` - Reset term for a specific seat (Admin only)
 
 **Time Management:**
 `/time admin set_current_time` - Set the current RP date and time (Admin only)
 `/time admin set_time_scale` - Set how many real minutes equal one RP day (Admin only)
 `/time admin reset_cycle` - Reset the election cycle to the beginning (Admin only)
 `/time admin pause_time` - Pause or unpause RP time progression (Admin only)
-`/time admin regenerate_stamina` - Manually regenerate stamina for all candidates (Admin only)
+`/time admin set_voice_channel` - Set voice channel for RP date updates (Admin only)
+`/time admin toggle_voice_updates` - Toggle automatic voice channel updates (Admin only)
+`/time admin update_voice_channel` - Manually update voice channel with RP date (Admin only)
 
 **Momentum & Demographics:**
 `/momentum admin add_momentum` - Add momentum to a party in a state (Admin only)
@@ -1234,7 +1224,11 @@ class HelpView(discord.ui.View):
 
 **Polling & Voting:**
 `/poll admin bulk_set_votes` - Set vote counts for multiple candidates (Admin only)
-`/poll admin set_winner_votes` - Set election winner and vote counts (Admin only)"""
+`/poll admin set_winner_votes` - Set election winner and vote counts (Admin only)
+`/winners admin set_primary_winner` - Set primary election winner with votes (Admin only)
+`/winners admin set_general_winner` - Set general election winner with votes (Admin only)
+`/winners admin declare_general_winners` - Declare all general winners based on scores (Admin only)
+`/winners admin clear_winners` - Clear all winners for specific election type (Admin only)"""
             }
         }
 
@@ -1289,25 +1283,25 @@ class Basics(commands.Cog):
             embed.set_footer(text="Thank you for using our election simulation bot!")
             await interaction.response.send_message(embed=embed, ephemeral=True)
         else:
-            # Default help message with options
+            # Default help message with options - no view needed
             embed = discord.Embed(
                 title="🤖 Election Bot Help System",
                 description="Welcome to the comprehensive election simulation bot! Choose how you'd like to get help:",
                 color=discord.Colour.blue()
             )
-            
+
             embed.add_field(
                 name="📋 Command Reference",
                 value="Use `/help commands` to browse all available commands organized by category. Includes special elections, updated demographics, and 1-hour cooldown system.",
                 inline=False
             )
-            
+
             embed.add_field(
                 name="📚 Strategy Handbook", 
                 value="Use `/help handbook` for detailed guides on campaign strategies, demographics (no thresholds), momentum system, and special elections.",
                 inline=False
             )
-            
+
             embed.add_field(
                 name="🏆 Credits",
                 value="Use `/help credits` to see who made this bot possible.",
@@ -1319,7 +1313,7 @@ class Basics(commands.Cog):
                 value="• **Special Elections**: 4-day House seat elections\n• **Demographics**: No thresholds, focus on state multipliers\n• **Campaign Actions**: All actions now have 1-hour cooldowns\n• **Unified Stamina**: General (100) and Presidential (200) candidates\n• **Enhanced Momentum**: More strategic importance",
                 inline=False
             )
-            
+
             embed.set_footer(text="Use the commands above to access specific help sections")
             await interaction.response.send_message(embed=embed, ephemeral=True)
 

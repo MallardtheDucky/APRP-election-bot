@@ -340,8 +340,7 @@ class GeneralCampaignRegionDropdown(discord.ui.Select):
                             candidate_list += (
                                 f"**{candidate_name}** ({candidate_party})\n"
                                 f"└ {seat_id} - {candidate_office}\n"
-                                f"└ Points: {candidate_points:.2f} | Stamina: {candidate_stamina}\n"
-                                f"└ Percentage: {candidate_percentage:.1f}% | Corruption: {candidate_corruption}\n"
+                                f"└ Stamina: {candidate_stamina} | Corruption: {candidate_corruption}\n"
                                 f"└ {user_mention}\n\n"
                             )
 
@@ -387,7 +386,6 @@ class GeneralCampaignRegionDropdown(discord.ui.Select):
                         embed.add_field(
                             name="📈 Region Statistics",
                             value=f"**Total Candidates:** {len(candidates)}\n"
-                                  f"**Total Campaign Points:** {total_points:.2f}\n"
                                   f"**Average Stamina:** {avg_stamina:.1f}\n"
                                   f"**Average Corruption:** {avg_corruption:.1f}",
                             inline=False
@@ -2115,12 +2113,10 @@ class AllWinners(commands.Cog):
         total_campaign_points = sum(c.get('points', 0) for c in general_candidates)
 
         embed.add_field(
-            name="📈 Overall Statistics",
-            value=f"**Total Candidates:** {total_candidates}\n"
-                  f"**Regions:** {len(regions)}\n"
-                  f"**Avg Stamina:** {avg_stamina:.1f}\n"
-                  f"**Avg Corruption:** {avg_corruption:.1f}\n"
-                  f"**Total Points:** {total_campaign_points:.2f}",
+            name="📈 Region Statistics",
+            value=f"**Total Candidates:** {len(general_candidates)}\n"
+                  f"**Average Stamina:** {avg_stamina:.1f}\n"
+                  f"**Average Corruption:** {avg_corruption:.1f}",
             inline=True
         )
 
