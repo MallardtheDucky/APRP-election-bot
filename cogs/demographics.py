@@ -799,6 +799,68 @@ class Demographics(commands.Cog):
 
         return leader, highest_points
 
+    def _determine_stamina_user(self, guild_id: int, user_id: int, target_candidate_data: dict, stamina_cost: float):
+        """Determines whether the user or the target candidate pays the stamina cost."""
+        # Get the user's candidate data
+        _, user_candidate_data = self._get_user_candidate(guild_id, user_id)
+
+        # If the user is a candidate in the current election cycle and has enough stamina, they pay
+        if (user_candidate_data and 
+            isinstance(user_candidate_data, dict) and 
+            user_candidate_data.get("stamina", 0) >= stamina_cost):
+            return user_id
+
+        # If user is not a candidate OR doesn't have enough stamina, target candidate pays
+        # This covers both cases: non-candidates and candidates without enough stamina
+        if (target_candidate_data and 
+            isinstance(target_candidate_data, dict) and 
+            target_candidate_data.get("user_id")):
+            return target_candidate_data.get("user_id")
+
+        # Fallback (should rarely happen)
+        return user_id
+
+    def _deduct_stamina_from_user(self, guild_id: int, user_id: int, cost: float):
+        """Deducts stamina from a user's candidate profile."""
+        # Check all potential collections where the candidate might be stored
+
+        # Check presidential winners collection first (for General Campaign)
+        pres_winners_col, pres_winners_config = self._get_presidential_winners_config(guild_id)
+        if pres_winners_config:
+            for i, winner in enumerate(pres_winners_config.get("winners", [])):
+                if isinstance(winner, dict) and winner.get("user_id") == user_id:
+                    pres_winners_col.update_one(
+                        {"guild_id": guild_id},
+                        {"$inc": {f"winners.{i}.stamina": -cost}}
+                    )
+                    return
+
+        # Check all_winners collection
+        all_winners_col = self.bot.db["winners"]
+        all_winners_result = all_winners_col.update_one(
+            {"guild_id": guild_id, "winners.user_id": user_id},
+            {"$inc": {"winners.$.stamina": -cost}}
+        )
+        if all_winners_result.matched_count > 0:
+            return
+
+        # Check presidential signups collection
+        pres_signups_col, pres_signups_config = self._get_presidential_config(guild_id)
+        if pres_signups_config:
+            pres_signups_result = pres_signups_col.update_one(
+                {"guild_id": guild_id, "candidates.user_id": user_id},
+                {"$inc": {"candidates.$.stamina": -cost}}
+            )
+            if pres_signups_result.matched_count > 0:
+                return
+
+        # Check regular signups collection
+        signups_col = self.bot.db["signups"]
+        signups_col.update_one(
+            {"guild_id": guild_id, "candidates.user_id": user_id},
+            {"$inc": {"candidates.$.stamina": -cost}}
+        )
+
     def _update_demographic_points(self, collection, guild_id: int, user_id: int, demographic: str, points_gained: float, state: str, candidate: dict):
         """Update demographic points for a candidate and handle backlash"""
         # Determine if this is a winners collection or signups collection
@@ -1005,6 +1067,25 @@ class Demographics(commands.Cog):
             )
             return
 
+        # Determine who pays stamina cost
+        stamina_cost = 2
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Get the stamina user's candidate data
+        if stamina_user_id == interaction.user.id:
+            _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+        else:
+            stamina_user_candidate = target_candidate
+
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
+            await interaction.response.send_message(
+                f"❌ {stamina_user_name} doesn't have enough stamina for a demographic speech! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
+                ephemeral=True
+            )
+            return
+
         # Get demographic info
         state_multiplier = self._get_state_demographic_multiplier(state_upper, demographic)
         party_multiplier = self._get_party_demographic_multiplier(target_candidate, state_upper, demographic)
@@ -1054,9 +1135,14 @@ class Demographics(commands.Cog):
             base_points = (char_count / 200) * 1.0  # 1 point per 200 characters
             final_points = base_points * total_multiplier
 
-            # Update candidate's demographic progress
-            self._update_candidate_demographic_points(target_signups_col, interaction.guild.id, target_candidate["user_id"], 
-                                                    demographic, final_points)
+            # Update demographic points
+            points_gained, backlash_updates = self._update_demographic_points(
+                target_signups_col, interaction.guild.id, target_candidate["user_id"], 
+                demographic, final_points, state_upper, target_candidate
+            )
+
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             # Get updated demographic status
             updated_candidate = self._get_candidate_by_name(interaction.guild.id, target)[1]
@@ -1186,9 +1272,20 @@ class Demographics(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate["stamina"] < 1.5:
+        stamina_cost = 1.5
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Get the stamina user's candidate data
+        if stamina_user_id == interaction.user.id:
+            _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+        else:
+            stamina_user_candidate = target_candidate
+
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1.5 stamina to create a demographic poster.",
+                f"❌ {stamina_user_name} doesn't have enough stamina for a demographic poster! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
                 ephemeral=True
             )
             return
@@ -1229,11 +1326,8 @@ class Demographics(commands.Cog):
             demographic, base_points, state_upper, target_candidate
         )
 
-        # Update stamina
-        target_signups_col.update_one(
-            {"guild_id": interaction.guild.id, "winners.user_id": target_candidate["user_id"]},
-            {"$inc": {"winners.$.stamina": -1.5}}
-        )
+        # Deduct stamina from the determined user
+        self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
         # Set cooldown
         self._set_cooldown(interaction.guild.id, interaction.user.id, "demographic_poster")
@@ -1263,7 +1357,7 @@ class Demographics(commands.Cog):
                   f"**Party Bonus:** +{party_multiplier:.2f}x\n"
                   f"**Total Points:** {current_points:.1f}\n"
                   f"**Leadership:** {'🏆 LEADING!' if is_leader else f'Behind by {max(0, highest_points - current_points):.1f}'}\n"
-                  f"**Stamina Cost:** -1.5",
+                  f"**Stamina Cost:** -{stamina_cost}",
             inline=True
         )
 
@@ -1350,9 +1444,20 @@ class Demographics(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate["stamina"] < 2.5:
+        stamina_cost = 2.5
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Get the stamina user's candidate data
+        if stamina_user_id == interaction.user.id:
+            _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+        else:
+            stamina_user_candidate = target_candidate
+
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 2.5 stamina to create a demographic ad.",
+                f"❌ {stamina_user_name} doesn't have enough stamina for a demographic ad! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
                 ephemeral=True
             )
             return
@@ -1378,7 +1483,7 @@ class Demographics(commands.Cog):
             f"• Video file (MP4, MOV, AVI, etc.)\n"
             f"• Maximum size: 25MB\n"
             f"• Reply within 5 minutes\n\n"
-            f"**Effect:** 0.8-1.5 demographic points, -2.5 stamina",
+            f"**Effect:** 0.8-1.5 demographic points, -{stamina_cost} stamina",
             ephemeral=False
         )
 
@@ -1416,11 +1521,8 @@ class Demographics(commands.Cog):
                 demographic, base_points, state_upper, target_candidate
             )
 
-            # Update stamina
-            target_signups_col.update_one(
-                {"guild_id": interaction.guild.id, "winners.user_id": target_candidate["user_id"]},
-                {"$inc": {"winners.$.stamina": -2.5}}
-            )
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             # Set cooldown
             self._set_cooldown(interaction.guild.id, interaction.user.id, "demographic_ad")
@@ -1444,7 +1546,7 @@ class Demographics(commands.Cog):
                       f"**Points Gained:** +{points_gained:.2f}\n"
                       f"**Total Points:** {current_points:.1f}\n"
                       f"**Leadership:** {'🏆 LEADING!' if is_leader else f'Behind by {max(0, highest_points - current_points):.1f}'}\n"
-                      f"**Stamina Cost:** -2.5",
+                      f"**Stamina Cost:** -{stamina_cost}",
                 inline=True
             )
 

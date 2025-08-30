@@ -216,7 +216,7 @@ class GeneralCampaignActions(commands.Cog):
             stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
             if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
                 # Get stamina user's candidate data
-                signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+                _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
 
             stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
             if stamina_amount < stamina_cost:
@@ -423,7 +423,7 @@ class GeneralCampaignActions(commands.Cog):
             stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
             if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
                 # Get stamina user's candidate data
-                signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+                _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
 
             stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
             if stamina_amount < stamina_cost:
@@ -592,7 +592,7 @@ class GeneralCampaignActions(commands.Cog):
         stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
         if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
             # Get stamina user's candidate data
-            signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+            _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
 
         stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
         if stamina_amount < stamina_cost:
@@ -770,7 +770,7 @@ class GeneralCampaignActions(commands.Cog):
             stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
             if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
                 # Get stamina user's candidate data
-                signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+                _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
 
             stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
             if stamina_amount < stamina_cost:
@@ -933,7 +933,7 @@ class GeneralCampaignActions(commands.Cog):
         stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else None
         if not stamina_user_candidate and stamina_user_id != target_candidate.get("user_id"):
             # Get stamina user's candidate data
-            signups_col_temp, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
+            _, stamina_user_candidate = self._get_user_candidate(interaction.guild.id, stamina_user_id)
 
         stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
         if stamina_amount < stamina_cost:

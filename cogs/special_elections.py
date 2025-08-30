@@ -60,6 +60,45 @@ class SpecialElections(commands.Cog):
         poll_result = actual_percentage + variation
         return max(0.1, min(99.9, poll_result))
 
+    def _determine_stamina_user(self, guild_id: int, user_id: int, target_candidate_data: dict, stamina_cost: float):
+        """Determines whether the user or the target candidate pays the stamina cost."""
+        # Get the user's candidate data from active special election
+        active_election = self._get_active_special_election(guild_id)
+        user_candidate_data = None
+
+        if active_election:
+            for candidate in active_election.get("candidates", []):
+                if candidate.get("user_id") == user_id:
+                    user_candidate_data = candidate
+                    break
+
+        # If the user is a candidate and has enough stamina, they pay.
+        if user_candidate_data and user_candidate_data.get("stamina", 0) >= stamina_cost:
+            return user_id
+
+        # Otherwise, the target candidate pays if they exist and have enough stamina.
+        if target_candidate_data and target_candidate_data.get("stamina", 0) >= stamina_cost:
+            return target_candidate_data.get("user_id")
+
+        # If neither can pay, return the target's user ID as a fallback (though the action will likely fail).
+        return target_candidate_data.get("user_id") if target_candidate_data else user_id
+
+    def _deduct_stamina_from_user(self, guild_id: int, user_id: int, cost: float):
+        """Deducts stamina from a user's candidate profile in the active special election."""
+        col, config = self._get_special_config(guild_id)
+
+        for i, election in enumerate(config["active_elections"]):
+            for j, candidate in enumerate(election["candidates"]):
+                if candidate["user_id"] == user_id:
+                    election["candidates"][j]["stamina"] = max(0, candidate.get("stamina", 100) - cost)
+                    config["active_elections"][i] = election
+
+                    col.update_one(
+                        {"guild_id": guild_id},
+                        {"$set": {"active_elections": config["active_elections"]}}
+                    )
+                    return
+
     # Autocomplete methods for admin commands
     async def _get_house_seats_autocomplete(self, interaction: discord.Interaction, current: str):
         """Get House seats for autocomplete"""
@@ -224,7 +263,7 @@ class SpecialElections(commands.Cog):
         for candidate in active_election.get("candidates", []):
             if current.lower() in candidate["name"].lower():
                 choices.append(app_commands.Choice(name=candidate["name"], value=candidate["name"]))
-        return choices
+        return choices[:25]
 
     @special_group.command(
         name="speech",
@@ -290,10 +329,17 @@ class SpecialElections(commands.Cog):
             )
             return
         
-        # Check stamina
-        if user_candidate and user_candidate["stamina"] < 20:
+        # Determine who pays stamina cost
+        stamina_cost = 20
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Check if stamina user has enough stamina
+        stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else user_candidate
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
             await interaction.response.send_message(
-                f"❌ Not enough stamina! You need 20 stamina but only have {user_candidate['stamina']}.",
+                f"❌ {stamina_user_name} doesn't have enough stamina for this speech! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
                 ephemeral=True
             )
             return
@@ -367,15 +413,14 @@ class SpecialElections(commands.Cog):
             # Calculate points gained (2-4 points)
             points_gained = random.uniform(2.0, 4.0)
 
-            # Update candidate points and stamina
+            # Update candidate points
             col, config = self._get_special_config(interaction.guild.id)
 
             for i, election in enumerate(config["active_elections"]):
                 if election["seat_id"] == active_election["seat_id"]:
                     for j, candidate in enumerate(election["candidates"]):
-                        if candidate["user_id"] == interaction.user.id:
+                        if candidate["user_id"] == target_candidate["user_id"]:
                             election["candidates"][j]["points"] += points_gained
-                            election["candidates"][j]["stamina"] -= 20
                             config["active_elections"][i] = election
                             break
                     break
@@ -384,6 +429,9 @@ class SpecialElections(commands.Cog):
                 {"guild_id": interaction.guild.id},
                 {"$set": {"active_elections": config["active_elections"]}}
             )
+
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             embed = discord.Embed(
                 title="🎤 Special Election Campaign Speech",
@@ -407,7 +455,7 @@ class SpecialElections(commands.Cog):
                 name="📊 Campaign Impact",
                 value=f"**Points Gained:** +{points_gained:.2f}\n"
                       f"**Stamina Used:** -20\n"
-                      f"**Remaining Stamina:** {user_candidate['stamina'] - 20 if user_candidate else 'N/A'}\n"
+                      f"**Remaining Stamina:** {stamina_user_candidate.get('stamina', 0) - 20 if stamina_user_candidate else 'N/A'}\n"
                       f"**Characters:** {char_count:,}",
                 inline=True
             )
@@ -492,10 +540,17 @@ class SpecialElections(commands.Cog):
             )
             return
 
-        # Check stamina
-        if user_candidate and user_candidate["stamina"] < 15:
+        # Determine who pays stamina cost
+        stamina_cost = 15
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Check if stamina user has enough stamina
+        stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else user_candidate
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
             await interaction.response.send_message(
-                f"❌ Not enough stamina! You need 15 stamina but only have {user_candidate['stamina']}.",
+                f"❌ {stamina_user_name} doesn't have enough stamina for posters! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
                 ephemeral=True
             )
             return
@@ -553,15 +608,14 @@ class SpecialElections(commands.Cog):
         # Calculate points gained (1-3 points)
         points_gained = random.uniform(1.0, 3.0)
 
-        # Update candidate points and stamina
+        # Update candidate points
         col, config = self._get_special_config(interaction.guild.id)
 
         for i, election in enumerate(config["active_elections"]):
             if election["seat_id"] == active_election["seat_id"]:
                 for j, candidate in enumerate(election["candidates"]):
-                    if candidate["user_id"] == interaction.user.id:
+                    if candidate["user_id"] == target_candidate["user_id"]:
                         election["candidates"][j]["points"] += points_gained
-                        election["candidates"][j]["stamina"] -= 15
                         config["active_elections"][i] = election
                         break
                 break
@@ -570,6 +624,9 @@ class SpecialElections(commands.Cog):
             {"guild_id": interaction.guild.id},
             {"$set": {"active_elections": config["active_elections"]}}
         )
+
+        # Deduct stamina from the determined user
+        self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
         embed = discord.Embed(
             title="📋 Special Election Campaign Posters",
@@ -582,7 +639,7 @@ class SpecialElections(commands.Cog):
             name="📊 Campaign Impact",
             value=f"**Points Gained:** +{points_gained:.2f}\n"
                   f"**Stamina Used:** -15\n"
-                  f"**Remaining Stamina:** {user_candidate['stamina'] - 15 if user_candidate else 'N/A'}",
+                  f"**Remaining Stamina:** {stamina_user_candidate.get('stamina', 0) - 15 if stamina_user_candidate else 'N/A'}",
             inline=True
         )
 
@@ -667,10 +724,17 @@ class SpecialElections(commands.Cog):
             )
             return
 
-        # Check stamina
-        if user_candidate and user_candidate["stamina"] < 25:
+        # Determine who pays stamina cost
+        stamina_cost = 25
+        stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
+
+        # Check if stamina user has enough stamina
+        stamina_user_candidate = target_candidate if stamina_user_id == target_candidate.get("user_id") else user_candidate
+        stamina_amount = stamina_user_candidate.get("stamina", 0) if stamina_user_candidate else 0
+        if stamina_amount < stamina_cost:
+            stamina_user_name = stamina_user_candidate.get("name", "Unknown") if stamina_user_candidate else "Unknown"
             await interaction.response.send_message(
-                f"❌ Not enough stamina! You need 25 stamina but only have {user_candidate['stamina']}.",
+                f"❌ {stamina_user_name} doesn't have enough stamina for an ad! They need at least {stamina_cost} stamina (current: {stamina_amount}).",
                 ephemeral=True
             )
             return
@@ -750,15 +814,14 @@ class SpecialElections(commands.Cog):
             # Calculate points gained (3-6 points)
             points_gained = random.uniform(3.0, 6.0)
 
-            # Update candidate points and stamina
+            # Update candidate points
             col, config = self._get_special_config(interaction.guild.id)
 
             for i, election in enumerate(config["active_elections"]):
                 if election["seat_id"] == active_election["seat_id"]:
                     for j, candidate in enumerate(election["candidates"]):
-                        if candidate["user_id"] == interaction.user.id:
+                        if candidate["user_id"] == target_candidate["user_id"]:
                             election["candidates"][j]["points"] += points_gained
-                            election["candidates"][j]["stamina"] -= 25
                             config["active_elections"][i] = election
                             break
                     break
@@ -767,6 +830,9 @@ class SpecialElections(commands.Cog):
                 {"guild_id": interaction.guild.id},
                 {"$set": {"active_elections": config["active_elections"]}}
             )
+
+            # Deduct stamina from the determined user
+            self._deduct_stamina_from_user(interaction.guild.id, stamina_user_id, stamina_cost)
 
             embed = discord.Embed(
                 title="📺 Special Election Campaign Advertisement",
@@ -779,7 +845,7 @@ class SpecialElections(commands.Cog):
                 name="📊 Campaign Impact",
                 value=f"**Points Gained:** +{points_gained:.2f}\n"
                       f"**Stamina Used:** -25\n"
-                      f"**Remaining Stamina:** {user_candidate['stamina'] - 25 if user_candidate else 'N/A'}",
+                      f"**Remaining Stamina:** {stamina_user_candidate.get('stamina', 0) - 25 if stamina_user_candidate else 'N/A'}",
                 inline=True
             )
 
