@@ -668,7 +668,7 @@ class PresidentialWinners(commands.Cog):
                     winner.get("phase") != "General Campaign"):
 
                     winners_config["winners"][i]["points"] = 0.0
-                    winners_config["winners"][i]["stamina"] = 200  # Presidential candidates get higher stamina
+                    winners_config["winners"][i]["stamina"] = 300  # Presidential candidates get higher stamina
                     winners_config["winners"][i]["phase"] = "General Campaign"
                     updated_count += 1
 
@@ -818,7 +818,7 @@ class PresidentialWinners(commands.Cog):
                 "votes": 0,
                 "corruption": candidate.get("corruption", 0),
                 "final_score": 0,
-                "stamina": candidate.get("stamina", 200),  # Presidential candidates get higher stamina
+                "stamina": candidate.get("stamina", 300),  # Presidential candidates get higher stamina
                 "winner": False,
                 "phase": "Primary Winner",
                 "primary_winner": True,

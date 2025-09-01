@@ -330,7 +330,7 @@ class SpecialElections(commands.Cog):
             return
         
         # Determine who pays stamina cost
-        stamina_cost = 20
+        stamina_cost = 6
         stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
 
         # Check if stamina user has enough stamina
@@ -541,7 +541,7 @@ class SpecialElections(commands.Cog):
             return
 
         # Determine who pays stamina cost
-        stamina_cost = 15
+        stamina_cost = 4
         stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
 
         # Check if stamina user has enough stamina
@@ -725,7 +725,7 @@ class SpecialElections(commands.Cog):
             return
 
         # Determine who pays stamina cost
-        stamina_cost = 25
+        stamina_cost = 5
         stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
 
         # Check if stamina user has enough stamina

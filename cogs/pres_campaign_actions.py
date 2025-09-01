@@ -391,7 +391,7 @@ class PresCampaignActions(commands.Cog):
                     "political_party": political_party, # Store categorized party
                     "office": office,
                     "year": year,
-                    "stamina": candidate_data.get("stamina", 200),
+                    "stamina": candidate_data.get("stamina", 300),
                     "corruption": candidate_data.get("corruption", 0),
                     "primary_winner": candidate_data.get("primary_winner", False),
                     "state_points": candidate_data.get("state_points", {}),
@@ -990,7 +990,7 @@ class PresCampaignActions(commands.Cog):
         current_stamina = target_candidate.get("stamina", 0) if isinstance(target_candidate, dict) else 0
         embed.add_field(
             name="⚡ Target's Current Stamina",
-            value=f"{current_stamina - 1}/200",
+            value=f"{current_stamina - 1}/300",
             inline=True
         )
 
@@ -1101,9 +1101,9 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate.get("stamina", 200) < 1.5:
+        if target_candidate.get("stamina", 300) < 5:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a donor appeal! They need at least 1.5 stamina (current: {target_candidate['stamina']}).",
+                f"❌ {target_candidate['name']} doesn't have enough stamina for a donor appeal! They need at least 5 stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
             )
             return
@@ -1154,7 +1154,7 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate.get("user_id"),
-                                                     state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=1.5,
+                                                     state_upper, polling_boost=polling_boost, corruption_increase=5, stamina_cost=5,
                                                      candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # Transfer points to all_winners system for proper tracking
@@ -1201,7 +1201,7 @@ class PresCampaignActions(commands.Cog):
 
     @app_commands.command(
         name="pres_ad",
-        description="Presidential campaign video ad in a U.S. state (0.3-0.5% points, 1.5 stamina)"
+        description="Presidential campaign video ad in a U.S. state (0.2-0.3% points, 1.5 stamina)"
     )
     @app_commands.describe(
         state="U.S. state for video ad",
@@ -1252,9 +1252,9 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate.get("stamina", 200) < 1.5:
+        if target_candidate.get("stamina", 200) < 5:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 1.5 stamina to create an ad.",
+                f"❌ {target_candidate['name']} doesn't have enough stamina! They need at least 5 stamina to create an ad.",
                 ephemeral=True
             )
             return
@@ -1279,7 +1279,7 @@ class PresCampaignActions(commands.Cog):
             f"• Video file (MP4, MOV, AVI, etc.)\n"
             f"• Maximum size: 25MB\n"
             f"• Reply within 5 minutes\n\n"
-            f"**Effect:** 0.3-0.5% polling boost, -1.5 stamina",
+            f"**Effect:** 0.2-0.3% polling boost, -1.5 stamina",
             ephemeral=False
         )
 
@@ -1308,12 +1308,12 @@ class PresCampaignActions(commands.Cog):
                 await reply_message.reply("❌ Video file too large! Maximum size is 25MB.")
                 return
 
-            # Random polling boost between 0.3% and 0.5%
-            polling_boost = random.uniform(0.3, 0.5)
+            # Random polling boost between 0.2% and 0.3%
+            polling_boost = random.uniform(0.2, 0.3)
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
-                                                     state_upper, polling_boost=polling_boost, stamina_cost=1.5,
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=5,
                                                      candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # Transfer points to all_winners system for proper tracking
@@ -1345,7 +1345,7 @@ class PresCampaignActions(commands.Cog):
             current_stamina = target_candidate.get("stamina", 0) if isinstance(target_candidate, dict) else 0
             embed.add_field(
                 name="⚡ Target's Current Stamina",
-                value=f"{current_stamina - 1.5:.1f}/200",
+                value=f"{current_stamina - 1.5:.1f}/300",
                 inline=True
             )
 
@@ -1360,7 +1360,7 @@ class PresCampaignActions(commands.Cog):
 
     @app_commands.command(
         name="pres_poster",
-        description="Presidential campaign poster in a U.S. state (0.2-0.4% points, 1 stamina)"
+        description="Presidential campaign poster in a U.S. state (0.1-0.2% points, 1 stamina)"
     )
     @app_commands.describe(
         state="U.S. state for campaign poster",
@@ -1470,10 +1470,10 @@ class PresCampaignActions(commands.Cog):
                 return
 
             # Check stamina with safe access and default values
-            current_stamina = target_candidate.get("stamina", 200)
-            if not isinstance(current_stamina, (int, float)) or current_stamina < 1:
+            current_stamina = target_candidate.get("stamina", 300)
+            if not isinstance(current_stamina, (int, float)) or current_stamina < 4:
                 await interaction.followup.send(
-                    f"❌ {target_candidate.get('name', 'Candidate')} doesn't have enough stamina! They need at least 1 stamina to create a poster.",
+                    f"❌ {target_candidate.get('name', 'Candidate')} doesn't have enough stamina! They need at least 4 stamina to create a poster.",
                     ephemeral=True
                 )
                 return
@@ -1505,8 +1505,8 @@ class PresCampaignActions(commands.Cog):
                 )
                 return
 
-            # Random polling boost between 0.2% and 0.4%
-            polling_boost = random.uniform(0.2, 0.4)
+            # Random polling boost between 0.1% and 0.2%
+            polling_boost = random.uniform(0.1, 0.2)
 
             # Safely get target user ID
             target_user_id = target_candidate.get("user_id")
@@ -1519,7 +1519,7 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_user_id,
-                                                     state_upper, polling_boost=polling_boost, stamina_cost=1,
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=4,
                                                      candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # For general campaign only, transfer points to all_winners system
@@ -1557,7 +1557,7 @@ class PresCampaignActions(commands.Cog):
             remaining_stamina = max(0, current_stamina - 1)
             embed.add_field(
                 name="⚡ Target's Current Stamina",
-                value=f"{remaining_stamina}/200",
+                value=f"{remaining_stamina}/300",
                 inline=True
             )
 
@@ -1690,9 +1690,9 @@ class PresCampaignActions(commands.Cog):
             return
 
         # Check stamina
-        if target_candidate.get("stamina", 200) < 2.25:
+        if target_candidate.get("stamina", 200) < 6:
             await interaction.response.send_message(
-                f"❌ {target_candidate['name']} doesn't have enough stamina for a speech! They need at least 2.25 stamina (current: {target_candidate['stamina']}).",
+                f"❌ {target_candidate['name']} doesn't have enough stamina for a speech! They need at least 6 stamina (current: {target_candidate['stamina']}).",
                 ephemeral=True
             )
             return
@@ -1715,7 +1715,7 @@ class PresCampaignActions(commands.Cog):
             f"**Requirements:**\n"
             f"• 600-3000 characters\n"
             f"• Reply within 5 minutes\n\n"
-            f"**Effect:** Up to 2.5% polling boost based on length, -2.25 stamina\n"
+            f"**Effect:** Up to 1.5% polling boost based on length, -2.25 stamina\n"
             f"**Potential Bonus:** {'✅ Ideology match (+0.5%)' if ideology_match else '⚠️ No ideology match (+0.0%)'}",
             ephemeral=False
         )
@@ -1743,9 +1743,9 @@ class PresCampaignActions(commands.Cog):
             # Set cooldown after successful validation
             self._set_cooldown(interaction.guild.id, interaction.user.id, "pres_speech")
 
-            # Calculate base polling boost - 1% per 1200 characters
-            base_polling_boost = (char_count / 1200) * 1.0
-            base_polling_boost = min(base_polling_boost, 2.5)
+            # Calculate base polling boost - 1% per 2000 characters
+            base_polling_boost = (char_count / 2000) * 1.0
+            base_polling_boost = min(base_polling_boost, 1.5)
 
             # Check for ideology match bonus
             state_data = STATE_DATA.get(state_upper, {})
@@ -1757,7 +1757,7 @@ class PresCampaignActions(commands.Cog):
 
             # Update target candidate stats
             self._update_presidential_candidate_stats(target_signups_col, interaction.guild.id, target_candidate["user_id"],
-                                                     state_upper, polling_boost=polling_boost, stamina_cost=2.25,
+                                                     state_upper, polling_boost=polling_boost, stamina_cost=6,
                                                      candidate_data=target_candidate, action_user_id=interaction.user.id)
 
             # Transfer points to all_winners system for proper tracking
@@ -2096,7 +2096,7 @@ class PresCampaignActions(commands.Cog):
 
         embed.add_field(
             name="⚡ Resources",
-            value=f"**Stamina:** {candidate.get('stamina', 200)}/200\n"
+            value=f"**Stamina:** {candidate.get('stamina', 300)}/300\n"
                   f"**Corruption:** {candidate.get('corruption', 0)}",
             inline=True
         )

@@ -219,7 +219,7 @@ class PresidentialSignups(commands.Cog):
             "vp_candidate_id": None,
             "signup_date": datetime.utcnow(),
             "points": 0.0,
-            "stamina": 200,
+            "stamina": 300,
             "corruption": 0,
             "phase": "Primary Campaign" if current_phase in ["Primary Campaign", "Primary Election"] else "Primary Campaign"
         }
@@ -259,7 +259,7 @@ class PresidentialSignups(commands.Cog):
         embed.add_field(
             name="📊 Starting Stats",
             value=f"**Points:** {new_candidate['points']:.2f}\n"
-                  f"**Stamina:** {new_candidate['stamina']}\n"
+                  f"**Stamina:** {new_candidate['stamina']}/300\n"
                   f"**Corruption:** {new_candidate['corruption']}",
             inline=True
         )
@@ -594,7 +594,7 @@ class PresidentialSignups(commands.Cog):
             "presidential_candidate_id": interaction.user.id,
             "signup_date": datetime.utcnow(),
             "points": 0.0,
-            "stamina": 200,
+            "stamina": 300,
             "corruption": 0,
             "phase": "Primary Campaign"
         }
@@ -933,7 +933,7 @@ class PresidentialSignups(commands.Cog):
                             winner_name = winner.get("candidate")
                             for candidate in pres_config.get("candidates", []):
                                 if (candidate["name"] == winner_name and 
-                                    candidate["year"] == primary_year and 
+                                    candidate["year"] == signup_year and 
                                     candidate["office"] == "President"):
                                     # Add winner data to candidate for display
                                     candidate["winner_data"] = winner

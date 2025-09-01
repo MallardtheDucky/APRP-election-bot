@@ -171,9 +171,16 @@ class HandbookView(discord.ui.View):
 • `/help commands` - View all available commands
 • `/time current_time` - Check current phase and date
 • `/signup` - Register as a candidate (during signup phase)
-• `/speech` - Give a basic campaign speech (1 hour cooldown)
+• `/speech` - Give a basic campaign speech (1 hour cooldown, 1.5 stamina)
 • `/momentum status` - Check state momentum
-• `/demographic_status` - Check demographic progress (presidential candidates)"""
+• `/demographic_status` - Check demographic progress (presidential candidates)
+
+**Stamina System Overview:**
+• **General Candidates**: 100 total stamina, 50 regenerated per day
+• **Presidential Candidates**: 300 total stamina, 100 regenerated per day
+• **Campaign Actions**: Range from 1.0-2.5 stamina cost
+• **Demographic Actions**: Higher costs (1.5-2.5) but longer cooldowns
+• **Strategic Planning**: Monitor stamina to maintain campaign activity"""
             },
             "election_management": {
                 "title": "🗳️ Election Management",
@@ -248,13 +255,13 @@ All campaign actions now have unified 1-hour cooldowns, creating more strategic 
 - Purpose: High-impact regional targeting
 - Requirements: 100-300 character message
 - Effect: High in targeted regions, momentum multipliers apply
-- Stamina Cost: 1, Cooldown: 1 hour
+- Stamina Cost: 1.0, Cooldown: 1 hour
 - Best Used: Competitive districts, ground game
 
 **3. Advertisements** (`/ad`)
 - Purpose: Wide reach, premium effectiveness
 - Requirements: Video upload (25MB), reply within 5 minutes
-- Effect: 0.5-1% polling boost
+- Effect: 0.5-1.0% polling boost
 - Stamina Cost: 1.5, Cooldown: 1 hour
 - Best Used: Major media markets, final push
 
@@ -262,7 +269,7 @@ All campaign actions now have unified 1-hour cooldowns, creating more strategic 
 - Purpose: Cost-efficient presence building
 - Requirements: Image upload (10MB)
 - Effect: 0.25-0.5% polling boost
-- Stamina Cost: 1, Cooldown: 1 hour
+- Stamina Cost: 1.0, Cooldown: 1 hour
 - Best Used: Consistent presence, name recognition
 
 **5. Donor Appeals** (`/donor`)
@@ -272,6 +279,26 @@ All campaign actions now have unified 1-hour cooldowns, creating more strategic 
 - Stamina Cost: 1.5, Cooldown: 1 hour
 - Warning: High corruption leads to scandals
 
+**Demographic Actions (Presidential Only):**
+
+**6. Demographic Speech** (`/demographic_speech`)
+- Purpose: Target specific voter groups
+- Effect: 0.5-1.5 points to demographic groups
+- Stamina Cost: 6, Cooldown: 8 hours
+- Best Used: Building coalition strength
+
+**7. Demographic Poster** (`/demographic_poster`)
+- Purpose: Visual demographic targeting
+- Effect: 0.3-0.8 points to demographic groups
+- Stamina Cost: 4, Cooldown: 6 hours
+- Best Used: Cost-effective demographic building
+
+**8. Demographic Ad** (`/demographic_ad`)
+- Purpose: High-impact demographic targeting
+- Effect: 0.8-1.5 points to demographic groups
+- Stamina Cost: 5, Cooldown: 10 hours
+- Best Used: Major demographic pushes
+
 **Critical Timing Strategies:**
 - **Peak Activity Scheduling**: Use actions during server peak hours
 - **Action Cycling**: Rotate between different action types
@@ -280,12 +307,13 @@ All campaign actions now have unified 1-hour cooldowns, creating more strategic 
 
 **Resource Management:**
 - General: 100 stamina total, 50/day regeneration
-- Presidential: 200 stamina total, 100/day regeneration
-- Emergency Reserve: Keep 10-15 stamina for crisis response"""
+- Presidential: 300 stamina total, 100/day regeneration
+- Emergency Reserve: Keep 10-15 stamina for crisis response
+- Demographic actions cost more but have longer cooldowns"""
             },
             "demographics": {
-                "title": "👥 Demographics & Targeting (Updated No-Threshold System)",
-                "content": """**MAJOR UPDATE: No More Thresholds!**
+                "title": "👥 Demographics & Targeting (Updated Leadership System)",
+                "content": """**MAJOR UPDATE: Competitive Leadership System!**
 
 **Complete Demographic List (20+ Groups)**
 • Geographic: Urban Voters, Suburban Voters, Rural Voters
@@ -295,16 +323,17 @@ All campaign actions now have unified 1-hour cooldowns, creating more strategic 
 • Age: Young Voters (18–29), Senior Citizens (65+)
 • Special Interest: Military/Veterans, LGBTQ+ Voters, Immigrants, Environmental Voters, Gun Rights Advocates
 
-**New Multiplier System (No Thresholds)**
+**New Leadership & Multiplier System**
+- **Small (0.05x)**: Demographics have limited influence in that state
+- **Moderate (0.10x)**: Average demographic influence
 - **Strong (0.25x)**: Demographics very influential in that state
-- **Moderate (0.10x)**: Average influence  
-- **Small (0.05x)**: Limited influence
+- **Leadership Bonus**: Leading a demographic gives additional state multipliers
 
 **Strategic Example:**
-100 points for Rural Voters:
-• Alabama (Strong): 25 effective points
-• Pennsylvania (Moderate): 10 effective points  
-• California (Small): 5 effective points
+Leading Rural Voters with 50 points:
+• Alabama (Strong + Leadership): Enhanced effectiveness
+• Pennsylvania (Moderate + Leadership): Moderate effectiveness  
+• California (Small): Limited effectiveness
 
 **Major Conflict Pairs:**
 - Urban ↔ Rural Voters
@@ -313,16 +342,23 @@ All campaign actions now have unified 1-hour cooldowns, creating more strategic 
 - Evangelical Christians ↔ LGBTQ+ Voters
 - Blue-Collar ↔ College-Educated Professionals
 
+**Demographic Campaign Actions (Presidential Only):**
+- **Speech**: 0.5-1.5 points, 6 stamina, 8-hour cooldown
+- **Poster**: 0.3-0.8 points, 4 stamina, 6-hour cooldown
+- **Video Ad**: 0.8-1.5 points, 5 stamina, 10-hour cooldown
+
 **New Strategy Focus:**
-1. **Efficiency Over Volume**: Target demographics in strong-multiplier states only
-2. **Geographic Specialization**: Build overwhelming strength in favorable areas
-3. **Conflict Avoidance**: Use different states for conflicting demographics
-4. **Continuous Investment**: Every point matters, no stopping points
+1. **Leadership Competition**: Race to lead key demographics
+2. **Geographic Optimization**: Focus on strong-multiplier states
+3. **Conflict Management**: Balance opposing demographics carefully
+4. **Sustained Investment**: Maintain leadership through consistent actions
 
 **Key Commands:**
 • `/demographics view_state_demographics` - Research state multipliers
-• `/demographic_appeal` - Target specific groups (presidential)
-• `/demographic_status` - Track your progress"""
+• `/demographic_speech` - Target groups with speeches (presidential)
+• `/demographic_poster` - Create demographic posters (presidential)
+• `/demographic_ad` - Run demographic video ads (presidential)
+• `/demographic_status` - Track your progress and leadership"""
             },
             "momentum": {
                 "title": "🌊 Momentum System",
@@ -417,31 +453,53 @@ Presidential campaigns are the most complex and prestigious elections, featuring
 3. **Regional Strategy** - Focus on specific geographic regions
 
 **Presidential Action System**
-Presidential candidates have enhanced campaign actions:
+Presidential candidates have enhanced campaign actions and unique demographic targeting:
 
+**General Presidential Actions:**
 **1. Presidential Speeches** (`/pres_speech`)
 - Effect: Enhanced reach and impact
-- Stamina Cost: Variable, Cooldown: 1 hour
+- Stamina Cost: 1.5, Cooldown: 1 hour
 - Special Features: Multi-state reach, national media coverage
 
 **2. Presidential Canvassing** (`/pres_canvassing`)
 - Effect: State-targeted with momentum bonus
-- Stamina Cost: Variable, Cooldown: 1 hour
-- Special Features: Builds momentum and demographic points
+- Stamina Cost: 1.0, Cooldown: 1 hour
+- Special Features: Builds momentum and regional support
 
 **3. Presidential Ads** (`/pres_ad`)
-- Effect: Very high impact
-- Stamina Cost: Variable, Cooldown: 1 hour
+- Effect: Very high impact (0.5-1.0% polling boost)
+- Stamina Cost: 1.5, Cooldown: 1 hour
 - Special Features: Multi-state reach, premium effectiveness
 
 **4. Presidential Posters** (`/pres_poster`)
-- Effect: Enhanced distribution
-- Stamina Cost: Variable, Cooldown: 1 hour
+- Effect: Enhanced distribution (0.25-0.5% polling boost)
+- Stamina Cost: 1.0, Cooldown: 1 hour
 - Special Features: National distribution, brand building
 
 **5. Presidential Donor Appeals** (`/pres_donor`)
 - Effect: Major fundraising, future campaign benefits
-- Stamina Cost: Variable, Cooldown: 1 hour
+- Stamina Cost: 1.5, Cooldown: 1 hour
+
+**Demographic Actions (Presidential Exclusive):**
+**6. Demographic Speech** (`/demographic_speech`)
+- Effect: 0.5-1.5 points to specific demographic groups
+- Stamina Cost: 6, Cooldown: 8 hours
+- Special Features: Target voter coalitions, leadership competition
+
+**7. Demographic Poster** (`/demographic_poster`)
+- Effect: 0.3-0.8 points to specific demographic groups
+- Stamina Cost: 4, Cooldown: 6 hours
+- Special Features: Visual demographic targeting
+
+**8. Demographic Ad** (`/demographic_ad`)
+- Effect: 0.8-1.5 points to specific demographic groups
+- Stamina Cost: 5, Cooldown: 10 hours
+- Special Features: High-impact demographic building
+
+**Presidential Stamina System:**
+- **Total Stamina**: 300 (vs 100 for general candidates)
+- **Daily Regeneration**: 100 per day
+- **Strategic Advantage**: Can sustain more intensive campaigning
 
 **Vice Presidential Selection Strategy**
 **Geographic Balance** - Choose VP from different region
@@ -1163,7 +1221,7 @@ class HelpView(discord.ui.View):
 - **Eligibility**: Only House seats (REP- or District seats)
 - **Timeline**: 4 days total (1 day signup, 3 days campaign)
 - **Participation**: Anyone can participate, regardless of regular election status
-- **Stamina**: Start with 100, regeneration varies, actions cost 15-25 stamina
+- **Stamina**: Start with 100, actions cost 15-25 stamina
 - **Cooldowns**: All actions have unified 1-hour cooldowns
 - **Target System**: Must specify target candidate for all campaign actions
 - **Winner Determination**: Highest total points wins the seat

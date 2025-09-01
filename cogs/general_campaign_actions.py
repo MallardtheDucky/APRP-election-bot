@@ -416,7 +416,7 @@ class GeneralCampaignActions(commands.Cog):
                 return
 
             # Determine who pays stamina cost
-            stamina_cost = 1.5
+            stamina_cost = 5
             stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
 
             # Check if stamina user has enough stamina
@@ -585,7 +585,7 @@ class GeneralCampaignActions(commands.Cog):
             return
 
         # Determine who pays stamina cost
-        stamina_cost = 1
+        stamina_cost = 4
         stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
 
         # Check if stamina user has enough stamina
@@ -763,7 +763,7 @@ class GeneralCampaignActions(commands.Cog):
                 return
 
             # Determine who pays stamina cost
-            stamina_cost = 1.5
+            stamina_cost = 5
             stamina_user_id = self._determine_stamina_user(interaction.guild.id, interaction.user.id, target_candidate, stamina_cost)
 
             # Check if stamina user has enough stamina

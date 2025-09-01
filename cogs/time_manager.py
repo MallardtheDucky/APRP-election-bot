@@ -27,7 +27,7 @@ class TimeManager(commands.Cog):
         if not config:
             config = {
                 "guild_id": guild_id,
-                "minutes_per_rp_day": 1,  # Default: 28 minutes = 1 RP day
+                "minutes_per_rp_day": 28,  # Default: 28 minutes = 1 RP day
                 "current_rp_date": datetime(1999, 2, 1),  # Start at signups phase
                 "current_phase": "Signups",
                 "cycle_year": 1999,
@@ -97,67 +97,67 @@ class TimeManager(commands.Cog):
             {"$set": {"candidates.$.stamina": 100}}
         )
 
-        # Reset presidential candidates to 200 stamina
+        # Reset presidential candidates to 300 stamina
         pres_col = self.bot.db["presidential_signups"]
         pres_result = pres_col.update_many(
             {"guild_id": guild_id, "candidates.year": year},
-            {"$set": {"candidates.$.stamina": 200}}
+            {"$set": {"candidates.$.stamina": 300}}
         )
 
-        # Reset presidential winners to 200 stamina
+        # Reset presidential winners to 300 stamina
         winners_col = self.bot.db["presidential_winners"]
         winners_result = winners_col.update_many(
             {"guild_id": guild_id, "winners.year": year},
-            {"$set": {"winners.$.stamina": 200}}
+            {"$set": {"winners.$.stamina": 300}}
         )
 
         print(f"Reset stamina for guild {guild_id} in year {year}: {signups_result.modified_count} general candidates, {pres_result.modified_count} presidential candidates, {winners_result.modified_count} presidential winners.")
 
     async def _regenerate_daily_stamina(self, guild_id: int):
         """Regenerate stamina for all candidates daily"""
-        # Regenerate stamina for general election candidates in signups (50 per day, max 100)
+        # Regenerate stamina for general election candidates in signups (30 per day, max 100)
         signups_col = self.bot.db["signups"]
         signups_config = signups_col.find_one({"guild_id": guild_id})
 
         if signups_config:
             for i, candidate in enumerate(signups_config.get("candidates", [])):
                 current_stamina = candidate.get("stamina", 100)
-                new_stamina = min(100, current_stamina + 50)  # Add 50, cap at 100
+                new_stamina = min(100, current_stamina + 30)  # Add 30, cap at 100
 
                 signups_col.update_one(
                     {"guild_id": guild_id, f"candidates.{i}.user_id": candidate["user_id"]},
                     {"$set": {f"candidates.{i}.stamina": new_stamina}}
                 )
 
-        # Regenerate stamina for general winners (50 per day, max 100)
+        # Regenerate stamina for general winners (30 per day, max 100)
         winners_col = self.bot.db["winners"]
         winners_config = winners_col.find_one({"guild_id": guild_id})
 
         if winners_config:
             for i, winner in enumerate(winners_config.get("winners", [])):
                 current_stamina = winner.get("stamina", 100)
-                new_stamina = min(100, current_stamina + 50)  # Add 50, cap at 100
+                new_stamina = min(100, current_stamina + 30)  # Add 30, cap at 100
 
                 winners_col.update_one(
                     {"guild_id": guild_id, f"winners.{i}.user_id": winner["user_id"]},
                     {"$set": {f"winners.{i}.stamina": new_stamina}}
                 )
 
-        # Regenerate stamina for presidential candidates (100 per day, max 200)
+        # Regenerate stamina for presidential candidates (100 per day, max 300)
         pres_col = self.bot.db["presidential_signups"]
         pres_config = pres_col.find_one({"guild_id": guild_id})
 
         if pres_config:
             for i, candidate in enumerate(pres_config.get("candidates", [])):
-                current_stamina = candidate.get("stamina", 200)
-                new_stamina = min(200, current_stamina + 100)  # Add 100, cap at 200
+                current_stamina = candidate.get("stamina", 300)
+                new_stamina = min(300, current_stamina + 100)  # Add 100, cap at 300
 
                 pres_col.update_one(
                     {"guild_id": guild_id, f"candidates.{i}.user_id": candidate["user_id"]},
                     {"$set": {f"candidates.{i}.stamina": new_stamina}}
                 )
 
-        # Regenerate stamina for presidential winners (100 per day, max 200)
+        # Regenerate stamina for presidential winners (100 per day, max 300)
         pres_winners_col = self.bot.db["presidential_winners"]
         pres_winners_config = pres_winners_col.find_one({"guild_id": guild_id})
 
@@ -165,15 +165,15 @@ class TimeManager(commands.Cog):
             # Handle winners stored as dictionary (party -> candidate name)
             winners_dict = pres_winners_config.get("winners", {})
             if isinstance(winners_dict, dict):
-                # For dictionary format, we need to find candidates by name in presidential_signups
+                # For dictionary format, we need to find candidates in presidential_signups
                 for party, winner_name in winners_dict.items():
                     # Find the candidate in presidential signups to get their user_id
                     if pres_config:
                         for i, candidate in enumerate(pres_config.get("candidates", [])):
                             if (candidate.get("name") == winner_name and 
                                 candidate.get("office") == "President"):
-                                current_stamina = candidate.get("stamina", 200)
-                                new_stamina = min(200, current_stamina + 100)
+                                current_stamina = candidate.get("stamina", 300)
+                                new_stamina = min(300, current_stamina + 100)
 
                                 pres_col.update_one(
                                     {"guild_id": guild_id, f"candidates.{i}.user_id": candidate["user_id"]},
@@ -183,8 +183,8 @@ class TimeManager(commands.Cog):
                 # Handle array format if exists
                 for i, winner in enumerate(winners_dict):
                     if winner.get("office") in ["President", "Vice President"]:
-                        current_stamina = winner.get("stamina", 200)
-                        new_stamina = min(200, current_stamina + 100)
+                        current_stamina = winner.get("stamina", 300)
+                        new_stamina = min(300, current_stamina + 100)
 
                         pres_winners_col.update_one(
                             {"guild_id": guild_id, f"winners.{i}.user_id": winner["user_id"]},
@@ -194,6 +194,597 @@ class TimeManager(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def time_loop(self):
+        """Update RP time every minute"""
+        try:
+            col = self.bot.db["time_configs"]
+            configs = col.find({})
+
+            for config in configs:
+                # Skip time progression if paused
+                if config.get("time_paused", False):
+                    continue
+
+                current_rp_date, current_phase = self._calculate_current_rp_time(config)
+                guild = self.bot.get_guild(config["guild_id"])
+
+                if not guild:
+                    continue
+
+                # Check if phase changed
+                if current_phase != config["current_phase"]:
+                    # Phase transition occurred
+                    old_phase = config["current_phase"]
+
+                    # Reset stamina when transitioning to General Campaign
+                    if current_phase == "General Campaign":
+                        await self._reset_stamina_for_general_campaign(config["guild_id"], current_rp_date.year)
+
+                    # Dispatch event to elections cog for automatic handling
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to all_winners cog for automatic handling
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to presidential_winners cog for automatic handling
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Find a general channel to announce phase change
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🗳️ Election Phase Change",
+                            description=f"We have entered the **{current_phase}** phase!",
+                            color=discord.Color.green(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="Current RP Date", 
+                            value=current_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass  # Ignore if can't send message
+
+                # Check if 24 hours have passed for stamina regeneration
+                last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
+                current_time = datetime.utcnow()
+                hours_since_last_regen = (current_time - last_stamina_regen).total_seconds() / 3600
+
+                if hours_since_last_regen >= 24:
+                    # 24 hours have passed - regenerate stamina
+                    await self._regenerate_daily_stamina(config["guild_id"])
+
+                    # Update last regeneration time
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {"$set": {"last_stamina_regen": current_time}}
+                    )
+
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} after {hours_since_last_regen:.1f} hours")
+
+                # Update database
+                col.update_one(
+                    {"guild_id": config["guild_id"]},
+                    {
+                        "$set": {
+                            "current_rp_date": current_rp_date,
+                            "current_phase": current_phase,
+                            "last_real_update": datetime.utcnow()
+                        }
+                    }
+                )
+
+                # Check if we need to auto-reset cycle (after General Election ends)
+                if (current_phase == "General Election" and 
+                    current_rp_date.month == 12 and current_rp_date.day >= 31):
+                    # Auto-reset to next cycle (next odd year for signups)
+                    next_year = current_rp_date.year + 1
+                    new_rp_date = datetime(next_year, 2, 1)
+
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {
+                            "$set": {
+                                "current_rp_date": new_rp_date,
+                                "current_phase": "Signups",
+                                "last_real_update": datetime.utcnow()
+                            }
+                        }
+                    )
+
+                    # Dispatch event to elections cog for new cycle automation
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to all_winners cog for new cycle automation
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to presidential_winners cog for new cycle automation
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Announce new cycle
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🔄 New Election Cycle Started!",
+                            description=f"The {next_year} election cycle has begun! We are now in the **Signups** phase.",
+                            color=discord.Color.gold(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="New RP Date", 
+                            value=new_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass
+
+                # Update voice channel if enabled and configured
+                if (config.get("update_voice_channels", True) and 
+                    config.get("voice_channel_id")):
+                    date_string = current_rp_date.strftime("%B %d, %Y")
+                    channel = guild.get_channel(config["voice_channel_id"])
+                    if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
+                        try:
+                            new_name = f"📅 {date_string}"
+                            # Force update if names don't match or if there's a significant time difference
+                            current_name = channel.name
+                            should_update = (current_name != new_name or 
+                                           not current_name.startswith("📅") or
+                                           "1999" not in current_name)
+
+                            if should_update:
+                                await channel.edit(name=new_name)
+                                print(f"Updated voice channel from '{current_name}' to: {new_name}")
+                        except Exception as e:
+                            print(f"Failed to update voice channel: {e}")
+                            # Try again in next loop iteration
+                            pass
+
+        except Exception as e:
+            print(f"Error in time loop: {e}")
+
+    @tasks.loop(minutes=1)
+    async def time_ticker(self): # Renamed from time_loop to time_ticker to avoid conflict
+        """Update RP time every minute"""
+        try:
+            col = self.bot.db["time_configs"]
+            configs = col.find({})
+
+            for config in configs:
+                # Skip time progression if paused
+                if config.get("time_paused", False):
+                    continue
+
+                current_rp_date, current_phase = self._calculate_current_rp_time(config)
+                guild = self.bot.get_guild(config["guild_id"])
+
+                if not guild:
+                    continue
+
+                # Check if phase changed
+                if current_phase != config["current_phase"]:
+                    # Phase transition occurred
+                    old_phase = config["current_phase"]
+
+                    # Reset stamina when transitioning to General Campaign
+                    if current_phase == "General Campaign":
+                        await self._reset_stamina_for_general_campaign(config["guild_id"], current_rp_date.year)
+
+                    # Dispatch event to elections cog for automatic handling
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to all_winners cog for automatic handling
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to presidential_winners cog for automatic handling
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Find a general channel to announce phase change
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🗳️ Election Phase Change",
+                            description=f"We have entered the **{current_phase}** phase!",
+                            color=discord.Color.green(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="Current RP Date", 
+                            value=current_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass  # Ignore if can't send message
+
+                # Check if 24 hours have passed for stamina regeneration
+                last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
+                current_time = datetime.utcnow()
+                hours_since_last_regen = (current_time - last_stamina_regen).total_seconds() / 3600
+
+                if hours_since_last_regen >= 24:
+                    # 24 hours have passed - regenerate stamina
+                    await self._regenerate_daily_stamina(config["guild_id"])
+
+                    # Update last regeneration time
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {"$set": {"last_stamina_regen": current_time}}
+                    )
+
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} after {hours_since_last_regen:.1f} hours")
+
+                # Update database
+                col.update_one(
+                    {"guild_id": config["guild_id"]},
+                    {
+                        "$set": {
+                            "current_rp_date": current_rp_date,
+                            "current_phase": current_phase,
+                            "last_real_update": datetime.utcnow()
+                        }
+                    }
+                )
+
+                # Check if we need to auto-reset cycle (after General Election ends)
+                if (current_phase == "General Election" and 
+                    current_rp_date.month == 12 and current_rp_date.day >= 31):
+                    # Auto-reset to next cycle (next odd year for signups)
+                    next_year = current_rp_date.year + 1
+                    new_rp_date = datetime(next_year, 2, 1)
+
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {
+                            "$set": {
+                                "current_rp_date": new_rp_date,
+                                "current_phase": "Signups",
+                                "last_real_update": datetime.utcnow()
+                            }
+                        }
+                    )
+
+                    # Dispatch event to elections cog for new cycle automation
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to all_winners cog for new cycle automation
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to presidential_winners cog for new cycle automation
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Announce new cycle
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🔄 New Election Cycle Started!",
+                            description=f"The {next_year} election cycle has begun! We are now in the **Signups** phase.",
+                            color=discord.Color.gold(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="New RP Date", 
+                            value=new_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass
+
+                # Update voice channel if enabled and configured
+                if (config.get("update_voice_channels", True) and 
+                    config.get("voice_channel_id")):
+                    date_string = current_rp_date.strftime("%B %d, %Y")
+                    channel = guild.get_channel(config["voice_channel_id"])
+                    if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
+                        try:
+                            new_name = f"📅 {date_string}"
+                            # Force update if names don't match or if there's a significant time difference
+                            current_name = channel.name
+                            should_update = (current_name != new_name or 
+                                           not current_name.startswith("📅") or
+                                           "1999" not in current_name)
+
+                            if should_update:
+                                await channel.edit(name=new_name)
+                                print(f"Updated voice channel from '{current_name}' to: {new_name}")
+                        except Exception as e:
+                            print(f"Failed to update voice channel: {e}")
+                            # Try again in next loop iteration
+                            pass
+
+        except Exception as e:
+            print(f"Error in time loop: {e}")
+
+    @tasks.loop(minutes=1)
+    async def time_ticker(self): # Renamed from time_loop to time_ticker to avoid conflict
+        """Update RP time every minute"""
+        try:
+            col = self.bot.db["time_configs"]
+            configs = col.find({})
+
+            for config in configs:
+                # Skip time progression if paused
+                if config.get("time_paused", False):
+                    continue
+
+                current_rp_date, current_phase = self._calculate_current_rp_time(config)
+                guild = self.bot.get_guild(config["guild_id"])
+
+                if not guild:
+                    continue
+
+                # Check if phase changed
+                if current_phase != config["current_phase"]:
+                    # Phase transition occurred
+                    old_phase = config["current_phase"]
+
+                    # Reset stamina when transitioning to General Campaign
+                    if current_phase == "General Campaign":
+                        await self._reset_stamina_for_general_campaign(config["guild_id"], current_rp_date.year)
+
+                    # Dispatch event to elections cog for automatic handling
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to all_winners cog for automatic handling
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Dispatch event to presidential_winners cog for automatic handling
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            old_phase, 
+                            current_phase, 
+                            current_rp_date.year
+                        )
+
+                    # Find a general channel to announce phase change
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🗳️ Election Phase Change",
+                            description=f"We have entered the **{current_phase}** phase!",
+                            color=discord.Color.green(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="Current RP Date", 
+                            value=current_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass  # Ignore if can't send message
+
+                # Check if 24 hours have passed for stamina regeneration
+                last_stamina_regen = config.get("last_stamina_regen", datetime(1999, 1, 1))
+                current_time = datetime.utcnow()
+                hours_since_last_regen = (current_time - last_stamina_regen).total_seconds() / 3600
+
+                if hours_since_last_regen >= 24:
+                    # 24 hours have passed - regenerate stamina
+                    await self._regenerate_daily_stamina(config["guild_id"])
+
+                    # Update last regeneration time
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {"$set": {"last_stamina_regen": current_time}}
+                    )
+
+                    print(f"Regenerated daily stamina for guild {config['guild_id']} after {hours_since_last_regen:.1f} hours")
+
+                # Update database
+                col.update_one(
+                    {"guild_id": config["guild_id"]},
+                    {
+                        "$set": {
+                            "current_rp_date": current_rp_date,
+                            "current_phase": current_phase,
+                            "last_real_update": datetime.utcnow()
+                        }
+                    }
+                )
+
+                # Check if we need to auto-reset cycle (after General Election ends)
+                if (current_phase == "General Election" and 
+                    current_rp_date.month == 12 and current_rp_date.day >= 31):
+                    # Auto-reset to next cycle (next odd year for signups)
+                    next_year = current_rp_date.year + 1
+                    new_rp_date = datetime(next_year, 2, 1)
+
+                    col.update_one(
+                        {"guild_id": config["guild_id"]},
+                        {
+                            "$set": {
+                                "current_rp_date": new_rp_date,
+                                "current_phase": "Signups",
+                                "last_real_update": datetime.utcnow()
+                            }
+                        }
+                    )
+
+                    # Dispatch event to elections cog for new cycle automation
+                    elections_cog = self.bot.get_cog("Elections")
+                    if elections_cog:
+                        await elections_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to all_winners cog for new cycle automation
+                    all_winners_cog = self.bot.get_cog("AllWinners")
+                    if all_winners_cog:
+                        await all_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Dispatch event to presidential_winners cog for new cycle automation
+                    pres_winners_cog = self.bot.get_cog("PresidentialWinners")
+                    if pres_winners_cog:
+                        await pres_winners_cog.on_phase_change(
+                            config["guild_id"], 
+                            "General Election", 
+                            "Signups", 
+                            next_year
+                        )
+
+                    # Announce new cycle
+                    channel = discord.utils.get(guild.channels, name="general") or guild.system_channel
+                    if channel:
+                        embed = discord.Embed(
+                            title="🔄 New Election Cycle Started!",
+                            description=f"The {next_year} election cycle has begun! We are now in the **Signups** phase.",
+                            color=discord.Color.gold(),
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(
+                            name="New RP Date", 
+                            value=new_rp_date.strftime("%B %d, %Y"), 
+                            inline=True
+                        )
+                        try:
+                            await channel.send(embed=embed)
+                        except:
+                            pass
+
+                # Update voice channel if enabled and configured
+                if (config.get("update_voice_channels", True) and 
+                    config.get("voice_channel_id")):
+                    date_string = current_rp_date.strftime("%B %d, %Y")
+                    channel = guild.get_channel(config["voice_channel_id"])
+                    if channel and hasattr(channel, 'edit'):  # Check if it's a voice channel
+                        try:
+                            new_name = f"📅 {date_string}"
+                            # Force update if names don't match or if there's a significant time difference
+                            current_name = channel.name
+                            should_update = (current_name != new_name or 
+                                           not current_name.startswith("📅") or
+                                           "1999" not in current_name)
+
+                            if should_update:
+                                await channel.edit(name=new_name)
+                                print(f"Updated voice channel from '{current_name}' to: {new_name}")
+                        except Exception as e:
+                            print(f"Failed to update voice channel: {e}")
+                            # Try again in next loop iteration
+                            pass
+
+        except Exception as e:
+            print(f"Error in time loop: {e}")
+
+    @tasks.loop(minutes=1)
+    async def time_ticker(self): # Renamed from time_loop to time_ticker to avoid conflict
         """Update RP time every minute"""
         try:
             col = self.bot.db["time_configs"]
@@ -1031,7 +1622,7 @@ class TimeManager(commands.Cog):
 
         embed.add_field(
             name="Regeneration Amounts",
-            value="• General candidates: +50 stamina (max 100)\n• Presidential candidates: +100 stamina (max 200)",
+            value="• General candidates: +30 stamina (max 100)\n• Presidential candidates: +100 stamina (max 300)",
             inline=False
         )
 

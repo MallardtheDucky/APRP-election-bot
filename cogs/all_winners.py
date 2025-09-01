@@ -910,7 +910,7 @@ class AllWinners(commands.Cog):
                 if party_key and pres_winners_config["winners"].get(party_key) == candidate_name:
                     # This candidate is a primary winner, reset for general campaign
                     pres_signups_config["candidates"][i]["points"] = 0.0
-                    pres_signups_config["candidates"][i]["stamina"] = 200  # Presidential candidates get higher stamina
+                    pres_signups_config["candidates"][i]["stamina"] = 300  # Presidential candidates get higher stamina
                     pres_signups_config["candidates"][i]["phase"] = "General Campaign"
                     candidates_updated.append(candidate_name)
 
